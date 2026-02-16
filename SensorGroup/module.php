@@ -336,16 +336,14 @@ class SensorGroup extends IPSModule
 
         $definedClasses = json_decode($this->ReadPropertyString('ClassList'), true);
         $classOptions = [];
-
-        // Log for debugging
-        IPS_LogMessage("SensorGroup", "Generating Form Options. Classes found: " . (is_array($definedClasses) ? count($definedClasses) : 0));
+        $nameToIdMap = []; // Helper for JIT resolution
 
         if (is_array($definedClasses)) {
             foreach ($definedClasses as $c) {
-                // Allow fallback to Name if ID is missing (fixes first-save issue)
-                $val = !empty($c['ClassID']) ? $c['ClassID'] : $c['ClassName'];
-                if (!empty($c['ClassName'])) {
-                    $classOptions[] = ['caption' => $c['ClassName'], 'value' => $val];
+                if (!empty($c['ClassName']) && !empty($c['ClassID'])) {
+                    $classOptions[] = ['caption' => $c['ClassName'], 'value' => $c['ClassID']];
+                    // Build map: Name -> ID
+                    $nameToIdMap[$c['ClassName']] = $c['ClassID'];
                 }
             }
         }
@@ -360,26 +358,43 @@ class SensorGroup extends IPSModule
         }
         if (count($groupOptions) == 0) $groupOptions[] = ['caption' => '- Save Group First -', 'value' => ''];
 
-        // HARDCODED PATHS (Matched to restored form.json)
+        // 1. INJECT OPTIONS (Hardcoded Paths)
+        if (isset($form['actions'][0]['items'][2])) $form['actions'][0]['items'][2]['options'] = $classOptions;
+        if (isset($form['elements'][3]['columns'][3])) $form['elements'][3]['columns'][3]['edit']['options'] = $classOptions;
+        if (isset($form['elements'][6]['columns'][0])) $form['elements'][6]['columns'][0]['edit']['options'] = $groupOptions;
+        if (isset($form['elements'][6]['columns'][1])) $form['elements'][6]['columns'][1]['edit']['options'] = $classOptions;
 
-        // Wizard Dropdown (Actions -> Panel -> Select)
-        if (isset($form['actions'][0]['items'][2])) {
-            $form['actions'][0]['items'][2]['options'] = $classOptions;
+        // 2. JUST-IN-TIME RESOLUTION (Fixing Blank Entries)
+
+        // A. SensorList
+        $sensorList = json_decode($this->ReadPropertyString('SensorList'), true);
+        if (is_array($sensorList)) {
+            foreach ($sensorList as &$s) {
+                // If we have a Tag (Old Name) that matches a current Class, enforce the ID
+                $tag = $s['Tag'] ?? '';
+                if (!empty($tag) && isset($nameToIdMap[$tag])) {
+                    $s['ClassID'] = $nameToIdMap[$tag];
+                }
+            }
+            // Explicitly set the list values for the UI
+            if (isset($form['elements'][3])) {
+                $form['elements'][3]['values'] = $sensorList;
+            }
         }
 
-        // Sensor List (Elements[3] -> Col[3])
-        if (isset($form['elements'][3]['columns'][3])) {
-            $form['elements'][3]['columns'][3]['edit']['options'] = $classOptions;
-        }
-
-        // Group Members (Elements[6])
-        // Group Name Dropdown (Col 0)
-        if (isset($form['elements'][6]['columns'][0])) {
-            $form['elements'][6]['columns'][0]['edit']['options'] = $groupOptions;
-        }
-        // Class ID Dropdown (Col 1)
-        if (isset($form['elements'][6]['columns'][1])) {
-            $form['elements'][6]['columns'][1]['edit']['options'] = $classOptions;
+        // B. GroupMembers
+        $groupMembers = json_decode($this->ReadPropertyString('GroupMembers'), true);
+        if (is_array($groupMembers)) {
+            foreach ($groupMembers as &$gm) {
+                // Previously 'ClassName' stored the text. Check if we need to map it to ID.
+                $cName = $gm['ClassName'] ?? '';
+                if (!empty($cName) && isset($nameToIdMap[$cName])) {
+                    $gm['ClassID'] = $nameToIdMap[$cName];
+                }
+            }
+            if (isset($form['elements'][6])) {
+                $form['elements'][6]['values'] = $groupMembers;
+            }
         }
 
         return json_encode($form);
