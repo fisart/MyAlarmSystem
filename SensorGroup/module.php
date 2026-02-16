@@ -51,7 +51,7 @@ class SensorGroup extends IPSModule
         $this->RegisterSensors('SensorList');
         $this->RegisterSensors('TamperList');
 
-        // 3. VARIABLES
+        // 3. GROUP VARIABLES
         $groupList = json_decode($this->ReadPropertyString('GroupList'), true);
         $keepIdents = ['Status', 'Sabotage', 'EventData'];
 
@@ -74,10 +74,9 @@ class SensorGroup extends IPSModule
         }
         if ($this->ReadAttributeString('ClassStateAttribute') == '') $this->WriteAttributeString('ClassStateAttribute', '{}');
 
-        // 4. RELOAD IF NEEDED
-        if ($idsChanged) {
-            $this->ReloadForm();
-        }
+        // 4. RELOAD FORM (Always)
+        // Ensures name edits in Step 1 update the dropdowns in Step 2/3
+        $this->ReloadForm();
 
         $this->CheckLogic();
     }
@@ -338,12 +337,12 @@ class SensorGroup extends IPSModule
         $definedClasses = json_decode($this->ReadPropertyString('ClassList'), true);
         $classOptions = [];
 
-        // Log to verify data
-        IPS_LogMessage("SensorGroup", "Generating Form. Raw ClassList: " . json_encode($definedClasses));
+        // Log for debugging
+        IPS_LogMessage("SensorGroup", "Generating Form Options. Classes found: " . (is_array($definedClasses) ? count($definedClasses) : 0));
 
         if (is_array($definedClasses)) {
             foreach ($definedClasses as $c) {
-                // FALLBACK: Use Name as ID if ID is missing (fixes empty dropdowns on first save)
+                // Allow fallback to Name if ID is missing (fixes first-save issue)
                 $val = !empty($c['ClassID']) ? $c['ClassID'] : $c['ClassName'];
                 if (!empty($c['ClassName'])) {
                     $classOptions[] = ['caption' => $c['ClassName'], 'value' => $val];
@@ -361,14 +360,27 @@ class SensorGroup extends IPSModule
         }
         if (count($groupOptions) == 0) $groupOptions[] = ['caption' => '- Save Group First -', 'value' => ''];
 
-        // Inject using Recursive Helper (More Robust than Hardcoded)
-        $this->UpdateFormOption($form['elements'], 'ImportClass', $classOptions);
-        if (isset($form['actions'])) $this->UpdateFormOption($form['actions'], 'ImportClass', $classOptions);
+        // HARDCODED PATHS (Matched to restored form.json)
 
-        // Inject into List Columns by identifying the column name
-        $this->UpdateListColumnOption($form['elements'], 'GroupMembers', 'GroupName', $groupOptions);
-        $this->UpdateListColumnOption($form['elements'], 'GroupMembers', 'ClassID', $classOptions);
-        $this->UpdateListColumnOption($form['elements'], 'SensorList', 'ClassID', $classOptions);
+        // Wizard Dropdown (Actions -> Panel -> Select)
+        if (isset($form['actions'][0]['items'][2])) {
+            $form['actions'][0]['items'][2]['options'] = $classOptions;
+        }
+
+        // Sensor List (Elements[3] -> Col[3])
+        if (isset($form['elements'][3]['columns'][3])) {
+            $form['elements'][3]['columns'][3]['edit']['options'] = $classOptions;
+        }
+
+        // Group Members (Elements[6])
+        // Group Name Dropdown (Col 0)
+        if (isset($form['elements'][6]['columns'][0])) {
+            $form['elements'][6]['columns'][0]['edit']['options'] = $groupOptions;
+        }
+        // Class ID Dropdown (Col 1)
+        if (isset($form['elements'][6]['columns'][1])) {
+            $form['elements'][6]['columns'][1]['edit']['options'] = $classOptions;
+        }
 
         return json_encode($form);
     }

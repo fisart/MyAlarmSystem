@@ -4,13 +4,7 @@
         {
             "type": "List", "name": "ClassList", "caption": "Classes", "rowCount": 5, "add": true, "delete": true,
             "columns": [
-                { 
-                    "caption": "ID", 
-                    "name": "ClassID", 
-                    "width": "0px", 
-                    "add": "", 
-                    "visible": false 
-                },
+                { "caption": "ID", "name": "ClassID", "width": "70px", "add": "", "edit": { "type": "Label" } },
                 { "caption": "Class Name", "name": "ClassName", "width": "200px", "add": "NewClass", "edit": { "type": "ValidationTextBox" } },
                 { "caption": "Logic", "name": "LogicMode", "width": "100px", "add": 0, "edit": { "type": "Select", "options": [ { "caption": "OR (Instant)", "value": 0 }, { "caption": "AND (All)", "value": 1 }, { "caption": "COUNT", "value": 2 } ] } },
                 { "caption": "Threshold", "name": "Threshold", "width": "80px", "add": 1, "edit": { "type": "NumberSpinner", "minimum": 1 } },
@@ -78,7 +72,7 @@
                     "items": [
                         { "type": "Button", "caption": "Select All", "onClick": "MYALARM_UI_SelectAll($id);" },
                         { "type": "Button", "caption": "Select None", "onClick": "MYALARM_UI_SelectNone($id);" },
-                        { "type": "Button", "caption": "ADD SELECTED", "onClick": "MYALARM_UI_Import($id, $ImportClass);" }
+                        { "type": "Button", "caption": "ADD SELECTED", "onClick": "MYALARM_UI_Import($id, $ImportCandidates, $ImportClass);" }
                     ]
                 }
             ]
