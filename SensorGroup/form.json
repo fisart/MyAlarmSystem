@@ -13,13 +13,11 @@
             "delete": true,
             "columns": [
                 {
-                    "caption": "Class Name (e.g. Intrusion, Fire, Water)",
+                    "caption": "Class Name",
                     "name": "ClassName",
                     "width": "100%",
                     "add": "Intrusion",
-                    "edit": {
-                        "type": "ValidationTextBox"
-                    }
+                    "edit": { "type": "ValidationTextBox" }
                 }
             ]
         },
@@ -34,42 +32,11 @@
             "rowCount": 5,
             "add": true,
             "delete": true,
-            "sort": {
-                "column": "VariableID",
-                "direction": "ascending"
-            },
+            "sort": { "column": "VariableID", "direction": "ascending" },
             "columns": [
-                {
-                    "caption": "Variable",
-                    "name": "VariableID",
-                    "width": "300px",
-                    "add": 0,
-                    "edit": { "type": "SelectVariable" }
-                },
-                {
-                    "caption": "Operator",
-                    "name": "Operator",
-                    "width": "100px",
-                    "add": 0,
-                    "edit": {
-                        "type": "Select",
-                        "options": [
-                            { "caption": "=", "value": 0 },
-                            { "caption": "!=", "value": 1 },
-                            { "caption": ">", "value": 2 },
-                            { "caption": "<", "value": 3 },
-                            { "caption": ">=", "value": 4 },
-                            { "caption": "<=", "value": 5 }
-                        ]
-                    }
-                },
-                {
-                    "caption": "Trigger Value",
-                    "name": "ComparisonValue",
-                    "width": "150px",
-                    "add": "1",
-                    "edit": { "type": "ValidationTextBox" }
-                }
+                { "caption": "Variable", "name": "VariableID", "width": "300px", "add": 0, "edit": { "type": "SelectVariable" } },
+                { "caption": "Operator", "name": "Operator", "width": "100px", "add": 0, "edit": { "type": "Select", "options": [ { "caption": "=", "value": 0 }, { "caption": "!=", "value": 1 }, { "caption": ">", "value": 2 }, { "caption": "<", "value": 3 }, { "caption": ">=", "value": 4 }, { "caption": "<=", "value": 5 } ] } },
+                { "caption": "Trigger Value", "name": "ComparisonValue", "width": "150px", "add": "1", "edit": { "type": "ValidationTextBox" } }
             ]
         },
         {
@@ -79,40 +46,28 @@
                 {
                     "type": "List",
                     "name": "TamperList",
-                    "caption": "Tamper Sensors (Always Active / OR Logic)",
+                    "caption": "Tamper Sensors",
                     "add": true,
                     "delete": true,
                     "columns": [
-                        {
-                            "caption": "Variable",
-                            "name": "VariableID",
-                            "width": "400px",
-                            "add": 0,
-                            "edit": { "type": "SelectVariable" }
-                        },
-                        {
-                            "caption": "Invert (Trigger if False)",
-                            "name": "Invert",
-                            "width": "100px",
-                            "add": false,
-                            "edit": { "type": "CheckBox" }
-                        }
+                        { "caption": "Variable", "name": "VariableID", "width": "400px", "add": 0, "edit": { "type": "SelectVariable" } },
+                        { "caption": "Invert", "name": "Invert", "width": "100px", "add": false, "edit": { "type": "CheckBox" } }
                     ]
                 }
             ]
         },
         {
             "type": "Label",
-            "caption": "3. Trigger Logic (Dependencies)"
+            "caption": "3. Trigger Logic"
         },
         {
             "type": "Select",
             "name": "LogicMode",
             "caption": "Logic Mode",
             "options": [
-                { "caption": "OR - Trigger if ANY rule is met", "value": 0 },
-                { "caption": "AND - Trigger if ALL rules are met", "value": 1 },
-                { "caption": "COUNT - Trigger if X events occur in Y seconds", "value": 2 }
+                { "caption": "OR", "value": 0 },
+                { "caption": "AND", "value": 1 },
+                { "caption": "COUNT", "value": 2 }
             ]
         },
         {
@@ -120,28 +75,57 @@
             "caption": "4. Input Filter",
             "visible": "return $LogicMode == 2;"
         },
+        { "type": "NumberSpinner", "name": "TriggerThreshold", "caption": "Event Count", "minimum": 1, "visible": "return $LogicMode == 2;" },
+        { "type": "NumberSpinner", "name": "TimeWindow", "caption": "Time Window", "minimum": 1, "visible": "return $LogicMode == 2;" },
+        
         {
-            "type": "NumberSpinner",
-            "name": "TriggerThreshold",
-            "caption": "Event Count (Threshold)",
-            "minimum": 1,
-            "visible": "return $LogicMode == 2;" 
-        },
-        {
-            "type": "NumberSpinner",
-            "name": "TimeWindow",
-            "caption": "Time Window (Seconds)",
-            "minimum": 1,
-            "visible": "return $LogicMode == 2;"
-        },
-        {
-            "type": "Label",
-            "caption": "---------------------------------------------------------"
+            "type": "ExpansionPanel",
+            "caption": "BULK IMPORT WIZARD (Search & Add)",
+            "items": [
+                { "type": "Label", "caption": "Select a parent object (Folder/Device) to scan for variables." },
+                { 
+                    "type": "SelectObject", 
+                    "name": "ImportRootID", 
+                    "caption": "Search Root" 
+                },
+                {
+                    "type": "Select",
+                    "name": "ImportClass",
+                    "caption": "Class to Associate (Optional - for Reference)",
+                    "options": [] 
+                },
+                { 
+                    "type": "Button", 
+                    "caption": "SCAN for Variables", 
+                    "onClick": "MYALARM_UI_Scan($id, $ImportRootID);" 
+                },
+                {
+                    "type": "List",
+                    "name": "ImportCandidates",
+                    "caption": "Found Variables (Check to Import)",
+                    "visible": false,
+                    "rowCount": 10,
+                    "columns": [
+                        { "caption": "ID", "name": "VariableID", "width": "70px", "edit": { "type": "Label" } },
+                        { "caption": "Name", "name": "Name", "width": "300px", "edit": { "type": "Label" } },
+                        { "caption": "Import", "name": "Selected", "width": "70px", "edit": { "type": "CheckBox" } }
+                    ],
+                    "values": []
+                },
+                {
+                    "type": "RowLayout",
+                    "items": [
+                        { "type": "Button", "caption": "Select All", "onClick": "MYALARM_UI_SelectAll($id, $ImportCandidates);" },
+                        { "type": "Button", "caption": "Select None", "onClick": "MYALARM_UI_SelectNone($id, $ImportCandidates);" },
+                        { "type": "Button", "caption": "ADD SELECTED TO RULES", "onClick": "MYALARM_UI_Import($id, $ImportCandidates, $ImportClass);" }
+                    ]
+                }
+            ]
         },
         {
             "type": "CheckBox",
             "name": "MaintenanceMode",
-            "caption": "Maintenance Mode (Log only, mark payload as Test)"
+            "caption": "Maintenance Mode"
         }
     ]
 }
