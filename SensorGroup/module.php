@@ -284,25 +284,43 @@ class SensorGroup extends IPSModule
         // 1. Populate Class Options for Wizard
         $definedClasses = json_decode($this->ReadPropertyString('ClassList'), true);
         $classOptions = [];
-        if (is_array($definedClasses)) {
-            foreach ($definedClasses as $c) {
-                $classOptions[] = ['caption' => $c['ClassName'], 'value' => $c['ClassName']];
-            }
-        }
 
-        // Inject into Wizard Dropdown (ImportClass)
-        // Path: Elements -> ExpansionPanel (last) -> Items -> Select (ImportClass)
-        $elements = &$form['elements'];
-        $lastIndex = count($elements) - 2;
-        if (isset($elements[$lastIndex]['items'])) {
-            foreach ($elements[$lastIndex]['items'] as &$item) {
-                if (isset($item['name']) && $item['name'] === 'ImportClass') {
-                    $item['options'] = $classOptions;
+        if (is_array($definedClasses) && count($definedClasses) > 0) {
+            foreach ($definedClasses as $c) {
+                // Ensure the class name is not empty to avoid invalid options
+                if (!empty($c['ClassName'])) {
+                    $classOptions[] = ['caption' => $c['ClassName'], 'value' => $c['ClassName']];
                 }
             }
         }
 
+        // FIX: If no classes exist, add a placeholder so the Dropdown is not empty (which causes the error)
+        if (count($classOptions) == 0) {
+            $classOptions[] = ['caption' => '- Create a Class first -', 'value' => ''];
+        }
+
+        // 2. Inject into Wizard Dropdown (ImportClass)
+        // We search for the element recursively to be safe against layout changes
+        $this->UpdateFormOption($form['elements'], 'ImportClass', $classOptions);
+
         return json_encode($form);
+    }
+
+    // Helper to find the Select element deeply nested in Panels
+    private function UpdateFormOption(&$elements, $name, $options)
+    {
+        foreach ($elements as &$element) {
+            if (isset($element['name']) && $element['name'] === $name) {
+                $element['options'] = $options;
+                return true;
+            }
+            if (isset($element['items'])) {
+                if ($this->UpdateFormOption($element['items'], $name, $options)) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     public function UI_Scan(int $ImportRootID)
