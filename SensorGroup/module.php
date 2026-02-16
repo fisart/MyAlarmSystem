@@ -41,6 +41,9 @@ class SensorGroup extends IPSModule
 
         if ($idsChanged) {
             IPS_SetProperty($this->InstanceID, 'ClassList', json_encode($classList));
+            // CRITICAL FIX: Push the new IDs back to the form immediately
+            // This prevents the browser from overwriting the ID with "" on the next edit
+            $this->UpdateFormField('ClassList', 'values', json_encode($classList));
         }
 
         // 2. REGISTRATION
@@ -74,8 +77,8 @@ class SensorGroup extends IPSModule
         }
         if ($this->ReadAttributeString('ClassStateAttribute') == '') $this->WriteAttributeString('ClassStateAttribute', '{}');
 
-        // 4. RELOAD FORM (Always)
-        // Ensures name edits in Step 1 update the dropdowns in Step 2/3
+        // 4. RELOAD FORM
+        // Ensures Dropdowns are updated with new Names
         $this->ReloadForm();
 
         $this->CheckLogic();
