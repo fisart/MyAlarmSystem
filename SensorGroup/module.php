@@ -28,7 +28,6 @@ class SensorGroup extends IPSModule
         // 1. LIFECYCLE MANAGEMENT: ID GENERATION
         $classList = json_decode($this->ReadPropertyString('ClassList'), true);
         $idsChanged = false;
-        $classMap = [];
 
         if (is_array($classList)) {
             foreach ($classList as &$c) {
@@ -36,7 +35,6 @@ class SensorGroup extends IPSModule
                     $c['ClassID'] = uniqid('cls_');
                     $idsChanged = true;
                 }
-                $classMap[$c['ClassID']] = $c['ClassName'];
             }
             unset($c);
         }
@@ -53,7 +51,7 @@ class SensorGroup extends IPSModule
         $this->RegisterSensors('SensorList');
         $this->RegisterSensors('TamperList');
 
-        // 3. GROUP VARIABLES
+        // 3. GROUP VARIABLE MAINTENANCE
         $groupList = json_decode($this->ReadPropertyString('GroupList'), true);
         $keepIdents = ['Status', 'Sabotage', 'EventData'];
 
@@ -76,23 +74,8 @@ class SensorGroup extends IPSModule
         }
         if ($this->ReadAttributeString('ClassStateAttribute') == '') $this->WriteAttributeString('ClassStateAttribute', '{}');
 
-        // 4. UI REFRESH LOGIC (FIXED)
-        // Prepare options for the Wizard Dropdown
-        $classOptions = [];
-        if (is_array($classList)) {
-            foreach ($classList as $c) {
-                if (!empty($c['ClassName']) && !empty($c['ClassID'])) {
-                    $classOptions[] = ['caption' => $c['ClassName'], 'value' => $c['ClassID']];
-                }
-            }
-        }
-        if (count($classOptions) == 0) $classOptions[] = ['caption' => '- No Classes -', 'value' => ''];
-
-        // Force update of the Wizard dropdown immediately
-        $this->UpdateFormField('ImportClass', 'options', json_encode($classOptions));
-
-        // If we generated new IDs, we MUST reload the form completely 
-        // so that the List Columns (SensorList/GroupMembers) pick up the new options.
+        // 4. UI REFRESH LOGIC
+        // If IDs changed, we reload the form to ensure Dropdowns get the new IDs
         if ($idsChanged) {
             $this->ReloadForm();
         }
@@ -126,8 +109,9 @@ class SensorGroup extends IPSModule
                 $fullList = json_decode($this->ReadAttributeString('ScanCache'), true);
                 if (!is_array($fullList)) return;
                 $filtered = [];
-                if (trim($FilterText) == "") $filtered = $fullList;
-                else {
+                if (trim($FilterText) == "") {
+                    $filtered = $fullList;
+                } else {
                     foreach ($fullList as $row) {
                         if (is_array($row) && (stripos($row['Name'], $FilterText) !== false || stripos((string)$row['VariableID'], $FilterText) !== false)) {
                             $filtered[] = $row;
@@ -352,17 +336,23 @@ class SensorGroup extends IPSModule
     {
         $form = json_decode(file_get_contents(__DIR__ . '/form.json'), true);
 
+        // 1. Prepare Class Options
         $definedClasses = json_decode($this->ReadPropertyString('ClassList'), true);
         $classOptions = [];
         if (is_array($definedClasses)) {
             foreach ($definedClasses as $c) {
+                // IMPORTANT: We use ID as value!
                 if (!empty($c['ClassName']) && !empty($c['ClassID'])) {
                     $classOptions[] = ['caption' => $c['ClassName'], 'value' => $c['ClassID']];
                 }
             }
         }
+
+        IPS_LogMessage("SensorGroup", "Generating Form: Found " . count($classOptions) . " classes.");
+
         if (count($classOptions) == 0) $classOptions[] = ['caption' => '- No Classes -', 'value' => ''];
 
+        // 2. Prepare Group Options
         $definedGroups = json_decode($this->ReadPropertyString('GroupList'), true);
         $groupOptions = [];
         if (is_array($definedGroups)) {
@@ -372,43 +362,29 @@ class SensorGroup extends IPSModule
         }
         if (count($groupOptions) == 0) $groupOptions[] = ['caption' => '- Save Group First -', 'value' => ''];
 
-        $this->UpdateFormOption($form['elements'], 'ImportClass', $classOptions);
-        if (isset($form['actions'])) $this->UpdateFormOption($form['actions'], 'ImportClass', $classOptions);
+        // 3. HARDCODED INJECTION (Direct Array Access)
 
-        $this->UpdateListColumnOption($form['elements'], 'GroupMembers', 'GroupName', $groupOptions);
-        $this->UpdateListColumnOption($form['elements'], 'GroupMembers', 'ClassID', $classOptions);
-        $this->UpdateListColumnOption($form['elements'], 'SensorList', 'ClassID', $classOptions);
+        // Wizard Dropdown: Actions -> Index 0 (Panel) -> Items -> Index 2 (Select 'ImportClass')
+        if (isset($form['actions'][0]['items'][2])) {
+            $form['actions'][0]['items'][2]['options'] = $classOptions;
+        }
+
+        // Sensor List: Elements -> Index 3 -> Columns -> Index 3 ('ClassID')
+        if (isset($form['elements'][3]['columns'][3])) {
+            $form['elements'][3]['columns'][3]['edit']['options'] = $classOptions;
+        }
+
+        // Group Members (Group Name): Elements -> Index 6 -> Columns -> Index 0
+        if (isset($form['elements'][6]['columns'][0])) {
+            $form['elements'][6]['columns'][0]['edit']['options'] = $groupOptions;
+        }
+
+        // Group Members (Class ID): Elements -> Index 6 -> Columns -> Index 1
+        if (isset($form['elements'][6]['columns'][1])) {
+            $form['elements'][6]['columns'][1]['edit']['options'] = $classOptions;
+        }
 
         return json_encode($form);
-    }
-
-    private function UpdateListColumnOption(&$elements, $listName, $columnName, $options)
-    {
-        foreach ($elements as &$element) {
-            if (isset($element['name']) && $element['name'] === $listName && isset($element['columns'])) {
-                foreach ($element['columns'] as &$col) {
-                    if ($col['name'] === $columnName && isset($col['edit']['type']) && $col['edit']['type'] === 'Select') {
-                        $col['edit']['options'] = $options;
-                        return true;
-                    }
-                }
-            }
-        }
-        return false;
-    }
-
-    private function UpdateFormOption(&$elements, $name, $options)
-    {
-        foreach ($elements as &$element) {
-            if (isset($element['name']) && $element['name'] === $name) {
-                $element['options'] = $options;
-                return true;
-            }
-            if (isset($element['items'])) {
-                if ($this->UpdateFormOption($element['items'], $name, $options)) return true;
-            }
-        }
-        return false;
     }
 
     public function UI_Scan(int $ImportRootID)
