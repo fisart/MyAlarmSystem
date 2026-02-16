@@ -43,9 +43,18 @@
                 { "type": "Select", "name": "ImportClass", "caption": "Assign to Class", "options": [] },
                 { "type": "Button", "caption": "SCAN", "onClick": "MYALARM_UI_Scan($id, $ImportRootID);" },
                 { "type": "Label", "caption": "Filter Results:" },
-                { "type": "ValidationTextBox", "name": "WizardFilterText", "caption": "Search Name...", "onChange": "MYALARM_UI_FilterWizard($id, $WizardFilterText);" },
+                { 
+                    "type": "ValidationTextBox", 
+                    "name": "WizardFilterText", 
+                    "caption": "Search Name...", 
+                    "onChange": "IPS_RequestAction($id, 'FilterWizard', $WizardFilterText);" 
+                },
                 {
-                    "type": "List", "name": "ImportCandidates", "caption": "Found Variables", "visible": false, "rowCount": 8,
+                    "type": "List",
+                    "name": "ImportCandidates",
+                    "caption": "Found Variables",
+                    "visible": false,
+                    "rowCount": 8,
                     "onEdit": "IPS_RequestAction($id, 'UpdateWizardList', json_encode($ImportCandidates));",
                     "columns": [
                         { "caption": "ID", "name": "VariableID", "width": "70px", "edit": { "type": "Label" } },

@@ -53,40 +53,48 @@ class SensorGroup extends IPSModule
         $this->CheckLogic();
     }
 
-    // --- NEW: RequestAction Implementation (PDF Step 3) ---
+    // --- RequestAction (Unified UI Handler) ---
     public function RequestAction($Ident, $Value)
     {
         switch ($Ident) {
             case 'UpdateWizardList':
-                // The Value contains the changed rows from the UI list
                 $changes = json_decode($Value, true);
-
-                // Load Full Cache
                 $cache = json_decode($this->ReadAttributeString('ScanCache'), true);
                 if (!is_array($cache)) $cache = [];
 
-                // Index the cache for speed
                 $map = [];
                 foreach ($cache as $idx => $row) {
                     $map[$row['VariableID']] = $idx;
                 }
 
-                // Merge changes
                 if (is_array($changes)) {
-                    // Handle single row update or multi-row
                     if (isset($changes['VariableID'])) $changes = [$changes];
-
                     foreach ($changes as $change) {
                         if (isset($change['VariableID']) && isset($map[$change['VariableID']])) {
-                            // Update the master list state
                             $idx = $map[$change['VariableID']];
                             $cache[$idx]['Selected'] = $change['Selected'];
                         }
                     }
                 }
-
-                // Save back to Attribute
                 $this->WriteAttributeString('ScanCache', json_encode(array_values($cache)));
+                break;
+
+            case 'FilterWizard':
+                $FilterText = (string)$Value;
+                $fullList = json_decode($this->ReadAttributeString('ScanCache'), true);
+                if (!is_array($fullList)) return;
+
+                $filtered = [];
+                if (trim($FilterText) == "") {
+                    $filtered = $fullList;
+                } else {
+                    foreach ($fullList as $row) {
+                        if (is_array($row) && (stripos($row['Name'], $FilterText) !== false || stripos((string)$row['VariableID'], $FilterText) !== false)) {
+                            $filtered[] = $row;
+                        }
+                    }
+                }
+                $this->UpdateFormField('ImportCandidates', 'values', json_encode($filtered));
                 break;
         }
     }
@@ -321,9 +329,7 @@ class SensorGroup extends IPSModule
     public function UI_SelectAll()
     {
         $list = json_decode($this->ReadAttributeString('ScanCache'), true);
-        if (is_array($list)) {
-            foreach ($list as &$row) if (is_array($row)) $row['Selected'] = true;
-        }
+        if (is_array($list)) foreach ($list as &$row) if (is_array($row)) $row['Selected'] = true;
         $this->WriteAttributeString('ScanCache', json_encode($list));
         $this->UpdateFormField('ImportCandidates', 'values', json_encode($list));
     }
@@ -331,14 +337,11 @@ class SensorGroup extends IPSModule
     public function UI_SelectNone()
     {
         $list = json_decode($this->ReadAttributeString('ScanCache'), true);
-        if (is_array($list)) {
-            foreach ($list as &$row) if (is_array($row)) $row['Selected'] = false;
-        }
+        if (is_array($list)) foreach ($list as &$row) if (is_array($row)) $row['Selected'] = false;
         $this->WriteAttributeString('ScanCache', json_encode($list));
         $this->UpdateFormField('ImportCandidates', 'values', json_encode($list));
     }
 
-    // FIXED: Reads strictly from the ScanCache which is updated via RequestAction
     public function UI_Import(string $TargetClass)
     {
         $candidates = json_decode($this->ReadAttributeString('ScanCache'), true);
@@ -369,21 +372,5 @@ class SensorGroup extends IPSModule
         $this->WriteAttributeString('ScanCache', '[]');
         $this->UpdateFormField('ImportCandidates', 'values', json_encode([]));
         $this->UpdateFormField('ImportCandidates', 'visible', false);
-    }
-
-    public function UI_FilterWizard(string $FilterText)
-    {
-        $fullList = json_decode($this->ReadAttributeString('ScanCache'), true);
-        if (!is_array($fullList)) return;
-        $filtered = [];
-        if (trim($FilterText) == "") $filtered = $fullList;
-        else {
-            foreach ($fullList as $row) {
-                if (is_array($row) && (stripos($row['Name'], $FilterText) !== false || stripos((string)$row['VariableID'], $FilterText) !== false)) {
-                    $filtered[] = $row;
-                }
-            }
-        }
-        $this->UpdateFormField('ImportCandidates', 'values', json_encode($filtered));
     }
 }
