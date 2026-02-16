@@ -1,0 +1,132 @@
+{
+    "elements": [
+        {
+            "type": "Label",
+            "caption": "1. Classification (Context)"
+        },
+        {
+            "type": "List",
+            "name": "AlarmClassList",
+            "caption": "Alarm Classes (Tags)",
+            "rowCount": 3,
+            "add": true,
+            "delete": true,
+            "columns": [
+                {
+                    "caption": "Class Name (e.g. Intrusion, Fire, Water)",
+                    "name": "ClassName",
+                    "width": "100%",
+                    "edit": {
+                        "type": "ValidationTextBox"
+                    }
+                }
+            ]
+        },
+        {
+            "type": "Label",
+            "caption": "2. Trigger Logic"
+        },
+        {
+            "type": "Select",
+            "name": "LogicMode",
+            "caption": "Logic Mode",
+            "options": [
+                { "caption": "OR - Trigger if ANY rule is met", "value": 0 },
+                { "caption": "AND - Trigger if ALL rules are met", "value": 1 },
+                { "caption": "COUNT - Trigger if X events occur in Y seconds", "value": 2 }
+            ]
+        },
+        {
+            "type": "NumberSpinner",
+            "name": "TriggerThreshold",
+            "caption": "Event Count (Threshold)",
+            "minimum": 1,
+            "visible": "return $LogicMode == 2;" 
+        },
+        {
+            "type": "NumberSpinner",
+            "name": "TimeWindow",
+            "caption": "Time Window (Seconds)",
+            "minimum": 1,
+            "visible": "return $LogicMode == 2;"
+        },
+        {
+            "type": "Label",
+            "caption": "3. Input Sensors & Rules"
+        },
+        {
+            "type": "List",
+            "name": "SensorList",
+            "caption": "Sensor Rules",
+            "rowCount": 5,
+            "add": true,
+            "delete": true,
+            "sort": {
+                "column": "VariableID",
+                "direction": "ascending"
+            },
+            "columns": [
+                {
+                    "caption": "Variable",
+                    "name": "VariableID",
+                    "width": "300px",
+                    "edit": { "type": "SelectVariable" }
+                },
+                {
+                    "caption": "Operator",
+                    "name": "Operator",
+                    "width": "100px",
+                    "edit": {
+                        "type": "Select",
+                        "options": [
+                            { "caption": "=", "value": 0 },
+                            { "caption": "!=", "value": 1 },
+                            { "caption": ">", "value": 2 },
+                            { "caption": "<", "value": 3 },
+                            { "caption": ">=", "value": 4 },
+                            { "caption": "<=", "value": 5 }
+                        ]
+                    }
+                },
+                {
+                    "caption": "Trigger Value",
+                    "name": "ComparisonValue",
+                    "width": "150px",
+                    "edit": { "type": "ValidationTextBox" }
+                }
+            ]
+        },
+        {
+            "type": "ExpansionPanel",
+            "caption": "Sabotage / Tamper Protection",
+            "items": [
+                {
+                    "type": "List",
+                    "name": "TamperList",
+                    "caption": "Tamper Sensors (Always Active / OR Logic)",
+                    "add": true,
+                    "delete": true,
+                    "columns": [
+                        {
+                            "caption": "Variable",
+                            "name": "VariableID",
+                            "width": "400px",
+                            "edit": { "type": "SelectVariable" }
+                        },
+                        {
+                            "caption": "Invert (Trigger if False)",
+                            "name": "Invert",
+                            "width": "100px",
+                            "edit": { "type": "CheckBox" }
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "type": "CheckBox",
+            "name": "MaintenanceMode",
+            "caption": "Maintenance Mode (Log only, mark payload as Test)"
+        }
+    ]
+}

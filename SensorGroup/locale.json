@@ -1,0 +1,13 @@
+{
+    "translations": {
+        "de": {
+            "Sensor Group": "Sensor Gruppe",
+            "Alarm Classes (Tags)": "Alarm Klassen (Tags)",
+            "Class Name (e.g. Intrusion, Fire, Water)": "Klassenname (z.B. Einbruch, Feuer, Wasser)",
+            "Logic Mode": "Logik Modus",
+            "Sensor Rules": "Sensor Regeln",
+            "Sabotage / Tamper Protection": "Sabotage / Manipulationsschutz",
+            "Maintenance Mode (Log only, mark output as Test)": "Wartungsmodus (Nur Loggen, Output als Test markieren)"
+        }
+    }
+}
