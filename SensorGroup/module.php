@@ -300,7 +300,6 @@ class SensorGroup extends IPSModule
         }
 
         // 2. Inject into Wizard Dropdown (ImportClass)
-        // We search for the element recursively to be safe against layout changes
         $this->UpdateFormOption($form['elements'], 'ImportClass', $classOptions);
 
         return json_encode($form);
@@ -333,6 +332,9 @@ class SensorGroup extends IPSModule
             $values[] = ['VariableID' => $id, 'Name' => IPS_GetName($id), 'Selected' => false];
         }
         $this->WriteAttributeString('ScanCache', json_encode($values));
+
+        // Reset Filter and Show
+        $this->UpdateFormField('WizardFilterText', 'value', '');
         $this->UpdateFormField('ImportCandidates', 'values', json_encode($values));
         $this->UpdateFormField('ImportCandidates', 'visible', true);
     }
@@ -393,5 +395,41 @@ class SensorGroup extends IPSModule
         $this->WriteAttributeString('ScanCache', '[]');
         $this->UpdateFormField('ImportCandidates', 'values', json_encode([]));
         $this->UpdateFormField('ImportCandidates', 'visible', false);
+    }
+
+    // --- NEW: UI Sort Logic ---
+    public function UI_SortMainList()
+    {
+        $list = json_decode($this->ReadPropertyString('SensorList'), true);
+        if (!is_array($list)) return;
+
+        // Sort by Tag (Class), then VariableID
+        usort($list, function ($a, $b) {
+            $tagA = $a['Tag'] ?? '';
+            $tagB = $b['Tag'] ?? '';
+            if ($tagA == $tagB) return ($a['VariableID'] <=> $b['VariableID']);
+            return strcmp($tagA, $tagB);
+        });
+
+        $this->UpdateFormField('SensorList', 'values', json_encode($list));
+    }
+
+    // --- NEW: UI Filter Logic for Wizard ---
+    public function UI_FilterWizard(string $FilterText)
+    {
+        $fullList = json_decode($this->ReadAttributeString('ScanCache'), true);
+        if (!is_array($fullList)) return;
+
+        $filtered = [];
+        if (trim($FilterText) == "") {
+            $filtered = $fullList;
+        } else {
+            foreach ($fullList as $row) {
+                if (stripos($row['Name'], $FilterText) !== false || stripos((string)$row['VariableID'], $FilterText) !== false) {
+                    $filtered[] = $row;
+                }
+            }
+        }
+        $this->UpdateFormField('ImportCandidates', 'values', json_encode($filtered));
     }
 }

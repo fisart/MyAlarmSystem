@@ -68,6 +68,11 @@
             "caption": "3. SENSOR INPUTS (Mapped to Classes)"
         },
         {
+            "type": "Button",
+            "caption": "Sort / Group by Class",
+            "onClick": "MYALARM_UI_SortMainList($id);"
+        },
+        {
             "type": "List",
             "name": "SensorList",
             "caption": "Mapped Sensors",
@@ -107,6 +112,13 @@
                 { "type": "SelectObject", "name": "ImportRootID", "caption": "Search Root" },
                 { "type": "Select", "name": "ImportClass", "caption": "Assign to Class", "options": [] },
                 { "type": "Button", "caption": "SCAN", "onClick": "MYALARM_UI_Scan($id, $ImportRootID);" },
+                { "type": "Label", "caption": "Filter Results:" },
+                { 
+                    "type": "ValidationTextBox", 
+                    "name": "WizardFilterText", 
+                    "caption": "Search Name...", 
+                    "onChange": "MYALARM_UI_FilterWizard($id, $WizardFilterText);" 
+                },
                 {
                     "type": "List",
                     "name": "ImportCandidates",
