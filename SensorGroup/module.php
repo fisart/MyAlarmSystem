@@ -247,7 +247,6 @@ class SensorGroup extends IPSModule
         }
         if (count($classOptions) == 0) $classOptions[] = ['caption' => '- No Classes -', 'value' => ''];
 
-        // Scan BOTH elements and actions for the ImportClass dropdown
         $this->UpdateFormOption($form['elements'], 'ImportClass', $classOptions);
         if (isset($form['actions'])) {
             $this->UpdateFormOption($form['actions'], 'ImportClass', $classOptions);
@@ -300,38 +299,45 @@ class SensorGroup extends IPSModule
         }
     }
 
-    // CRITICAL FIX: onEdit Handler. 
-    // This receives the JSON list from the UI when a checkbox is clicked
-    // and saves it directly to the Attribute.
+    // Sync from UI (onEdit)
     public function UI_SyncWizardList($ListValues)
     {
-        // Normalize input
+        // Safe Decode
         if (is_string($ListValues)) $values = json_decode($ListValues, true);
         else $values = json_decode(json_encode($ListValues), true);
 
-        if (is_array($values)) {
+        // Only save if it looks like a valid list of arrays
+        if (is_array($values) && count($values) > 0 && isset($values[0]['VariableID'])) {
             $this->WriteAttributeString('ScanCache', json_encode($values));
         }
     }
 
+    // FIXED: Added defensive checks to prevent scalar error
     public function UI_SelectAll()
     {
         $list = json_decode($this->ReadAttributeString('ScanCache'), true);
-        if (is_array($list)) foreach ($list as &$row) $row['Selected'] = true;
+        if (is_array($list)) {
+            foreach ($list as &$row) {
+                if (is_array($row)) $row['Selected'] = true; // Check is_array
+            }
+        }
         $this->WriteAttributeString('ScanCache', json_encode($list));
         $this->UpdateFormField('ImportCandidates', 'values', json_encode($list));
     }
 
+    // FIXED: Added defensive checks
     public function UI_SelectNone()
     {
         $list = json_decode($this->ReadAttributeString('ScanCache'), true);
-        if (is_array($list)) foreach ($list as &$row) $row['Selected'] = false;
+        if (is_array($list)) {
+            foreach ($list as &$row) {
+                if (is_array($row)) $row['Selected'] = false; // Check is_array
+            }
+        }
         $this->WriteAttributeString('ScanCache', json_encode($list));
         $this->UpdateFormField('ImportCandidates', 'values', json_encode($list));
     }
 
-    // CRITICAL FIX: Removed $ListValues argument. 
-    // Reads strictly from the ScanCache which is now kept in sync via onEdit.
     public function UI_Import(string $TargetClass)
     {
         $candidates = json_decode($this->ReadAttributeString('ScanCache'), true);
@@ -342,7 +348,7 @@ class SensorGroup extends IPSModule
         $added = false;
         if (is_array($candidates)) {
             foreach ($candidates as $row) {
-                if (isset($row['Selected']) && $row['Selected']) {
+                if (is_array($row) && isset($row['Selected']) && $row['Selected']) {
                     $currentRules[] = [
                         'VariableID' => $row['VariableID'],
                         'Operator' => 0,
@@ -359,7 +365,6 @@ class SensorGroup extends IPSModule
             IPS_ApplyChanges($this->InstanceID);
         }
 
-        // Clear
         $this->WriteAttributeString('ScanCache', '[]');
         $this->UpdateFormField('ImportCandidates', 'values', json_encode([]));
         $this->UpdateFormField('ImportCandidates', 'visible', false);
@@ -373,7 +378,8 @@ class SensorGroup extends IPSModule
         if (trim($FilterText) == "") $filtered = $fullList;
         else {
             foreach ($fullList as $row) {
-                if (stripos($row['Name'], $FilterText) !== false || stripos((string)$row['VariableID'], $FilterText) !== false) {
+                // Defensive check here too
+                if (is_array($row) && (stripos($row['Name'], $FilterText) !== false || stripos((string)$row['VariableID'], $FilterText) !== false)) {
                     $filtered[] = $row;
                 }
             }
