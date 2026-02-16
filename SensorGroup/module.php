@@ -270,7 +270,7 @@ class MYALARM_SensorGroup extends IPSModule
                     'VariableID' => $row['VariableID'],
                     'Operator' => 0, // Default: Equals
                     'ComparisonValue' => "1" // Default: True
-                    // Note: You could technically add a "Classification" column to the Rule Table
+                    // Note:  You could technically add a "Classification" column to the Rule Table
                     // if you wanted per-sensor classes, but currently we rely on the Module's AlarmClass.
                     // If you want to associate the selected class, we should create a property for it, 
                     // but your Module 1 Design currently has ONE class per Group.
