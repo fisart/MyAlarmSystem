@@ -334,15 +334,15 @@ class SensorGroup extends IPSModule
     {
         $form = json_decode(file_get_contents(__DIR__ . '/form.json'), true);
 
+        // 1. Prepare Data & Maps
         $definedClasses = json_decode($this->ReadPropertyString('ClassList'), true);
         $classOptions = [];
-        $nameToIdMap = []; // Helper for JIT resolution
+        $nameToIdMap = [];
 
         if (is_array($definedClasses)) {
             foreach ($definedClasses as $c) {
                 if (!empty($c['ClassName']) && !empty($c['ClassID'])) {
                     $classOptions[] = ['caption' => $c['ClassName'], 'value' => $c['ClassID']];
-                    // Build map: Name -> ID
                     $nameToIdMap[$c['ClassName']] = $c['ClassID'];
                 }
             }
@@ -358,46 +358,103 @@ class SensorGroup extends IPSModule
         }
         if (count($groupOptions) == 0) $groupOptions[] = ['caption' => '- Save Group First -', 'value' => ''];
 
-        // 1. INJECT OPTIONS (Hardcoded Paths)
-        if (isset($form['actions'][0]['items'][2])) $form['actions'][0]['items'][2]['options'] = $classOptions;
-        if (isset($form['elements'][3]['columns'][3])) $form['elements'][3]['columns'][3]['edit']['options'] = $classOptions;
-        if (isset($form['elements'][6]['columns'][0])) $form['elements'][6]['columns'][0]['edit']['options'] = $groupOptions;
-        if (isset($form['elements'][6]['columns'][1])) $form['elements'][6]['columns'][1]['edit']['options'] = $classOptions;
+        // 2. INJECT OPTIONS (Dynamic Search)
 
-        // 2. JUST-IN-TIME RESOLUTION (Fixing Blank Entries)
+        // Wizard Dropdown (Actions)
+        if (isset($form['actions'])) {
+            $this->UpdateFormOption($form['actions'], 'ImportClass', $classOptions);
+        }
+        // Wizard Dropdown (Elements fallback)
+        $this->UpdateFormOption($form['elements'], 'ImportClass', $classOptions);
 
-        // A. SensorList
+        // Sensor List Dropdown
+        $this->UpdateListColumnOption($form['elements'], 'SensorList', 'ClassID', $classOptions);
+
+        // Group Members Dropdowns
+        $this->UpdateListColumnOption($form['elements'], 'GroupMembers', 'GroupName', $groupOptions);
+        $this->UpdateListColumnOption($form['elements'], 'GroupMembers', 'ClassID', $classOptions);
+
+
+        // 3. JUST-IN-TIME RESOLUTION & INJECTION
+
+        // A. SensorList (Map 'Tag' -> 'ClassID')
         $sensorList = json_decode($this->ReadPropertyString('SensorList'), true);
         if (is_array($sensorList)) {
             foreach ($sensorList as &$s) {
-                // If we have a Tag (Old Name) that matches a current Class, enforce the ID
                 $tag = $s['Tag'] ?? '';
-                if (!empty($tag) && isset($nameToIdMap[$tag])) {
+                // If ClassID is missing but we recognize the Name, fill it in
+                if (empty($s['ClassID']) && !empty($tag) && isset($nameToIdMap[$tag])) {
                     $s['ClassID'] = $nameToIdMap[$tag];
                 }
             }
-            // Explicitly set the list values for the UI
-            if (isset($form['elements'][3])) {
-                $form['elements'][3]['values'] = $sensorList;
-            }
+            // Inject corrected values into the form
+            $this->SetFormElementValues($form['elements'], 'SensorList', $sensorList);
         }
 
-        // B. GroupMembers
+        // B. GroupMembers (Map 'ClassName' -> 'ClassID')
         $groupMembers = json_decode($this->ReadPropertyString('GroupMembers'), true);
         if (is_array($groupMembers)) {
             foreach ($groupMembers as &$gm) {
-                // Previously 'ClassName' stored the text. Check if we need to map it to ID.
                 $cName = $gm['ClassName'] ?? '';
-                if (!empty($cName) && isset($nameToIdMap[$cName])) {
+                if (empty($gm['ClassID']) && !empty($cName) && isset($nameToIdMap[$cName])) {
                     $gm['ClassID'] = $nameToIdMap[$cName];
                 }
             }
-            if (isset($form['elements'][6])) {
-                $form['elements'][6]['values'] = $groupMembers;
-            }
+            $this->SetFormElementValues($form['elements'], 'GroupMembers', $groupMembers);
         }
 
         return json_encode($form);
+    }
+
+    // --- HELPER FUNCTIONS ---
+
+    // Finds a List by name and sets its 'values'
+    private function SetFormElementValues(&$elements, $name, $values)
+    {
+        foreach ($elements as &$element) {
+            if (isset($element['name']) && $element['name'] === $name) {
+                $element['values'] = $values;
+                return true;
+            }
+            if (isset($element['items'])) {
+                if ($this->SetFormElementValues($element['items'], $name, $values)) return true;
+            }
+        }
+        return false;
+    }
+
+    // Finds a Select element by name and sets 'options'
+    private function UpdateFormOption(&$elements, $name, $options)
+    {
+        foreach ($elements as &$element) {
+            if (isset($element['name']) && $element['name'] === $name) {
+                $element['options'] = $options;
+                return true;
+            }
+            if (isset($element['items'])) {
+                if ($this->UpdateFormOption($element['items'], $name, $options)) return true;
+            }
+        }
+        return false;
+    }
+
+    // Finds a List, then a specific Column, and sets 'options'
+    private function UpdateListColumnOption(&$elements, $listName, $columnName, $options)
+    {
+        foreach ($elements as &$element) {
+            if (isset($element['name']) && $element['name'] === $listName && isset($element['columns'])) {
+                foreach ($element['columns'] as &$col) {
+                    if ($col['name'] === $columnName && isset($col['edit']['type']) && $col['edit']['type'] === 'Select') {
+                        $col['edit']['options'] = $options;
+                        return true;
+                    }
+                }
+            }
+            if (isset($element['items'])) {
+                if ($this->UpdateListColumnOption($element['items'], $listName, $columnName, $options)) return true;
+            }
+        }
+        return false;
     }
 
     // New Helper: Finds list column definition by name
