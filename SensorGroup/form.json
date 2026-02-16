@@ -29,14 +29,15 @@
             "type": "List",
             "name": "SensorList",
             "caption": "Sensor Rules",
-            "rowCount": 5,
+            "rowCount": 10,
             "add": true,
             "delete": true,
             "sort": { "column": "VariableID", "direction": "ascending" },
             "columns": [
-                { "caption": "Variable", "name": "VariableID", "width": "300px", "add": 0, "edit": { "type": "SelectVariable" } },
-                { "caption": "Operator", "name": "Operator", "width": "100px", "add": 0, "edit": { "type": "Select", "options": [ { "caption": "=", "value": 0 }, { "caption": "!=", "value": 1 }, { "caption": ">", "value": 2 }, { "caption": "<", "value": 3 }, { "caption": ">=", "value": 4 }, { "caption": "<=", "value": 5 } ] } },
-                { "caption": "Trigger Value", "name": "ComparisonValue", "width": "150px", "add": "1", "edit": { "type": "ValidationTextBox" } }
+                { "caption": "Variable", "name": "VariableID", "width": "250px", "add": 0, "edit": { "type": "SelectVariable" } },
+                { "caption": "Op", "name": "Operator", "width": "70px", "add": 0, "edit": { "type": "Select", "options": [ { "caption": "=", "value": 0 }, { "caption": "!=", "value": 1 }, { "caption": ">", "value": 2 }, { "caption": "<", "value": 3 }, { "caption": ">=", "value": 4 }, { "caption": "<=", "value": 5 } ] } },
+                { "caption": "Value", "name": "ComparisonValue", "width": "100px", "add": "1", "edit": { "type": "ValidationTextBox" } },
+                { "caption": "Class/Tag", "name": "Tag", "width": "150px", "add": "Intrusion", "edit": { "type": "ValidationTextBox" } }
             ]
         },
         {
@@ -65,9 +66,9 @@
             "name": "LogicMode",
             "caption": "Logic Mode",
             "options": [
-                { "caption": "OR", "value": 0 },
-                { "caption": "AND", "value": 1 },
-                { "caption": "COUNT", "value": 2 }
+                { "caption": "OR - Trigger if ANY rule is met", "value": 0 },
+                { "caption": "AND - Trigger if ALL rules are met", "value": 1 },
+                { "caption": "COUNT - Trigger if X events occur in Y seconds", "value": 2 }
             ]
         },
         {
@@ -82,27 +83,18 @@
             "type": "ExpansionPanel",
             "caption": "BULK IMPORT WIZARD (Search & Add)",
             "items": [
-                { "type": "Label", "caption": "Select a parent object (Folder/Device) to scan for variables." },
-                { 
-                    "type": "SelectObject", 
-                    "name": "ImportRootID", 
-                    "caption": "Search Root" 
-                },
-                {
-                    "type": "Select",
-                    "name": "ImportClass",
-                    "caption": "Class to Associate (Optional - for Reference)",
-                    "options": [] 
-                },
-                { 
-                    "type": "Button", 
-                    "caption": "SCAN for Variables", 
-                    "onClick": "MYALARM_UI_Scan($id, $ImportRootID);" 
-                },
+                { "type": "Label", "caption": "1. Select a Parent Object (Folder/Instance) to scan:" },
+                { "type": "SelectObject", "name": "ImportRootID", "caption": "Search Root" },
+                
+                { "type": "Label", "caption": "2. Choose Classification for imported items:" },
+                { "type": "Select", "name": "ImportClass", "caption": "Assign Classification", "options": [] },
+                
+                { "type": "Button", "caption": "SCAN for Variables", "onClick": "MYALARM_UI_Scan($id, $ImportRootID);" },
+                
                 {
                     "type": "List",
                     "name": "ImportCandidates",
-                    "caption": "Found Variables (Check to Import)",
+                    "caption": "Found Variables",
                     "visible": false,
                     "rowCount": 10,
                     "columns": [
