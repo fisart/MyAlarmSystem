@@ -25,35 +25,7 @@
         },
         {
             "type": "Label",
-            "caption": "2. Trigger Logic"
-        },
-        {
-            "type": "Select",
-            "name": "LogicMode",
-            "caption": "Logic Mode",
-            "options": [
-                { "caption": "OR - Trigger if ANY rule is met", "value": 0 },
-                { "caption": "AND - Trigger if ALL rules are met", "value": 1 },
-                { "caption": "COUNT - Trigger if X events occur in Y seconds", "value": 2 }
-            ]
-        },
-        {
-            "type": "NumberSpinner",
-            "name": "TriggerThreshold",
-            "caption": "Event Count (Threshold)",
-            "minimum": 1,
-            "visible": "return $LogicMode == 2;" 
-        },
-        {
-            "type": "NumberSpinner",
-            "name": "TimeWindow",
-            "caption": "Time Window (Seconds)",
-            "minimum": 1,
-            "visible": "return $LogicMode == 2;"
-        },
-        {
-            "type": "Label",
-            "caption": "3. Input Sensors & Rules"
+            "caption": "2. Input Sensors & Rules"
         },
         {
             "type": "List",
@@ -128,6 +100,43 @@
                     ]
                 }
             ]
+        },
+        {
+            "type": "Label",
+            "caption": "3. Trigger Logic (Dependencies)"
+        },
+        {
+            "type": "Select",
+            "name": "LogicMode",
+            "caption": "Logic Mode",
+            "options": [
+                { "caption": "OR - Trigger if ANY rule is met", "value": 0 },
+                { "caption": "AND - Trigger if ALL rules are met", "value": 1 },
+                { "caption": "COUNT - Trigger if X events occur in Y seconds", "value": 2 }
+            ]
+        },
+        {
+            "type": "Label",
+            "caption": "4. Input Filter",
+            "visible": "return $LogicMode == 2;"
+        },
+        {
+            "type": "NumberSpinner",
+            "name": "TriggerThreshold",
+            "caption": "Event Count (Threshold)",
+            "minimum": 1,
+            "visible": "return $LogicMode == 2;" 
+        },
+        {
+            "type": "NumberSpinner",
+            "name": "TimeWindow",
+            "caption": "Time Window (Seconds)",
+            "minimum": 1,
+            "visible": "return $LogicMode == 2;"
+        },
+        {
+            "type": "Label",
+            "caption": "---------------------------------------------------------"
         },
         {
             "type": "CheckBox",
