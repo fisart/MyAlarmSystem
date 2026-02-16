@@ -7,25 +7,14 @@ class SensorGroup extends IPSModule
     public function Create()
     {
         parent::Create();
-
-        // Level 1: Classes
         $this->RegisterPropertyString('ClassList', '[]');
-
-        // Level 2: Sensors
         $this->RegisterPropertyString('SensorList', '[]');
-
-        // Level 3: Groups
         $this->RegisterPropertyString('GroupList', '[]');
-
         $this->RegisterPropertyString('TamperList', '[]');
         $this->RegisterPropertyBoolean('MaintenanceMode', false);
-
-        // Internal State
         $this->RegisterAttributeString('ClassStateAttribute', '{}');
         $this->RegisterAttributeString('ScanCache', '[]');
-
-        // Standard Outputs
-        $this->RegisterVariableBoolean('Status', 'Status', '~Alert', 10); // Main Status (First Group)
+        $this->RegisterVariableBoolean('Status', 'Status', '~Alert', 10);
         $this->RegisterVariableBoolean('Sabotage', 'Sabotage', '~Alert', 90);
         $this->RegisterVariableString('EventData', 'Event Payload', '', 99);
         IPS_SetHidden($this->GetIDForIdent('EventData'), true);
@@ -34,18 +23,13 @@ class SensorGroup extends IPSModule
     public function ApplyChanges()
     {
         parent::ApplyChanges();
-
-        // 1. Unregister Messages
         $messages = $this->GetMessageList();
         foreach ($messages as $senderID => $messageList) {
             $this->UnregisterMessage($senderID, VM_UPDATE);
         }
-
-        // 2. Register Sensors & Tamper
         $this->RegisterSensors('SensorList');
         $this->RegisterSensors('TamperList');
 
-        // 3. Maintain Dynamic Group Variables
         $groupList = json_decode($this->ReadPropertyString('GroupList'), true);
         $keepIdents = ['Status', 'Sabotage', 'EventData'];
 
@@ -58,22 +42,14 @@ class SensorGroup extends IPSModule
                 $keepIdents[] = $ident;
             }
         }
-
-        // Cleanup old variables
         $children = IPS_GetChildrenIDs($this->InstanceID);
         foreach ($children as $child) {
             $obj = IPS_GetObject($child);
-            if ($obj['ObjectType'] == 2) { // Variable
-                if (!in_array($obj['ObjectIdent'], $keepIdents)) {
-                    $this->UnregisterVariable($obj['ObjectIdent']);
-                }
+            if ($obj['ObjectType'] == 2) {
+                if (!in_array($obj['ObjectIdent'], $keepIdents)) $this->UnregisterVariable($obj['ObjectIdent']);
             }
         }
-
-        if ($this->ReadAttributeString('ClassStateAttribute') == '') {
-            $this->WriteAttributeString('ClassStateAttribute', '{}');
-        }
-
+        if ($this->ReadAttributeString('ClassStateAttribute') == '') $this->WriteAttributeString('ClassStateAttribute', '{}');
         $this->CheckLogic();
     }
 
@@ -82,9 +58,7 @@ class SensorGroup extends IPSModule
         $list = json_decode($this->ReadPropertyString($propName), true);
         if (is_array($list)) {
             foreach ($list as $row) {
-                if (($row['VariableID'] ?? 0) > 0 && IPS_VariableExists($row['VariableID'])) {
-                    $this->RegisterMessage($row['VariableID'], VM_UPDATE);
-                }
+                if (($row['VariableID'] ?? 0) > 0 && IPS_VariableExists($row['VariableID'])) $this->RegisterMessage($row['VariableID'], VM_UPDATE);
             }
         }
     }
@@ -110,7 +84,7 @@ class SensorGroup extends IPSModule
         $classStates = json_decode($this->ReadAttributeString('ClassStateAttribute'), true);
         if (!is_array($classStates)) $classStates = [];
 
-        // 1. SABOTAGE
+        // SABOTAGE
         $sabotageActive = false;
         if (is_array($tamperList)) {
             foreach ($tamperList as $row) {
@@ -122,17 +96,14 @@ class SensorGroup extends IPSModule
         }
         $this->SetValue('Sabotage', $sabotageActive);
 
-        // 2. CALCULATE CLASS STATES
-        $activeClasses = []; // Map: ClassName => Details
-
+        // CLASSES
+        $activeClasses = [];
         if (is_array($classList)) {
             foreach ($classList as $classDef) {
                 $className = $classDef['ClassName'];
                 $logicMode = $classDef['LogicMode'];
-
                 if (!isset($classStates[$className])) $classStates[$className] = ['Buffer' => []];
 
-                // Filter Sensors for Class
                 $classSensors = [];
                 if (is_array($sensorList)) {
                     foreach ($sensorList as $s) {
@@ -140,7 +111,6 @@ class SensorGroup extends IPSModule
                     }
                 }
 
-                // Check Sensors
                 $activeCount = 0;
                 $total = count($classSensors);
                 $triggerInClass = false;
@@ -157,7 +127,6 @@ class SensorGroup extends IPSModule
                     }
                 }
 
-                // Logic
                 $isActive = false;
                 if ($logicMode == 0) $isActive = ($activeCount > 0);
                 elseif ($logicMode == 1) $isActive = ($total > 0 && $activeCount == $total);
@@ -170,7 +139,6 @@ class SensorGroup extends IPSModule
                     $buffer = array_filter($buffer, function ($ts) use ($now, $window) {
                         return ($now - $ts) <= $window;
                     });
-
                     if ($triggerInClass && $TriggeringID > 0) $buffer[] = $now;
 
                     if (count($buffer) >= $thresh) {
@@ -180,27 +148,24 @@ class SensorGroup extends IPSModule
                     $classStates[$className]['Buffer'] = array_values($buffer);
                 }
 
-                if ($isActive) {
-                    $activeClasses[$className] = $lastTriggerDetails;
-                }
+                if ($isActive) $activeClasses[$className] = $lastTriggerDetails;
             }
         }
         $this->WriteAttributeString('ClassStateAttribute', json_encode($classStates));
 
-        // 3. EVALUATE GROUPS
+        // GROUPS
         $primaryPayload = null;
         $mainStatus = false;
 
         if (is_array($groupList)) {
             foreach ($groupList as $index => $group) {
                 $gName = $group['GroupName'];
-                $gClasses = array_map('trim', explode(',', $group['Classes'])); // "A, B" -> ["A", "B"]
-                $gLogic = $group['GroupLogic']; // 0=OR, 1=AND
+                $gClasses = array_map('trim', explode(',', $group['Classes']));
+                $gLogic = $group['GroupLogic'];
 
                 $activeClassCount = 0;
                 $targetClassCount = 0;
 
-                // Check classes in this group
                 foreach ($gClasses as $reqClass) {
                     if ($reqClass === "") continue;
                     $targetClassCount++;
@@ -216,20 +181,12 @@ class SensorGroup extends IPSModule
                     elseif ($gLogic == 1) $groupActive = ($activeClassCount == $targetClassCount);
                 }
 
-                // Set Dynamic Variable
                 $ident = "Status_" . $this->SanitizeIdent($gName);
-                if (@$this->GetIDForIdent($ident)) {
-                    $this->SetValue($ident, $groupActive);
-                }
-
-                // Main Status mirrors the First Group
-                if ($index === 0) {
-                    $mainStatus = $groupActive;
-                }
+                if (@$this->GetIDForIdent($ident)) $this->SetValue($ident, $groupActive);
+                if ($index === 0) $mainStatus = $groupActive;
             }
         }
 
-        // 4. MAIN OUTPUT & PAYLOAD
         $this->SetValue('Status', $mainStatus);
 
         if ($mainStatus && $primaryPayload) {
@@ -251,24 +208,14 @@ class SensorGroup extends IPSModule
         $id = $row['VariableID'] ?? 0;
         if (!$id || !IPS_VariableExists($id)) return false;
         $val = GetValue($id);
-
-        // Handling Invert (Tamper) vs Standard Operator
-        if (isset($row['Invert'])) {
-            // Tamper Logic
-            return $row['Invert'] ? !$val : $val;
-        } else {
-            // Standard Logic
-            return $this->EvaluateRule($val, $row['Operator'], $row['ComparisonValue']);
-        }
+        if (isset($row['Invert'])) return $row['Invert'] ? !$val : $val;
+        return $this->EvaluateRule($val, $row['Operator'], $row['ComparisonValue']);
     }
 
     private function EvaluateRule($current, $operator, $target)
     {
-        if (is_bool($current)) {
-            $target = ($target === 'true' || $target === '1' || $target === 1);
-        } elseif (is_float($current) || is_int($current)) {
-            $target = (float)$target;
-        }
+        if (is_bool($current)) $target = ($target === 'true' || $target === '1' || $target === 1);
+        elseif (is_float($current) || is_int($current)) $target = (float)$target;
 
         switch ($operator) {
             case 0:
@@ -288,24 +235,23 @@ class SensorGroup extends IPSModule
         }
     }
 
-    // --- WIZARD UI LOGIC ---
-
     public function GetConfigurationForm()
     {
         $form = json_decode(file_get_contents(__DIR__ . '/form.json'), true);
-
         $definedClasses = json_decode($this->ReadPropertyString('ClassList'), true);
         $classOptions = [];
         if (is_array($definedClasses)) {
             foreach ($definedClasses as $c) {
-                if (!empty($c['ClassName'])) {
-                    $classOptions[] = ['caption' => $c['ClassName'], 'value' => $c['ClassName']];
-                }
+                if (!empty($c['ClassName'])) $classOptions[] = ['caption' => $c['ClassName'], 'value' => $c['ClassName']];
             }
         }
         if (count($classOptions) == 0) $classOptions[] = ['caption' => '- No Classes -', 'value' => ''];
 
+        // Scan BOTH elements and actions for the ImportClass dropdown
         $this->UpdateFormOption($form['elements'], 'ImportClass', $classOptions);
+        if (isset($form['actions'])) {
+            $this->UpdateFormOption($form['actions'], 'ImportClass', $classOptions);
+        }
 
         return json_encode($form);
     }
@@ -323,6 +269,8 @@ class SensorGroup extends IPSModule
         }
         return false;
     }
+
+    // --- WIZARD ACTIONS ---
 
     public function UI_Scan(int $ImportRootID)
     {
@@ -352,6 +300,20 @@ class SensorGroup extends IPSModule
         }
     }
 
+    // CRITICAL FIX: onEdit Handler. 
+    // This receives the JSON list from the UI when a checkbox is clicked
+    // and saves it directly to the Attribute.
+    public function UI_SyncWizardList($ListValues)
+    {
+        // Normalize input
+        if (is_string($ListValues)) $values = json_decode($ListValues, true);
+        else $values = json_decode(json_encode($ListValues), true);
+
+        if (is_array($values)) {
+            $this->WriteAttributeString('ScanCache', json_encode($values));
+        }
+    }
+
     public function UI_SelectAll()
     {
         $list = json_decode($this->ReadAttributeString('ScanCache'), true);
@@ -368,26 +330,36 @@ class SensorGroup extends IPSModule
         $this->UpdateFormField('ImportCandidates', 'values', json_encode($list));
     }
 
+    // CRITICAL FIX: Removed $ListValues argument. 
+    // Reads strictly from the ScanCache which is now kept in sync via onEdit.
     public function UI_Import(string $TargetClass)
     {
         $candidates = json_decode($this->ReadAttributeString('ScanCache'), true);
+
         $currentRules = json_decode($this->ReadPropertyString('SensorList'), true);
         if (!is_array($currentRules)) $currentRules = [];
 
+        $added = false;
         if (is_array($candidates)) {
             foreach ($candidates as $row) {
-                if ($row['Selected']) {
+                if (isset($row['Selected']) && $row['Selected']) {
                     $currentRules[] = [
                         'VariableID' => $row['VariableID'],
                         'Operator' => 0,
                         'ComparisonValue' => "1",
                         'Tag' => $TargetClass
                     ];
+                    $added = true;
                 }
             }
         }
-        IPS_SetProperty($this->InstanceID, 'SensorList', json_encode($currentRules));
-        IPS_ApplyChanges($this->InstanceID);
+
+        if ($added) {
+            IPS_SetProperty($this->InstanceID, 'SensorList', json_encode($currentRules));
+            IPS_ApplyChanges($this->InstanceID);
+        }
+
+        // Clear
         $this->WriteAttributeString('ScanCache', '[]');
         $this->UpdateFormField('ImportCandidates', 'values', json_encode([]));
         $this->UpdateFormField('ImportCandidates', 'visible', false);

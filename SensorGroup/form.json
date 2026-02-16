@@ -1,65 +1,18 @@
 {
     "elements": [
+        { "type": "Label", "caption": "1. CLASS DEFINITIONS (Zones & Logic)" },
         {
-            "type": "Label",
-            "caption": "1. CLASS DEFINITIONS (Zones & Logic)"
-        },
-        {
-            "type": "List",
-            "name": "ClassList",
-            "caption": "Define your Classes (e.g., 'Homematic', 'Shelly')",
-            "rowCount": 5,
-            "add": true,
-            "delete": true,
+            "type": "List", "name": "ClassList", "caption": "Classes", "rowCount": 5, "add": true, "delete": true,
             "columns": [
-                {
-                    "caption": "Class Name",
-                    "name": "ClassName",
-                    "width": "200px",
-                    "add": "NewClass",
-                    "edit": { "type": "ValidationTextBox" }
-                },
-                {
-                    "caption": "Logic",
-                    "name": "LogicMode",
-                    "width": "100px",
-                    "add": 0,
-                    "edit": {
-                        "type": "Select",
-                        "options": [
-                            { "caption": "OR (Instant)", "value": 0 },
-                            { "caption": "AND (All)", "value": 1 },
-                            { "caption": "COUNT", "value": 2 }
-                        ]
-                    }
-                },
-                {
-                    "caption": "Threshold (Count)",
-                    "name": "Threshold",
-                    "width": "80px",
-                    "add": 1,
-                    "edit": { "type": "NumberSpinner", "minimum": 1 }
-                },
-                {
-                    "caption": "Window (Sec)",
-                    "name": "TimeWindow",
-                    "width": "80px",
-                    "add": 10,
-                    "edit": { "type": "NumberSpinner", "minimum": 1 }
-                }
+                { "caption": "Class Name", "name": "ClassName", "width": "200px", "add": "NewClass", "edit": { "type": "ValidationTextBox" } },
+                { "caption": "Logic", "name": "LogicMode", "width": "100px", "add": 0, "edit": { "type": "Select", "options": [ { "caption": "OR (Instant)", "value": 0 }, { "caption": "AND (All)", "value": 1 }, { "caption": "COUNT", "value": 2 } ] } },
+                { "caption": "Threshold", "name": "Threshold", "width": "80px", "add": 1, "edit": { "type": "NumberSpinner", "minimum": 1 } },
+                { "caption": "Window", "name": "TimeWindow", "width": "80px", "add": 10, "edit": { "type": "NumberSpinner", "minimum": 1 } }
             ]
         },
+        { "type": "Label", "caption": "2. SENSOR INPUTS (Mapped to Classes)" },
         {
-            "type": "Label",
-            "caption": "2. SENSOR INPUTS (Mapped to Classes)"
-        },
-        {
-            "type": "List",
-            "name": "SensorList",
-            "caption": "Mapped Sensors",
-            "rowCount": 10,
-            "add": true,
-            "delete": true,
+            "type": "List", "name": "SensorList", "caption": "Mapped Sensors", "rowCount": 10, "add": true, "delete": true,
             "sort": { "column": "VariableID", "direction": "ascending" },
             "columns": [
                 { "caption": "Variable", "name": "VariableID", "width": "250px", "add": 0, "edit": { "type": "SelectVariable" } },
@@ -68,27 +21,32 @@
                 { "caption": "Assigned Class", "name": "Tag", "width": "150px", "add": "NewClass", "edit": { "type": "ValidationTextBox" } }
             ]
         },
+        { "type": "Label", "caption": "3. GROUP DEFINITIONS (Output Logic)" },
         {
-            "type": "ExpansionPanel",
-            "caption": "BULK IMPORT WIZARD",
-            "items": [
+            "type": "List", "name": "GroupList", "caption": "Groups", "rowCount": 3, "add": true, "delete": true,
+            "columns": [
+                { "caption": "Group Name", "name": "GroupName", "width": "200px", "add": "AlarmGroup", "edit": { "type": "ValidationTextBox" } },
+                { "caption": "Included Classes", "name": "Classes", "width": "250px", "add": "", "edit": { "type": "ValidationTextBox" } },
+                { "caption": "Logic", "name": "GroupLogic", "width": "100px", "add": 0, "edit": { "type": "Select", "options": [ { "caption": "OR", "value": 0 }, { "caption": "AND", "value": 1 } ] } }
+            ]
+        },
+        { "type": "ExpansionPanel", "caption": "Sabotage / Tamper", "items": [
+                { "type": "List", "name": "TamperList", "caption": "Tamper Sensors", "add": true, "delete": true, "columns": [ { "caption": "Variable", "name": "VariableID", "width": "400px", "add": 0, "edit": { "type": "SelectVariable" } }, { "caption": "Invert", "name": "Invert", "width": "100px", "add": false, "edit": { "type": "CheckBox" } } ] }
+            ]
+        },
+        { "type": "CheckBox", "name": "MaintenanceMode", "caption": "Maintenance Mode" }
+    ],
+    "actions": [
+        { "type": "ExpansionPanel", "caption": "BULK IMPORT WIZARD", "items": [
                 { "type": "Label", "caption": "Scan for sensors and assign them to a Class defined above." },
                 { "type": "SelectObject", "name": "ImportRootID", "caption": "Search Root" },
                 { "type": "Select", "name": "ImportClass", "caption": "Assign to Class", "options": [] },
                 { "type": "Button", "caption": "SCAN", "onClick": "MYALARM_UI_Scan($id, $ImportRootID);" },
                 { "type": "Label", "caption": "Filter Results:" },
-                { 
-                    "type": "ValidationTextBox", 
-                    "name": "WizardFilterText", 
-                    "caption": "Search Name...", 
-                    "onChange": "MYALARM_UI_FilterWizard($id, $WizardFilterText);" 
-                },
+                { "type": "ValidationTextBox", "name": "WizardFilterText", "caption": "Search Name...", "onChange": "MYALARM_UI_FilterWizard($id, $WizardFilterText);" },
                 {
-                    "type": "List",
-                    "name": "ImportCandidates",
-                    "caption": "Found Variables",
-                    "visible": false,
-                    "rowCount": 8,
+                    "type": "List", "name": "ImportCandidates", "caption": "Found Variables", "visible": false, "rowCount": 8,
+                    "onEdit": "MYALARM_UI_SyncWizardList($id, $ImportCandidates);",
                     "columns": [
                         { "caption": "ID", "name": "VariableID", "width": "70px", "edit": { "type": "Label" } },
                         { "caption": "Name", "name": "Name", "width": "300px", "edit": { "type": "Label" } },
@@ -105,65 +63,6 @@
                     ]
                 }
             ]
-        },
-        {
-            "type": "Label",
-            "caption": "3. GROUP DEFINITIONS (Output Logic)"
-        },
-        {
-            "type": "List",
-            "name": "GroupList",
-            "caption": "Define Groups (Combinations of Classes)",
-            "rowCount": 3,
-            "add": true,
-            "delete": true,
-            "columns": [
-                {
-                    "caption": "Group Name (Output)",
-                    "name": "GroupName",
-                    "width": "200px",
-                    "add": "AlarmGroup",
-                    "edit": { "type": "ValidationTextBox" }
-                },
-                {
-                    "caption": "Included Classes (comma separated)",
-                    "name": "Classes",
-                    "width": "250px",
-                    "add": "",
-                    "edit": { "type": "ValidationTextBox" }
-                },
-                {
-                    "caption": "Logic",
-                    "name": "GroupLogic",
-                    "width": "100px",
-                    "add": 0,
-                    "edit": {
-                        "type": "Select",
-                        "options": [
-                            { "caption": "OR (Any Class)", "value": 0 },
-                            { "caption": "AND (All Classes)", "value": 1 }
-                        ]
-                    }
-                }
-            ]
-        },
-        {
-            "type": "ExpansionPanel",
-            "caption": "Sabotage / Tamper",
-            "items": [
-                {
-                    "type": "List",
-                    "name": "TamperList",
-                    "caption": "Tamper Sensors",
-                    "add": true,
-                    "delete": true,
-                    "columns": [
-                        { "caption": "Variable", "name": "VariableID", "width": "400px", "add": 0, "edit": { "type": "SelectVariable" } },
-                        { "caption": "Invert", "name": "Invert", "width": "100px", "add": false, "edit": { "type": "CheckBox" } }
-                    ]
-                }
-            ]
-        },
-        { "type": "CheckBox", "name": "MaintenanceMode", "caption": "Maintenance Mode" }
+        }
     ]
 }
