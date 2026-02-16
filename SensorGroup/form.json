@@ -4,6 +4,7 @@
         {
             "type": "List", "name": "ClassList", "caption": "Classes", "rowCount": 5, "add": true, "delete": true,
             "columns": [
+                { "caption": "ID", "name": "ClassID", "width": "0px", "add": "", "visible": false, "edit": { "type": "ValidationTextBox" } },
                 { "caption": "Class Name", "name": "ClassName", "width": "200px", "add": "NewClass", "edit": { "type": "ValidationTextBox" } },
                 { "caption": "Logic", "name": "LogicMode", "width": "100px", "add": 0, "edit": { "type": "Select", "options": [ { "caption": "OR (Instant)", "value": 0 }, { "caption": "AND (All)", "value": 1 }, { "caption": "COUNT", "value": 2 } ] } },
                 { "caption": "Threshold", "name": "Threshold", "width": "80px", "add": 1, "edit": { "type": "NumberSpinner", "minimum": 1 } },
@@ -18,6 +19,7 @@
                 { "caption": "Variable", "name": "VariableID", "width": "250px", "add": 0, "edit": { "type": "SelectVariable" } },
                 { "caption": "Op", "name": "Operator", "width": "70px", "add": 0, "edit": { "type": "Select", "options": [ { "caption": "=", "value": 0 }, { "caption": "!=", "value": 1 }, { "caption": ">", "value": 2 }, { "caption": "<", "value": 3 }, { "caption": ">=", "value": 4 }, { "caption": "<=", "value": 5 } ] } },
                 { "caption": "Value", "name": "ComparisonValue", "width": "80px", "add": "1", "edit": { "type": "ValidationTextBox" } },
+                { "caption": "CID", "name": "ClassID", "width": "0px", "add": "", "visible": false, "edit": { "type": "ValidationTextBox" } },
                 { "caption": "Assigned Class", "name": "Tag", "width": "150px", "add": "NewClass", "edit": { "type": "ValidationTextBox" } }
             ]
         },
@@ -33,6 +35,7 @@
             "type": "List", "name": "GroupMembers", "caption": "Step B: Assign Classes to Groups", "rowCount": 5, "add": true, "delete": true,
             "columns": [
                 { "caption": "Select Group", "name": "GroupName", "width": "250px", "add": "", "edit": { "type": "Select", "options": [] } },
+                { "caption": "CID", "name": "ClassID", "width": "0px", "add": "", "visible": false, "edit": { "type": "ValidationTextBox" } },
                 { "caption": "Select Class", "name": "ClassName", "width": "250px", "add": "", "edit": { "type": "Select", "options": [] } }
             ]
         },
@@ -71,7 +74,7 @@
                     "items": [
                         { "type": "Button", "caption": "Select All", "onClick": "MYALARM_UI_SelectAll($id);" },
                         { "type": "Button", "caption": "Select None", "onClick": "MYALARM_UI_SelectNone($id);" },
-                        { "type": "Button", "caption": "ADD SELECTED", "onClick": "MYALARM_UI_Import($id, $ImportClass);" }
+                        { "type": "Button", "caption": "ADD SELECTED", "onClick": "MYALARM_UI_Import($id, $ImportCandidates, $ImportClass);" }
                     ]
                 }
             ]
