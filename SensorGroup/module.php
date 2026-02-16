@@ -6,7 +6,6 @@ class SensorGroup extends IPSModule
 {
     public function Create()
     {
-        // Never delete this line!
         parent::Create();
 
         // 1. Properties
@@ -20,6 +19,8 @@ class SensorGroup extends IPSModule
 
         // 2. Attributes & Output
         $this->RegisterAttributeString('EventBuffer', '[]');
+        $this->RegisterAttributeString('ScanCache', '[]'); // <--- NEW: For the Wizard
+
         $this->RegisterVariableBoolean('Status', 'Status', '~Alert', 10);
         $this->RegisterVariableBoolean('Sabotage', 'Sabotage', '~Alert', 20);
         $this->RegisterVariableString('EventData', 'Event Payload', '', 30);
@@ -56,7 +57,6 @@ class SensorGroup extends IPSModule
             }
         }
 
-        // Initial Logic Check
         $this->CheckLogic();
     }
 
@@ -72,7 +72,7 @@ class SensorGroup extends IPSModule
         $tamperList = json_decode($this->ReadPropertyString('TamperList'), true);
         $mode = $this->ReadPropertyInteger('LogicMode');
 
-        // 1. Sabotage Check (High Priority)
+        // 1. Sabotage Check
         $sabotageActive = false;
         if (is_array($tamperList)) {
             foreach ($tamperList as $row) {
@@ -214,10 +214,8 @@ class SensorGroup extends IPSModule
             }
         }
 
-        // Populate Dropdown (Scan for name='ImportClass')
-        // We look into the ExpansionPanel (last element) -> items -> name='ImportClass'
         $elements = &$form['elements'];
-        $lastIndex = count($elements) - 2; // Adjust if you change form structure!
+        $lastIndex = count($elements) - 2;
 
         if (isset($elements[$lastIndex]['items'])) {
             foreach ($elements[$lastIndex]['items'] as &$item) {
@@ -230,7 +228,7 @@ class SensorGroup extends IPSModule
         return json_encode($form);
     }
 
-    // FIXED: Added Type Hint (int)
+    // FIXED: Strict Type (int) and using Cache
     public function UI_Scan(int $ImportRootID)
     {
         if ($ImportRootID <= 0) return;
@@ -247,6 +245,10 @@ class SensorGroup extends IPSModule
             ];
         }
 
+        // Save to Internal Cache
+        $this->WriteAttributeString('ScanCache', json_encode($values));
+
+        // Update Form
         $this->UpdateFormField('ImportCandidates', 'values', json_encode($values));
         $this->UpdateFormField('ImportCandidates', 'visible', true);
     }
@@ -264,30 +266,35 @@ class SensorGroup extends IPSModule
         }
     }
 
-    // FIXED: Added Type Hint (string)
-    public function UI_SelectAll(string $CurrentListValues)
+    // FIXED: No Arguments needed, reads from Cache
+    public function UI_SelectAll()
     {
-        $list = json_decode($CurrentListValues, true);
+        $list = json_decode($this->ReadAttributeString('ScanCache'), true);
         if (is_array($list)) {
             foreach ($list as &$row) $row['Selected'] = true;
         }
+
+        $this->WriteAttributeString('ScanCache', json_encode($list));
         $this->UpdateFormField('ImportCandidates', 'values', json_encode($list));
     }
 
-    // FIXED: Added Type Hint (string)
-    public function UI_SelectNone(string $CurrentListValues)
+    // FIXED: No Arguments needed, reads from Cache
+    public function UI_SelectNone()
     {
-        $list = json_decode($CurrentListValues, true);
+        $list = json_decode($this->ReadAttributeString('ScanCache'), true);
         if (is_array($list)) {
             foreach ($list as &$row) $row['Selected'] = false;
         }
+
+        $this->WriteAttributeString('ScanCache', json_encode($list));
         $this->UpdateFormField('ImportCandidates', 'values', json_encode($list));
     }
 
-    // FIXED: Added Type Hints (string, string)
-    public function UI_Import(string $CurrentListValues, string $TargetClass)
+    // FIXED: Strict type (string), reads list from Cache
+    public function UI_Import(string $TargetClass)
     {
-        $candidates = json_decode($CurrentListValues, true);
+        $candidates = json_decode($this->ReadAttributeString('ScanCache'), true);
+
         $currentRules = json_decode($this->ReadPropertyString('SensorList'), true);
         if (!is_array($currentRules)) $currentRules = [];
 
@@ -307,7 +314,8 @@ class SensorGroup extends IPSModule
         IPS_SetProperty($this->InstanceID, 'SensorList', json_encode($currentRules));
         IPS_ApplyChanges($this->InstanceID);
 
-        // Reset Wizard
+        // Clear Wizard
+        $this->WriteAttributeString('ScanCache', '[]');
         $this->UpdateFormField('ImportCandidates', 'values', json_encode([]));
         $this->UpdateFormField('ImportCandidates', 'visible', false);
     }

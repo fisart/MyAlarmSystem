@@ -107,9 +107,9 @@
                 {
                     "type": "RowLayout",
                     "items": [
-                        { "type": "Button", "caption": "Select All", "onClick": "MYALARM_UI_SelectAll($id, $ImportCandidates);" },
-                        { "type": "Button", "caption": "Select None", "onClick": "MYALARM_UI_SelectNone($id, $ImportCandidates);" },
-                        { "type": "Button", "caption": "ADD SELECTED TO RULES", "onClick": "MYALARM_UI_Import($id, $ImportCandidates, $ImportClass);" }
+                        { "type": "Button", "caption": "Select All", "onClick": "MYALARM_UI_SelectAll($id);" },
+                        { "type": "Button", "caption": "Select None", "onClick": "MYALARM_UI_SelectNone($id);" },
+                        { "type": "Button", "caption": "ADD SELECTED TO RULES", "onClick": "MYALARM_UI_Import($id, $ImportClass);" }
                     ]
                 }
             ]
