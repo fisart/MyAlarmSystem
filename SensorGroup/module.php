@@ -28,13 +28,12 @@ class SensorGroup extends IPSModule
         // 1. LIFECYCLE MANAGEMENT: ID GENERATION
         $classList = json_decode($this->ReadPropertyString('ClassList'), true);
         $idsChanged = false;
-
-        $classMap = []; // ID => Name
+        $classMap = [];
 
         if (is_array($classList)) {
             foreach ($classList as &$c) {
                 if (empty($c['ClassID'])) {
-                    $c['ClassID'] = uniqid('cls_'); // System generates ID
+                    $c['ClassID'] = uniqid('cls_');
                     $idsChanged = true;
                 }
                 $classMap[$c['ClassID']] = $c['ClassName'];
@@ -44,7 +43,6 @@ class SensorGroup extends IPSModule
 
         if ($idsChanged) {
             IPS_SetProperty($this->InstanceID, 'ClassList', json_encode($classList));
-            // We do not return here; we proceed to register everything with the new IDs
         }
 
         // 2. STANDARD REGISTRATION
@@ -55,7 +53,7 @@ class SensorGroup extends IPSModule
         $this->RegisterSensors('SensorList');
         $this->RegisterSensors('TamperList');
 
-        // 3. GROUP VARIABLE MAINTENANCE
+        // 3. GROUP VARIABLES
         $groupList = json_decode($this->ReadPropertyString('GroupList'), true);
         $keepIdents = ['Status', 'Sabotage', 'EventData'];
 
@@ -78,9 +76,25 @@ class SensorGroup extends IPSModule
         }
         if ($this->ReadAttributeString('ClassStateAttribute') == '') $this->WriteAttributeString('ClassStateAttribute', '{}');
 
-        // Refresh UI if we generated IDs so the hidden fields are populated
+        // 4. UI REFRESH LOGIC (FIXED)
+        // Prepare options for the Wizard Dropdown
+        $classOptions = [];
+        if (is_array($classList)) {
+            foreach ($classList as $c) {
+                if (!empty($c['ClassName']) && !empty($c['ClassID'])) {
+                    $classOptions[] = ['caption' => $c['ClassName'], 'value' => $c['ClassID']];
+                }
+            }
+        }
+        if (count($classOptions) == 0) $classOptions[] = ['caption' => '- No Classes -', 'value' => ''];
+
+        // Force update of the Wizard dropdown immediately
+        $this->UpdateFormField('ImportClass', 'options', json_encode($classOptions));
+
+        // If we generated new IDs, we MUST reload the form completely 
+        // so that the List Columns (SensorList/GroupMembers) pick up the new options.
         if ($idsChanged) {
-            $this->UpdateFormField('ClassList', 'values', json_encode($classList));
+            $this->ReloadForm();
         }
 
         $this->CheckLogic();
@@ -169,14 +183,12 @@ class SensorGroup extends IPSModule
         $this->SetValue('Sabotage', $sabotageActive);
 
         $activeClasses = [];
-
-        // Map ID -> Name for payload
         $classNameMap = [];
 
         if (is_array($classList)) {
             foreach ($classList as $classDef) {
                 $classID = $classDef['ClassID'] ?? '';
-                if (empty($classID)) continue; // Skip malformed
+                if (empty($classID)) continue;
 
                 $className = $classDef['ClassName'];
                 $classNameMap[$classID] = $className;
@@ -187,7 +199,6 @@ class SensorGroup extends IPSModule
                 $classSensors = [];
                 if (is_array($sensorList)) {
                     foreach ($sensorList as $s) {
-                        // Strict ID match
                         if (($s['ClassID'] ?? '') === $classID) {
                             $classSensors[] = $s;
                         }
@@ -233,7 +244,6 @@ class SensorGroup extends IPSModule
         }
         $this->WriteAttributeString('ClassStateAttribute', json_encode($classStates));
 
-        // JOIN GROUPS USING IDs
         $primaryPayload = null;
         $mainStatus = false;
 
@@ -252,7 +262,7 @@ class SensorGroup extends IPSModule
         if (is_array($groupMembers)) {
             foreach ($groupMembers as $mem) {
                 $gName = $mem['GroupName'];
-                $cID = $mem['ClassID']; // Now this is an ID!
+                $cID = $mem['ClassID'];
                 if (isset($mergedGroups[$gName])) $mergedGroups[$gName]['Classes'][] = $cID;
             }
         }
@@ -289,7 +299,6 @@ class SensorGroup extends IPSModule
         $this->SetValue('Status', $mainStatus);
 
         if ($mainStatus && $primaryPayload) {
-            // Resolve IDs back to Names for readable payload
             $readableActiveClasses = [];
             foreach (array_keys($activeClasses) as $aid) {
                 $readableActiveClasses[] = $classNameMap[$aid] ?? $aid;
@@ -348,7 +357,6 @@ class SensorGroup extends IPSModule
         if (is_array($definedClasses)) {
             foreach ($definedClasses as $c) {
                 if (!empty($c['ClassName']) && !empty($c['ClassID'])) {
-                    // STORE ID as Value, Show Name as Caption
                     $classOptions[] = ['caption' => $c['ClassName'], 'value' => $c['ClassID']];
                 }
             }
@@ -364,13 +372,10 @@ class SensorGroup extends IPSModule
         }
         if (count($groupOptions) == 0) $groupOptions[] = ['caption' => '- Save Group First -', 'value' => ''];
 
-        // Inject ID-based options
         $this->UpdateFormOption($form['elements'], 'ImportClass', $classOptions);
         if (isset($form['actions'])) $this->UpdateFormOption($form['actions'], 'ImportClass', $classOptions);
 
         $this->UpdateListColumnOption($form['elements'], 'GroupMembers', 'GroupName', $groupOptions);
-
-        // Critical: Update both list columns to use the ID options
         $this->UpdateListColumnOption($form['elements'], 'GroupMembers', 'ClassID', $classOptions);
         $this->UpdateListColumnOption($form['elements'], 'SensorList', 'ClassID', $classOptions);
 
@@ -450,7 +455,6 @@ class SensorGroup extends IPSModule
         $this->UpdateFormField('ImportCandidates', 'values', json_encode($list));
     }
 
-    // FIXED: Now we store the Target ID directly!
     public function UI_Import(string $TargetClassID)
     {
         $candidates = json_decode($this->ReadAttributeString('ScanCache'), true);
@@ -465,7 +469,7 @@ class SensorGroup extends IPSModule
                         'VariableID' => $row['VariableID'],
                         'Operator' => 0,
                         'ComparisonValue' => "1",
-                        'ClassID' => $TargetClassID // Stores the GUID
+                        'ClassID' => $TargetClassID
                     ];
                     $added = true;
                 }
