@@ -74,10 +74,9 @@ class SensorGroup extends IPSModule
         }
         if ($this->ReadAttributeString('ClassStateAttribute') == '') $this->WriteAttributeString('ClassStateAttribute', '{}');
 
-        // 4. RELOAD IF NEEDED
-        if ($idsChanged) {
-            $this->ReloadForm();
-        }
+        // 4. RELOAD FORM
+        // Unconditional reload to ensure Dropdown Captions (Names) are updated in Step 2 & 3
+        $this->ReloadForm();
 
         $this->CheckLogic();
     }
