@@ -1,6 +1,17 @@
 {
     "elements": [
-        { "type": "Label", "caption": "1. SENSOR INPUTS (Mapped to Classes)" },
+        { "type": "Label", "caption": "1. CLASS DEFINITIONS (Zones & Logic)" },
+        {
+            "type": "List", "name": "ClassList", "caption": "Classes", "rowCount": 5, "add": true, "delete": true,
+            "columns": [
+                { "caption": "ID", "name": "ClassID", "width": "70px", "add": "", "edit": { "type": "Label" } },
+                { "caption": "Class Name", "name": "ClassName", "width": "200px", "add": "NewClass", "edit": { "type": "ValidationTextBox" } },
+                { "caption": "Logic", "name": "LogicMode", "width": "100px", "add": 0, "edit": { "type": "Select", "options": [ { "caption": "OR (Instant)", "value": 0 }, { "caption": "AND (All)", "value": 1 }, { "caption": "COUNT", "value": 2 } ] } },
+                { "caption": "Threshold", "name": "Threshold", "width": "80px", "add": 1, "edit": { "type": "NumberSpinner", "minimum": 1 } },
+                { "caption": "Window", "name": "TimeWindow", "width": "80px", "add": 10, "edit": { "type": "NumberSpinner", "minimum": 1 } }
+            ]
+        },
+        { "type": "Label", "caption": "2. SENSOR INPUTS (Mapped to Classes)" },
         {
             "type": "List", "name": "SensorList", "caption": "Mapped Sensors", "rowCount": 10, "add": true, "delete": true,
             "sort": { "column": "VariableID", "direction": "ascending" },
@@ -11,7 +22,7 @@
                 { "caption": "Assigned Class", "name": "ClassID", "width": "200px", "add": "", "edit": { "type": "Select", "options": [] } }
             ]
         },
-        { "type": "Label", "caption": "2. GROUP DEFINITIONS (Output Container)" },
+        { "type": "Label", "caption": "3. GROUP DEFINITIONS (Output Container)" },
         {
             "type": "List", "name": "GroupList", "caption": "Step A: Create Groups", "rowCount": 3, "add": true, "delete": true,
             "columns": [
@@ -33,18 +44,6 @@
         { "type": "CheckBox", "name": "MaintenanceMode", "caption": "Maintenance Mode" }
     ],
     "actions": [
-        { "type": "Label", "caption": "CLASS DEFINITIONS (Zones & Logic)" },
-        {
-            "type": "List", "name": "ClassList", "caption": "Classes (ID is generated automatically)", "rowCount": 5, "add": true, "delete": true,
-            "onEdit": "IPS_RequestAction($id, 'UpdateClassList', json_encode($ClassList));",
-            "columns": [
-                { "caption": "ID", "name": "ClassID", "width": "70px", "add": "", "edit": { "type": "ValidationTextBox" } },
-                { "caption": "Class Name", "name": "ClassName", "width": "200px", "add": "NewClass", "edit": { "type": "ValidationTextBox" } },
-                { "caption": "Logic", "name": "LogicMode", "width": "100px", "add": 0, "edit": { "type": "Select", "options": [ { "caption": "OR (Instant)", "value": 0 }, { "caption": "AND (All)", "value": 1 }, { "caption": "COUNT", "value": 2 } ] } },
-                { "caption": "Threshold", "name": "Threshold", "width": "80px", "add": 1, "edit": { "type": "NumberSpinner", "minimum": 1 } },
-                { "caption": "Window", "name": "TimeWindow", "width": "80px", "add": 10, "edit": { "type": "NumberSpinner", "minimum": 1 } }
-            ]
-        },
         { "type": "ExpansionPanel", "caption": "BULK IMPORT WIZARD", "items": [
                 { "type": "Label", "caption": "Scan for sensors and assign them to a Class defined above." },
                 { "type": "SelectObject", "name": "ImportRootID", "caption": "Search Root" },

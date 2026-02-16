@@ -25,7 +25,25 @@ class SensorGroup extends IPSModule
     {
         parent::ApplyChanges();
 
-        // 1. REGISTRATION
+        // 1. LIFECYCLE: ID GENERATION
+        $classList = json_decode($this->ReadPropertyString('ClassList'), true);
+        $idsChanged = false;
+
+        if (is_array($classList)) {
+            foreach ($classList as &$c) {
+                if (empty($c['ClassID'])) {
+                    $c['ClassID'] = uniqid('cls_');
+                    $idsChanged = true;
+                }
+            }
+            unset($c);
+        }
+
+        if ($idsChanged) {
+            IPS_SetProperty($this->InstanceID, 'ClassList', json_encode($classList));
+        }
+
+        // 2. REGISTRATION
         $messages = $this->GetMessageList();
         foreach ($messages as $senderID => $messageList) {
             $this->UnregisterMessage($senderID, VM_UPDATE);
@@ -33,7 +51,7 @@ class SensorGroup extends IPSModule
         $this->RegisterSensors('SensorList');
         $this->RegisterSensors('TamperList');
 
-        // 2. VARIABLES
+        // 3. GROUP VARIABLES
         $groupList = json_decode($this->ReadPropertyString('GroupList'), true);
         $keepIdents = ['Status', 'Sabotage', 'EventData'];
 
@@ -56,7 +74,8 @@ class SensorGroup extends IPSModule
         }
         if ($this->ReadAttributeString('ClassStateAttribute') == '') $this->WriteAttributeString('ClassStateAttribute', '{}');
 
-        // 3. RELOAD FORM
+        // 4. RELOAD FORM (Always)
+        // Ensures name edits in Step 1 update the dropdowns in Step 2/3
         $this->ReloadForm();
 
         $this->CheckLogic();
@@ -65,27 +84,6 @@ class SensorGroup extends IPSModule
     public function RequestAction($Ident, $Value)
     {
         switch ($Ident) {
-            case 'UpdateClassList':
-                $list = json_decode($Value, true);
-                if (is_array($list)) {
-                    $changed = false;
-                    foreach ($list as &$row) {
-                        if (empty($row['ClassID'])) {
-                            $row['ClassID'] = uniqid('cls_');
-                            $changed = true;
-                        }
-                    }
-                    unset($row);
-
-                    // Save immediately
-                    IPS_SetProperty($this->InstanceID, 'ClassList', json_encode($list));
-                    IPS_ApplyChanges($this->InstanceID); // Triggers ReloadForm to update Dropdowns
-
-                    // Push back to UI so ID appears instantly
-                    $this->UpdateFormField('ClassList', 'values', json_encode($list));
-                }
-                break;
-
             case 'UpdateWizardList':
                 $changes = json_decode($Value, true);
                 $cache = json_decode($this->ReadAttributeString('ScanCache'), true);
@@ -338,11 +336,16 @@ class SensorGroup extends IPSModule
 
         $definedClasses = json_decode($this->ReadPropertyString('ClassList'), true);
         $classOptions = [];
+
+        // Log for debugging
+        IPS_LogMessage("SensorGroup", "Generating Form Options. Classes found: " . (is_array($definedClasses) ? count($definedClasses) : 0));
+
         if (is_array($definedClasses)) {
             foreach ($definedClasses as $c) {
-                // IMPORTANT: Use ID as value
-                if (!empty($c['ClassName']) && !empty($c['ClassID'])) {
-                    $classOptions[] = ['caption' => $c['ClassName'], 'value' => $c['ClassID']];
+                // Allow fallback to Name if ID is missing (fixes first-save issue)
+                $val = !empty($c['ClassID']) ? $c['ClassID'] : $c['ClassName'];
+                if (!empty($c['ClassName'])) {
+                    $classOptions[] = ['caption' => $c['ClassName'], 'value' => $val];
                 }
             }
         }
@@ -357,32 +360,60 @@ class SensorGroup extends IPSModule
         }
         if (count($groupOptions) == 0) $groupOptions[] = ['caption' => '- Save Group First -', 'value' => ''];
 
-        // Inject into Wizard (Actions)
-        if (isset($form['actions'][1]['items'][2])) {
-            $form['actions'][1]['items'][2]['options'] = $classOptions;
+        // HARDCODED PATHS (Matched to restored form.json)
+
+        // Wizard Dropdown (Actions -> Panel -> Select)
+        if (isset($form['actions'][0]['items'][2])) {
+            $form['actions'][0]['items'][2]['options'] = $classOptions;
         }
 
-        // Inject into SensorList (Elements, Index 1)
-        if (isset($form['elements'][1]['columns'][3])) {
-            $form['elements'][1]['columns'][3]['edit']['options'] = $classOptions;
+        // Sensor List (Elements[3] -> Col[3])
+        if (isset($form['elements'][3]['columns'][3])) {
+            $form['elements'][3]['columns'][3]['edit']['options'] = $classOptions;
         }
 
-        // Inject into GroupMembers (Elements, Index 3)
-        // GroupName
-        if (isset($form['elements'][3]['columns'][0])) {
-            $form['elements'][3]['columns'][0]['edit']['options'] = $groupOptions;
+        // Group Members (Elements[6])
+        // Group Name Dropdown (Col 0)
+        if (isset($form['elements'][6]['columns'][0])) {
+            $form['elements'][6]['columns'][0]['edit']['options'] = $groupOptions;
         }
-        // ClassID
-        if (isset($form['elements'][3]['columns'][1])) {
-            $form['elements'][3]['columns'][1]['edit']['options'] = $classOptions;
-        }
-
-        // POPULATE ClassList Values explicitly (since it is in Actions now)
-        if (isset($form['actions'][0])) {
-            $form['actions'][0]['values'] = $definedClasses;
+        // Class ID Dropdown (Col 1)
+        if (isset($form['elements'][6]['columns'][1])) {
+            $form['elements'][6]['columns'][1]['edit']['options'] = $classOptions;
         }
 
         return json_encode($form);
+    }
+
+    // New Helper: Finds list column definition by name
+    private function UpdateListColumnOption(&$elements, $listName, $columnName, $options)
+    {
+        foreach ($elements as &$element) {
+            if (isset($element['name']) && $element['name'] === $listName && isset($element['columns'])) {
+                foreach ($element['columns'] as &$col) {
+                    if ($col['name'] === $columnName && isset($col['edit']['type']) && $col['edit']['type'] === 'Select') {
+                        $col['edit']['options'] = $options;
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    // New Helper: Finds select element by name (Recursive)
+    private function UpdateFormOption(&$elements, $name, $options)
+    {
+        foreach ($elements as &$element) {
+            if (isset($element['name']) && $element['name'] === $name) {
+                $element['options'] = $options;
+                return true;
+            }
+            if (isset($element['items'])) {
+                if ($this->UpdateFormOption($element['items'], $name, $options)) return true;
+            }
+        }
+        return false;
     }
 
     public function UI_Scan(int $ImportRootID)
@@ -416,7 +447,9 @@ class SensorGroup extends IPSModule
     public function UI_SelectAll()
     {
         $list = json_decode($this->ReadAttributeString('ScanCache'), true);
-        if (is_array($list)) foreach ($list as &$row) if (is_array($row)) $row['Selected'] = true;
+        if (is_array($list)) {
+            foreach ($list as &$row) if (is_array($row)) $row['Selected'] = true;
+        }
         $this->WriteAttributeString('ScanCache', json_encode($list));
         $this->UpdateFormField('ImportCandidates', 'values', json_encode($list));
     }
@@ -424,30 +457,23 @@ class SensorGroup extends IPSModule
     public function UI_SelectNone()
     {
         $list = json_decode($this->ReadAttributeString('ScanCache'), true);
-        if (is_array($list)) foreach ($list as &$row) if (is_array($row)) $row['Selected'] = false;
+        if (is_array($list)) {
+            foreach ($list as &$row) if (is_array($row)) $row['Selected'] = false;
+        }
         $this->WriteAttributeString('ScanCache', json_encode($list));
         $this->UpdateFormField('ImportCandidates', 'values', json_encode($list));
     }
 
-    public function UI_Import(array $ListValues, string $TargetClassID)
+    public function UI_Import(string $TargetClassID)
     {
-        // NOTE: We accept $ListValues here because the Button sends it
-        // BUT we ignore it if we trust the Cache. However, for "ADD SELECTED"
-        // we previously established we trust the Cache + RequestAction sync.
-        // Actually, since we updated form.json to pass $ImportCandidates, 
-        // we can use the argument directly if we sanitize it.
-
-        $candidates = [];
-        if (is_array($ListValues)) $candidates = $ListValues; // Use passed values if available
-        else $candidates = json_decode($this->ReadAttributeString('ScanCache'), true);
-
+        $candidates = json_decode($this->ReadAttributeString('ScanCache'), true);
         $currentRules = json_decode($this->ReadPropertyString('SensorList'), true);
         if (!is_array($currentRules)) $currentRules = [];
 
         $added = false;
         if (is_array($candidates)) {
             foreach ($candidates as $row) {
-                if (isset($row['Selected']) && $row['Selected']) {
+                if (is_array($row) && isset($row['Selected']) && $row['Selected']) {
                     $currentRules[] = [
                         'VariableID' => $row['VariableID'],
                         'Operator' => 0,
