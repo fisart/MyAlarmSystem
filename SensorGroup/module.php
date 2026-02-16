@@ -25,77 +25,26 @@ class SensorGroup extends IPSModule
     {
         parent::ApplyChanges();
 
-        // 1. MIGRATION & REFERENTIAL INTEGRITY LOGIC
-        // We perform a robust sync between ClassList (Master) and other lists.
-
+        // 1. LIFECYCLE MANAGEMENT: ID GENERATION
         $classList = json_decode($this->ReadPropertyString('ClassList'), true);
-        $sensorList = json_decode($this->ReadPropertyString('SensorList'), true);
-        $groupMembers = json_decode($this->ReadPropertyString('GroupMembers'), true);
+        $idsChanged = false;
 
-        $changesMade = false;
-
-        // A. Ensure all Classes have Unique IDs
         $classMap = []; // ID => Name
-        $nameMap = [];  // Name => ID (for fallback)
 
         if (is_array($classList)) {
             foreach ($classList as &$c) {
                 if (empty($c['ClassID'])) {
-                    $c['ClassID'] = uniqid('cls_');
-                    $changesMade = true;
+                    $c['ClassID'] = uniqid('cls_'); // System generates ID
+                    $idsChanged = true;
                 }
                 $classMap[$c['ClassID']] = $c['ClassName'];
-                $nameMap[$c['ClassName']] = $c['ClassID'];
             }
             unset($c);
         }
 
-        // B. Sync SensorList
-        if (is_array($sensorList)) {
-            foreach ($sensorList as &$s) {
-                $sID = $s['ClassID'] ?? '';
-                $sTag = $s['Tag'] ?? '';
-
-                if (!empty($sID) && isset($classMap[$sID])) {
-                    // 1. ID Match: Force Name update (Rename Handling)
-                    if ($sTag !== $classMap[$sID]) {
-                        $s['Tag'] = $classMap[$sID];
-                        $changesMade = true;
-                    }
-                } elseif (empty($sID) && isset($nameMap[$sTag])) {
-                    // 2. Name Match, Missing ID: Assign ID (Import Handling)
-                    $s['ClassID'] = $nameMap[$sTag];
-                    $changesMade = true;
-                }
-            }
-            unset($s);
-        }
-
-        // C. Sync GroupMembers
-        if (is_array($groupMembers)) {
-            foreach ($groupMembers as &$gm) {
-                $mID = $gm['ClassID'] ?? '';
-                $mName = $gm['ClassName'] ?? '';
-
-                if (!empty($mID) && isset($classMap[$mID])) {
-                    if ($mName !== $classMap[$mID]) {
-                        $gm['ClassName'] = $classMap[$mID];
-                        $changesMade = true;
-                    }
-                } elseif (empty($mID) && isset($nameMap[$mName])) {
-                    $gm['ClassID'] = $nameMap[$mName];
-                    $changesMade = true;
-                }
-            }
-            unset($gm);
-        }
-
-        // D. Save corrected lists if needed
-        if ($changesMade) {
+        if ($idsChanged) {
             IPS_SetProperty($this->InstanceID, 'ClassList', json_encode($classList));
-            IPS_SetProperty($this->InstanceID, 'SensorList', json_encode($sensorList));
-            IPS_SetProperty($this->InstanceID, 'GroupMembers', json_encode($groupMembers));
-            // No recursing ApplyChanges, we just proceed
+            // We do not return here; we proceed to register everything with the new IDs
         }
 
         // 2. STANDARD REGISTRATION
@@ -129,11 +78,9 @@ class SensorGroup extends IPSModule
         }
         if ($this->ReadAttributeString('ClassStateAttribute') == '') $this->WriteAttributeString('ClassStateAttribute', '{}');
 
-        // 4. Force UI Refresh to show corrected names/IDs
-        if ($changesMade) {
+        // Refresh UI if we generated IDs so the hidden fields are populated
+        if ($idsChanged) {
             $this->UpdateFormField('ClassList', 'values', json_encode($classList));
-            $this->UpdateFormField('SensorList', 'values', json_encode($sensorList));
-            $this->UpdateFormField('GroupMembers', 'values', json_encode($groupMembers));
         }
 
         $this->CheckLogic();
@@ -222,20 +169,26 @@ class SensorGroup extends IPSModule
         $this->SetValue('Sabotage', $sabotageActive);
 
         $activeClasses = [];
+
+        // Map ID -> Name for payload
+        $classNameMap = [];
+
         if (is_array($classList)) {
             foreach ($classList as $classDef) {
+                $classID = $classDef['ClassID'] ?? '';
+                if (empty($classID)) continue; // Skip malformed
+
                 $className = $classDef['ClassName'];
-                $classID = $classDef['ClassID'] ?? ''; // Prefer ID
+                $classNameMap[$classID] = $className;
+
                 $logicMode = $classDef['LogicMode'];
-                if (!isset($classStates[$className])) $classStates[$className] = ['Buffer' => []];
+                if (!isset($classStates[$classID])) $classStates[$classID] = ['Buffer' => []];
 
                 $classSensors = [];
                 if (is_array($sensorList)) {
                     foreach ($sensorList as $s) {
-                        // Match by ID if possible, else Name
-                        $sCID = $s['ClassID'] ?? '';
-                        $sTag = $s['Tag'] ?? '';
-                        if ((!empty($sCID) && $sCID === $classID) || $sTag === $className) {
+                        // Strict ID match
+                        if (($s['ClassID'] ?? '') === $classID) {
                             $classSensors[] = $s;
                         }
                     }
@@ -261,7 +214,7 @@ class SensorGroup extends IPSModule
                 if ($logicMode == 0) $isActive = ($activeCount > 0);
                 elseif ($logicMode == 1) $isActive = ($total > 0 && $activeCount == $total);
                 elseif ($logicMode == 2) {
-                    $buffer = $classStates[$className]['Buffer'] ?? [];
+                    $buffer = $classStates[$classID]['Buffer'] ?? [];
                     $window = $classDef['TimeWindow'];
                     $thresh = $classDef['Threshold'];
                     $now = time();
@@ -273,13 +226,14 @@ class SensorGroup extends IPSModule
                         $isActive = true;
                         if ($triggerInClass) $lastTriggerDetails['tag'] = "$className (Count)";
                     }
-                    $classStates[$className]['Buffer'] = array_values($buffer);
+                    $classStates[$classID]['Buffer'] = array_values($buffer);
                 }
-                if ($isActive) $activeClasses[$className] = $lastTriggerDetails;
+                if ($isActive) $activeClasses[$classID] = $lastTriggerDetails;
             }
         }
         $this->WriteAttributeString('ClassStateAttribute', json_encode($classStates));
 
+        // JOIN GROUPS USING IDs
         $primaryPayload = null;
         $mainStatus = false;
 
@@ -298,9 +252,8 @@ class SensorGroup extends IPSModule
         if (is_array($groupMembers)) {
             foreach ($groupMembers as $mem) {
                 $gName = $mem['GroupName'];
-                $cName = $mem['ClassName'];
-                // We use Name for logic matching as IDs are internal
-                if (isset($mergedGroups[$gName])) $mergedGroups[$gName]['Classes'][] = $cName;
+                $cID = $mem['ClassID']; // Now this is an ID!
+                if (isset($mergedGroups[$gName])) $mergedGroups[$gName]['Classes'][] = $cID;
             }
         }
 
@@ -311,10 +264,10 @@ class SensorGroup extends IPSModule
             $activeClassCount = 0;
             $targetClassCount = count($gClasses);
 
-            foreach ($gClasses as $reqClass) {
-                if (isset($activeClasses[$reqClass])) {
+            foreach ($gClasses as $reqClassID) {
+                if (isset($activeClasses[$reqClassID])) {
                     $activeClassCount++;
-                    if ($primaryPayload === null) $primaryPayload = $activeClasses[$reqClass];
+                    if ($primaryPayload === null) $primaryPayload = $activeClasses[$reqClassID];
                 }
             }
 
@@ -336,12 +289,18 @@ class SensorGroup extends IPSModule
         $this->SetValue('Status', $mainStatus);
 
         if ($mainStatus && $primaryPayload) {
+            // Resolve IDs back to Names for readable payload
+            $readableActiveClasses = [];
+            foreach (array_keys($activeClasses) as $aid) {
+                $readableActiveClasses[] = $classNameMap[$aid] ?? $aid;
+            }
+
             $payload = [
                 'event_id' => uniqid(),
                 'timestamp' => time(),
                 'source_name' => IPS_GetName($this->InstanceID),
                 'alarm_class' => $primaryPayload['tag'] ?? 'General',
-                'active_classes' => array_keys($activeClasses),
+                'active_classes' => $readableActiveClasses,
                 'is_maintenance' => $this->ReadPropertyBoolean('MaintenanceMode'),
                 'trigger_details' => $primaryPayload
             ];
@@ -388,7 +347,10 @@ class SensorGroup extends IPSModule
         $classOptions = [];
         if (is_array($definedClasses)) {
             foreach ($definedClasses as $c) {
-                if (!empty($c['ClassName'])) $classOptions[] = ['caption' => $c['ClassName'], 'value' => $c['ClassName']];
+                if (!empty($c['ClassName']) && !empty($c['ClassID'])) {
+                    // STORE ID as Value, Show Name as Caption
+                    $classOptions[] = ['caption' => $c['ClassName'], 'value' => $c['ClassID']];
+                }
             }
         }
         if (count($classOptions) == 0) $classOptions[] = ['caption' => '- No Classes -', 'value' => ''];
@@ -402,11 +364,15 @@ class SensorGroup extends IPSModule
         }
         if (count($groupOptions) == 0) $groupOptions[] = ['caption' => '- Save Group First -', 'value' => ''];
 
+        // Inject ID-based options
         $this->UpdateFormOption($form['elements'], 'ImportClass', $classOptions);
         if (isset($form['actions'])) $this->UpdateFormOption($form['actions'], 'ImportClass', $classOptions);
 
         $this->UpdateListColumnOption($form['elements'], 'GroupMembers', 'GroupName', $groupOptions);
-        $this->UpdateListColumnOption($form['elements'], 'GroupMembers', 'ClassName', $classOptions);
+
+        // Critical: Update both list columns to use the ID options
+        $this->UpdateListColumnOption($form['elements'], 'GroupMembers', 'ClassID', $classOptions);
+        $this->UpdateListColumnOption($form['elements'], 'SensorList', 'ClassID', $classOptions);
 
         return json_encode($form);
     }
@@ -484,26 +450,14 @@ class SensorGroup extends IPSModule
         $this->UpdateFormField('ImportCandidates', 'values', json_encode($list));
     }
 
-    public function UI_Import(string $TargetClass)
+    // FIXED: Now we store the Target ID directly!
+    public function UI_Import(string $TargetClassID)
     {
         $candidates = json_decode($this->ReadAttributeString('ScanCache'), true);
         $currentRules = json_decode($this->ReadPropertyString('SensorList'), true);
-        $classList = json_decode($this->ReadPropertyString('ClassList'), true);
-
-        // Find ID for TargetClass
-        $targetID = "";
-        if (is_array($classList)) {
-            foreach ($classList as $c) {
-                if ($c['ClassName'] === $TargetClass) {
-                    $targetID = $c['ClassID'] ?? "";
-                    break;
-                }
-            }
-        }
-
         if (!is_array($currentRules)) $currentRules = [];
-        $added = false;
 
+        $added = false;
         if (is_array($candidates)) {
             foreach ($candidates as $row) {
                 if (is_array($row) && isset($row['Selected']) && $row['Selected']) {
@@ -511,8 +465,7 @@ class SensorGroup extends IPSModule
                         'VariableID' => $row['VariableID'],
                         'Operator' => 0,
                         'ComparisonValue' => "1",
-                        'ClassID' => $targetID, // New: Store ID immediately
-                        'Tag' => $TargetClass
+                        'ClassID' => $TargetClassID // Stores the GUID
                     ];
                     $added = true;
                 }

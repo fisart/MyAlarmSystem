@@ -19,8 +19,7 @@
                 { "caption": "Variable", "name": "VariableID", "width": "250px", "add": 0, "edit": { "type": "SelectVariable" } },
                 { "caption": "Op", "name": "Operator", "width": "70px", "add": 0, "edit": { "type": "Select", "options": [ { "caption": "=", "value": 0 }, { "caption": "!=", "value": 1 }, { "caption": ">", "value": 2 }, { "caption": "<", "value": 3 }, { "caption": ">=", "value": 4 }, { "caption": "<=", "value": 5 } ] } },
                 { "caption": "Value", "name": "ComparisonValue", "width": "80px", "add": "1", "edit": { "type": "ValidationTextBox" } },
-                { "caption": "CID", "name": "ClassID", "width": "0px", "add": "", "visible": false, "edit": { "type": "ValidationTextBox" } },
-                { "caption": "Assigned Class", "name": "Tag", "width": "150px", "add": "NewClass", "edit": { "type": "ValidationTextBox" } }
+                { "caption": "Assigned Class", "name": "ClassID", "width": "200px", "add": "", "edit": { "type": "Select", "options": [] } }
             ]
         },
         { "type": "Label", "caption": "3. GROUP DEFINITIONS (Output Container)" },
@@ -28,15 +27,14 @@
             "type": "List", "name": "GroupList", "caption": "Step A: Create Groups", "rowCount": 3, "add": true, "delete": true,
             "columns": [
                 { "caption": "Group Name", "name": "GroupName", "width": "300px", "add": "AlarmGroup", "edit": { "type": "ValidationTextBox" } },
-                { "caption": "Logic (for Members below)", "name": "GroupLogic", "width": "150px", "add": 0, "edit": { "type": "Select", "options": [ { "caption": "OR (Any Member)", "value": 0 }, { "caption": "AND (All Members)", "value": 1 } ] } }
+                { "caption": "Logic", "name": "GroupLogic", "width": "150px", "add": 0, "edit": { "type": "Select", "options": [ { "caption": "OR (Any Member)", "value": 0 }, { "caption": "AND (All Members)", "value": 1 } ] } }
             ]
         },
         {
             "type": "List", "name": "GroupMembers", "caption": "Step B: Assign Classes to Groups", "rowCount": 5, "add": true, "delete": true,
             "columns": [
                 { "caption": "Select Group", "name": "GroupName", "width": "250px", "add": "", "edit": { "type": "Select", "options": [] } },
-                { "caption": "CID", "name": "ClassID", "width": "0px", "add": "", "visible": false, "edit": { "type": "ValidationTextBox" } },
-                { "caption": "Select Class", "name": "ClassName", "width": "250px", "add": "", "edit": { "type": "Select", "options": [] } }
+                { "caption": "Select Class", "name": "ClassID", "width": "250px", "add": "", "edit": { "type": "Select", "options": [] } }
             ]
         },
         { "type": "ExpansionPanel", "caption": "Sabotage / Tamper", "items": [
