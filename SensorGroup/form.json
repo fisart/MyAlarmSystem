@@ -2,26 +2,12 @@
     "elements": [
         {
             "type": "Label",
-            "caption": "1. GLOBAL STRATEGY (Aggregation)"
-        },
-        {
-            "type": "Select",
-            "name": "AggregationMode",
-            "caption": "Aggregation Mode",
-            "options": [
-                { "caption": "ANY Class (OR) - Alarm if 1+ Class Active", "value": 0 },
-                { "caption": "ALL Classes (AND) - Alarm if ALL Classes Active", "value": 1 },
-                { "caption": "MULTI-CLASS - Alarm if 2+ Distinct Classes Active", "value": 2 }
-            ]
-        },
-        {
-            "type": "Label",
-            "caption": "2. CLASS DEFINITIONS (Zones & Logic)"
+            "caption": "1. CLASS DEFINITIONS (Zones & Logic)"
         },
         {
             "type": "List",
             "name": "ClassList",
-            "caption": "Define your Classes here (e.g., 'Homematic', 'Shelly')",
+            "caption": "Define your Classes (e.g., 'Homematic', 'Shelly')",
             "rowCount": 5,
             "add": true,
             "delete": true,
@@ -65,12 +51,7 @@
         },
         {
             "type": "Label",
-            "caption": "3. SENSOR INPUTS (Mapped to Classes)"
-        },
-        {
-            "type": "Button",
-            "caption": "Sort / Group by Class",
-            "onClick": "MYALARM_UI_SortMainList($id);"
+            "caption": "2. SENSOR INPUTS (Mapped to Classes)"
         },
         {
             "type": "List",
@@ -85,23 +66,6 @@
                 { "caption": "Op", "name": "Operator", "width": "70px", "add": 0, "edit": { "type": "Select", "options": [ { "caption": "=", "value": 0 }, { "caption": "!=", "value": 1 }, { "caption": ">", "value": 2 }, { "caption": "<", "value": 3 }, { "caption": ">=", "value": 4 }, { "caption": "<=", "value": 5 } ] } },
                 { "caption": "Value", "name": "ComparisonValue", "width": "80px", "add": "1", "edit": { "type": "ValidationTextBox" } },
                 { "caption": "Assigned Class", "name": "Tag", "width": "150px", "add": "NewClass", "edit": { "type": "ValidationTextBox" } }
-            ]
-        },
-        {
-            "type": "ExpansionPanel",
-            "caption": "Sabotage / Tamper",
-            "items": [
-                {
-                    "type": "List",
-                    "name": "TamperList",
-                    "caption": "Tamper Sensors",
-                    "add": true,
-                    "delete": true,
-                    "columns": [
-                        { "caption": "Variable", "name": "VariableID", "width": "400px", "add": 0, "edit": { "type": "SelectVariable" } },
-                        { "caption": "Invert", "name": "Invert", "width": "100px", "add": false, "edit": { "type": "CheckBox" } }
-                    ]
-                }
             ]
         },
         {
@@ -138,6 +102,64 @@
                         { "type": "Button", "caption": "Select All", "onClick": "MYALARM_UI_SelectAll($id);" },
                         { "type": "Button", "caption": "Select None", "onClick": "MYALARM_UI_SelectNone($id);" },
                         { "type": "Button", "caption": "ADD SELECTED", "onClick": "MYALARM_UI_Import($id, $ImportClass);" }
+                    ]
+                }
+            ]
+        },
+        {
+            "type": "Label",
+            "caption": "3. GROUP DEFINITIONS (Output Logic)"
+        },
+        {
+            "type": "List",
+            "name": "GroupList",
+            "caption": "Define Groups (Combinations of Classes)",
+            "rowCount": 3,
+            "add": true,
+            "delete": true,
+            "columns": [
+                {
+                    "caption": "Group Name (Output)",
+                    "name": "GroupName",
+                    "width": "200px",
+                    "add": "AlarmGroup",
+                    "edit": { "type": "ValidationTextBox" }
+                },
+                {
+                    "caption": "Included Classes (comma separated)",
+                    "name": "Classes",
+                    "width": "250px",
+                    "add": "",
+                    "edit": { "type": "ValidationTextBox" }
+                },
+                {
+                    "caption": "Logic",
+                    "name": "GroupLogic",
+                    "width": "100px",
+                    "add": 0,
+                    "edit": {
+                        "type": "Select",
+                        "options": [
+                            { "caption": "OR (Any Class)", "value": 0 },
+                            { "caption": "AND (All Classes)", "value": 1 }
+                        ]
+                    }
+                }
+            ]
+        },
+        {
+            "type": "ExpansionPanel",
+            "caption": "Sabotage / Tamper",
+            "items": [
+                {
+                    "type": "List",
+                    "name": "TamperList",
+                    "caption": "Tamper Sensors",
+                    "add": true,
+                    "delete": true,
+                    "columns": [
+                        { "caption": "Variable", "name": "VariableID", "width": "400px", "add": 0, "edit": { "type": "SelectVariable" } },
+                        { "caption": "Invert", "name": "Invert", "width": "100px", "add": false, "edit": { "type": "CheckBox" } }
                     ]
                 }
             ]
