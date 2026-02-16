@@ -9,7 +9,11 @@ class SensorGroup extends IPSModule
         parent::Create();
         $this->RegisterPropertyString('ClassList', '[]');
         $this->RegisterPropertyString('SensorList', '[]');
-        $this->RegisterPropertyString('GroupList', '[]');
+
+        // Split Group Config
+        $this->RegisterPropertyString('GroupList', '[]'); // Definitions
+        $this->RegisterPropertyString('GroupMembers', '[]'); // Assignments
+
         $this->RegisterPropertyString('TamperList', '[]');
         $this->RegisterPropertyBoolean('MaintenanceMode', false);
         $this->RegisterAttributeString('ClassStateAttribute', '{}');
@@ -33,26 +37,16 @@ class SensorGroup extends IPSModule
         $groupList = json_decode($this->ReadPropertyString('GroupList'), true);
         $keepIdents = ['Status', 'Sabotage', 'EventData'];
 
-        // AGGREGATION: Collect unique group names first
-        $uniqueGroups = [];
         if (is_array($groupList)) {
+            $pos = 20;
             foreach ($groupList as $group) {
-                $name = $group['GroupName'];
-                if (!empty($name) && !in_array($name, $uniqueGroups)) {
-                    $uniqueGroups[] = $name;
-                }
+                if (empty($group['GroupName'])) continue;
+                $cleanName = $this->SanitizeIdent($group['GroupName']);
+                $ident = "Status_" . $cleanName;
+                $this->RegisterVariableBoolean($ident, "Status (" . $group['GroupName'] . ")", "~Alert", $pos++);
+                $keepIdents[] = $ident;
             }
         }
-
-        // Create Variables for Unique Groups
-        $pos = 20;
-        foreach ($uniqueGroups as $gName) {
-            $cleanName = $this->SanitizeIdent($gName);
-            $ident = "Status_" . $cleanName;
-            $this->RegisterVariableBoolean($ident, "Status (" . $gName . ")", "~Alert", $pos++);
-            $keepIdents[] = $ident;
-        }
-
         $children = IPS_GetChildrenIDs($this->InstanceID);
         foreach ($children as $child) {
             $obj = IPS_GetObject($child);
@@ -136,7 +130,9 @@ class SensorGroup extends IPSModule
         $classList = json_decode($this->ReadPropertyString('ClassList'), true);
         $sensorList = json_decode($this->ReadPropertyString('SensorList'), true);
         $tamperList = json_decode($this->ReadPropertyString('TamperList'), true);
+
         $groupList = json_decode($this->ReadPropertyString('GroupList'), true);
+        $groupMembers = json_decode($this->ReadPropertyString('GroupMembers'), true);
 
         $classStates = json_decode($this->ReadAttributeString('ClassStateAttribute'), true);
         if (!is_array($classStates)) $classStates = [];
@@ -205,30 +201,37 @@ class SensorGroup extends IPSModule
         }
         $this->WriteAttributeString('ClassStateAttribute', json_encode($classStates));
 
-        // GROUP LOGIC (NEW: Aggregation)
+        // JOIN GROUP DEFINITIONS AND MEMBERS
         $primaryPayload = null;
         $mainStatus = false;
 
-        // 1. Merge Rows by Group Name
         $mergedGroups = [];
+        // 1. Initialize Groups
         if (is_array($groupList)) {
             foreach ($groupList as $row) {
                 $name = $row['GroupName'];
                 if (empty($name)) continue;
-                if (!isset($mergedGroups[$name])) {
-                    $mergedGroups[$name] = [
-                        'Classes' => [],
-                        'Logic' => $row['GroupLogic'] // First row defines logic
-                    ];
+                $mergedGroups[$name] = [
+                    'Classes' => [],
+                    'Logic' => $row['GroupLogic']
+                ];
+            }
+        }
+        // 2. Add Members
+        if (is_array($groupMembers)) {
+            foreach ($groupMembers as $mem) {
+                $gName = $mem['GroupName'];
+                $cName = $mem['ClassName'];
+                if (isset($mergedGroups[$gName])) {
+                    $mergedGroups[$gName]['Classes'][] = $cName;
                 }
-                $mergedGroups[$name]['Classes'][] = $row['Classes'];
             }
         }
 
-        // 2. Evaluate Merged Groups
+        // 3. Evaluate
         $firstGroupProcessed = false;
         foreach ($mergedGroups as $gName => $gData) {
-            $gClasses = $gData['Classes']; // Array of Class Names
+            $gClasses = $gData['Classes'];
             $gLogic = $gData['Logic'];
 
             $activeClassCount = 0;
@@ -306,6 +309,8 @@ class SensorGroup extends IPSModule
     public function GetConfigurationForm()
     {
         $form = json_decode(file_get_contents(__DIR__ . '/form.json'), true);
+
+        // 1. Prepare Class Options
         $definedClasses = json_decode($this->ReadPropertyString('ClassList'), true);
         $classOptions = [];
         if (is_array($definedClasses)) {
@@ -315,17 +320,28 @@ class SensorGroup extends IPSModule
         }
         if (count($classOptions) == 0) $classOptions[] = ['caption' => '- No Classes -', 'value' => ''];
 
+        // 2. Prepare Group Options (from GroupList property)
+        $definedGroups = json_decode($this->ReadPropertyString('GroupList'), true);
+        $groupOptions = [];
+        if (is_array($definedGroups)) {
+            foreach ($definedGroups as $g) {
+                if (!empty($g['GroupName'])) $groupOptions[] = ['caption' => $g['GroupName'], 'value' => $g['GroupName']];
+            }
+        }
+        if (count($groupOptions) == 0) $groupOptions[] = ['caption' => '- Save Group First -', 'value' => ''];
+
+        // 3. Inject Options
+        // Wizard (Classes)
         $this->UpdateFormOption($form['elements'], 'ImportClass', $classOptions);
         if (isset($form['actions'])) $this->UpdateFormOption($form['actions'], 'ImportClass', $classOptions);
 
-        // NEW: Inject options into GroupList -> Classes column
-        // GroupList is in elements, index depends on layout. We search by name "GroupList"
-        $this->UpdateListColumnOption($form['elements'], 'GroupList', 'Classes', $classOptions);
+        // Member List (Groups & Classes)
+        $this->UpdateListColumnOption($form['elements'], 'GroupMembers', 'GroupName', $groupOptions);
+        $this->UpdateListColumnOption($form['elements'], 'GroupMembers', 'ClassName', $classOptions);
 
         return json_encode($form);
     }
 
-    // Helper to update List Columns Options
     private function UpdateListColumnOption(&$elements, $listName, $columnName, $options)
     {
         foreach ($elements as &$element) {

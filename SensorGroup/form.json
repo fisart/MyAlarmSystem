@@ -21,13 +21,19 @@
                 { "caption": "Assigned Class", "name": "Tag", "width": "150px", "add": "NewClass", "edit": { "type": "ValidationTextBox" } }
             ]
         },
-        { "type": "Label", "caption": "3. GROUP DEFINITIONS (Output Logic)" },
+        { "type": "Label", "caption": "3. GROUP DEFINITIONS (Output Container)" },
         {
-            "type": "List", "name": "GroupList", "caption": "Groups (Add multiple rows with same Group Name to combine classes)", "rowCount": 5, "add": true, "delete": true,
+            "type": "List", "name": "GroupList", "caption": "Step A: Create Groups", "rowCount": 3, "add": true, "delete": true,
             "columns": [
-                { "caption": "Group Name", "name": "GroupName", "width": "200px", "add": "AlarmGroup", "edit": { "type": "ValidationTextBox" } },
-                { "caption": "Included Class", "name": "Classes", "width": "250px", "add": "", "edit": { "type": "Select", "options": [] } },
-                { "caption": "Logic", "name": "GroupLogic", "width": "100px", "add": 0, "edit": { "type": "Select", "options": [ { "caption": "OR", "value": 0 }, { "caption": "AND", "value": 1 } ] } }
+                { "caption": "Group Name", "name": "GroupName", "width": "300px", "add": "AlarmGroup", "edit": { "type": "ValidationTextBox" } },
+                { "caption": "Logic (for Members below)", "name": "GroupLogic", "width": "150px", "add": 0, "edit": { "type": "Select", "options": [ { "caption": "OR (Any Member)", "value": 0 }, { "caption": "AND (All Members)", "value": 1 } ] } }
+            ]
+        },
+        {
+            "type": "List", "name": "GroupMembers", "caption": "Step B: Assign Classes to Groups", "rowCount": 5, "add": true, "delete": true,
+            "columns": [
+                { "caption": "Select Group", "name": "GroupName", "width": "250px", "add": "", "edit": { "type": "Select", "options": [] } },
+                { "caption": "Select Class", "name": "ClassName", "width": "250px", "add": "", "edit": { "type": "Select", "options": [] } }
             ]
         },
         { "type": "ExpansionPanel", "caption": "Sabotage / Tamper", "items": [
