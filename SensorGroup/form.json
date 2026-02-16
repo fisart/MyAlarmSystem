@@ -23,10 +23,10 @@
         },
         { "type": "Label", "caption": "3. GROUP DEFINITIONS (Output Logic)" },
         {
-            "type": "List", "name": "GroupList", "caption": "Groups", "rowCount": 3, "add": true, "delete": true,
+            "type": "List", "name": "GroupList", "caption": "Groups (Add multiple rows with same Group Name to combine classes)", "rowCount": 5, "add": true, "delete": true,
             "columns": [
                 { "caption": "Group Name", "name": "GroupName", "width": "200px", "add": "AlarmGroup", "edit": { "type": "ValidationTextBox" } },
-                { "caption": "Included Classes", "name": "Classes", "width": "250px", "add": "", "edit": { "type": "ValidationTextBox" } },
+                { "caption": "Included Class", "name": "Classes", "width": "250px", "add": "", "edit": { "type": "Select", "options": [] } },
                 { "caption": "Logic", "name": "GroupLogic", "width": "100px", "add": 0, "edit": { "type": "Select", "options": [ { "caption": "OR", "value": 0 }, { "caption": "AND", "value": 1 } ] } }
             ]
         },

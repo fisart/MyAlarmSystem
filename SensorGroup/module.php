@@ -33,15 +33,26 @@ class SensorGroup extends IPSModule
         $groupList = json_decode($this->ReadPropertyString('GroupList'), true);
         $keepIdents = ['Status', 'Sabotage', 'EventData'];
 
+        // AGGREGATION: Collect unique group names first
+        $uniqueGroups = [];
         if (is_array($groupList)) {
-            $pos = 20;
             foreach ($groupList as $group) {
-                $cleanName = $this->SanitizeIdent($group['GroupName']);
-                $ident = "Status_" . $cleanName;
-                $this->RegisterVariableBoolean($ident, "Status (" . $group['GroupName'] . ")", "~Alert", $pos++);
-                $keepIdents[] = $ident;
+                $name = $group['GroupName'];
+                if (!empty($name) && !in_array($name, $uniqueGroups)) {
+                    $uniqueGroups[] = $name;
+                }
             }
         }
+
+        // Create Variables for Unique Groups
+        $pos = 20;
+        foreach ($uniqueGroups as $gName) {
+            $cleanName = $this->SanitizeIdent($gName);
+            $ident = "Status_" . $cleanName;
+            $this->RegisterVariableBoolean($ident, "Status (" . $gName . ")", "~Alert", $pos++);
+            $keepIdents[] = $ident;
+        }
+
         $children = IPS_GetChildrenIDs($this->InstanceID);
         foreach ($children as $child) {
             $obj = IPS_GetObject($child);
@@ -194,33 +205,57 @@ class SensorGroup extends IPSModule
         }
         $this->WriteAttributeString('ClassStateAttribute', json_encode($classStates));
 
+        // GROUP LOGIC (NEW: Aggregation)
         $primaryPayload = null;
         $mainStatus = false;
+
+        // 1. Merge Rows by Group Name
+        $mergedGroups = [];
         if (is_array($groupList)) {
-            foreach ($groupList as $index => $group) {
-                $gName = $group['GroupName'];
-                $gClasses = array_map('trim', explode(',', $group['Classes']));
-                $gLogic = $group['GroupLogic'];
-                $activeClassCount = 0;
-                $targetClassCount = 0;
-                foreach ($gClasses as $reqClass) {
-                    if ($reqClass === "") continue;
-                    $targetClassCount++;
-                    if (isset($activeClasses[$reqClass])) {
-                        $activeClassCount++;
-                        if ($primaryPayload === null) $primaryPayload = $activeClasses[$reqClass];
-                    }
+            foreach ($groupList as $row) {
+                $name = $row['GroupName'];
+                if (empty($name)) continue;
+                if (!isset($mergedGroups[$name])) {
+                    $mergedGroups[$name] = [
+                        'Classes' => [],
+                        'Logic' => $row['GroupLogic'] // First row defines logic
+                    ];
                 }
-                $groupActive = false;
-                if ($targetClassCount > 0) {
-                    if ($gLogic == 0) $groupActive = ($activeClassCount > 0);
-                    elseif ($gLogic == 1) $groupActive = ($activeClassCount == $targetClassCount);
-                }
-                $ident = "Status_" . $this->SanitizeIdent($gName);
-                if (@$this->GetIDForIdent($ident)) $this->SetValue($ident, $groupActive);
-                if ($index === 0) $mainStatus = $groupActive;
+                $mergedGroups[$name]['Classes'][] = $row['Classes'];
             }
         }
+
+        // 2. Evaluate Merged Groups
+        $firstGroupProcessed = false;
+        foreach ($mergedGroups as $gName => $gData) {
+            $gClasses = $gData['Classes']; // Array of Class Names
+            $gLogic = $gData['Logic'];
+
+            $activeClassCount = 0;
+            $targetClassCount = count($gClasses);
+
+            foreach ($gClasses as $reqClass) {
+                if (isset($activeClasses[$reqClass])) {
+                    $activeClassCount++;
+                    if ($primaryPayload === null) $primaryPayload = $activeClasses[$reqClass];
+                }
+            }
+
+            $groupActive = false;
+            if ($targetClassCount > 0) {
+                if ($gLogic == 0) $groupActive = ($activeClassCount > 0);
+                elseif ($gLogic == 1) $groupActive = ($activeClassCount == $targetClassCount);
+            }
+
+            $ident = "Status_" . $this->SanitizeIdent($gName);
+            if (@$this->GetIDForIdent($ident)) $this->SetValue($ident, $groupActive);
+
+            if (!$firstGroupProcessed) {
+                $mainStatus = $groupActive;
+                $firstGroupProcessed = true;
+            }
+        }
+
         $this->SetValue('Status', $mainStatus);
 
         if ($mainStatus && $primaryPayload) {
@@ -279,9 +314,31 @@ class SensorGroup extends IPSModule
             }
         }
         if (count($classOptions) == 0) $classOptions[] = ['caption' => '- No Classes -', 'value' => ''];
+
         $this->UpdateFormOption($form['elements'], 'ImportClass', $classOptions);
         if (isset($form['actions'])) $this->UpdateFormOption($form['actions'], 'ImportClass', $classOptions);
+
+        // NEW: Inject options into GroupList -> Classes column
+        // GroupList is in elements, index depends on layout. We search by name "GroupList"
+        $this->UpdateListColumnOption($form['elements'], 'GroupList', 'Classes', $classOptions);
+
         return json_encode($form);
+    }
+
+    // Helper to update List Columns Options
+    private function UpdateListColumnOption(&$elements, $listName, $columnName, $options)
+    {
+        foreach ($elements as &$element) {
+            if (isset($element['name']) && $element['name'] === $listName && isset($element['columns'])) {
+                foreach ($element['columns'] as &$col) {
+                    if ($col['name'] === $columnName && isset($col['edit']['type']) && $col['edit']['type'] === 'Select') {
+                        $col['edit']['options'] = $options;
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
     }
 
     private function UpdateFormOption(&$elements, $name, $options)
@@ -372,5 +429,21 @@ class SensorGroup extends IPSModule
         $this->WriteAttributeString('ScanCache', '[]');
         $this->UpdateFormField('ImportCandidates', 'values', json_encode([]));
         $this->UpdateFormField('ImportCandidates', 'visible', false);
+    }
+
+    public function UI_FilterWizard(string $FilterText)
+    {
+        $fullList = json_decode($this->ReadAttributeString('ScanCache'), true);
+        if (!is_array($fullList)) return;
+        $filtered = [];
+        if (trim($FilterText) == "") $filtered = $fullList;
+        else {
+            foreach ($fullList as $row) {
+                if (is_array($row) && (stripos($row['Name'], $FilterText) !== false || stripos((string)$row['VariableID'], $FilterText) !== false)) {
+                    $filtered[] = $row;
+                }
+            }
+        }
+        $this->UpdateFormField('ImportCandidates', 'values', json_encode($filtered));
     }
 }
