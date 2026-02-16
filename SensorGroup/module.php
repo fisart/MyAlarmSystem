@@ -8,19 +8,30 @@ class SensorGroup extends IPSModule
     {
         parent::Create();
 
-        // 1. Properties
-        $this->RegisterPropertyString('AlarmClassList', '[]');
-        $this->RegisterPropertyInteger('LogicMode', 0);
-        $this->RegisterPropertyInteger('TriggerThreshold', 1);
-        $this->RegisterPropertyInteger('TimeWindow', 10);
+        // --- LEVEL 1: GLOBAL AGGREGATION ---
+        // 0 = Any Class (OR), 1 = All Classes (AND), 2 = Correlation (>= 2 Classes)
+        $this->RegisterPropertyInteger('AggregationMode', 0);
+        $this->RegisterPropertyInteger('CorrelationWindow', 0); // Reserved for future advanced correlation
+
+        // --- LEVEL 2: CLASS DEFINITIONS (The "Buckets") ---
+        // Columns: ClassName, LogicMode (0=OR, 1=AND, 2=COUNT), Threshold, TimeWindow
+        $this->RegisterPropertyString('ClassList', '[]');
+
+        // --- LEVEL 3: SENSOR INPUTS ---
+        // Columns: VariableID, Operator, Value, Tag (Link to ClassName)
         $this->RegisterPropertyString('SensorList', '[]');
         $this->RegisterPropertyString('TamperList', '[]');
         $this->RegisterPropertyBoolean('MaintenanceMode', false);
 
-        // 2. Attributes & Output
-        $this->RegisterAttributeString('EventBuffer', '[]');
-        $this->RegisterAttributeString('ScanCache', '[]'); // <--- NEW: For the Wizard
+        // --- INTERNAL MEMORY ---
+        // Stores the state and event buffers for EACH Class separately
+        // Structure: { "ClassName": { "Active": bool, "Buffer": [ts, ts] } }
+        $this->RegisterAttributeString('ClassStateAttribute', '{}');
 
+        // Cache for Wizard
+        $this->RegisterAttributeString('ScanCache', '[]');
+
+        // --- OUTPUTS ---
         $this->RegisterVariableBoolean('Status', 'Status', '~Alert', 10);
         $this->RegisterVariableBoolean('Sabotage', 'Sabotage', '~Alert', 20);
         $this->RegisterVariableString('EventData', 'Event Payload', '', 30);
@@ -31,13 +42,13 @@ class SensorGroup extends IPSModule
     {
         parent::ApplyChanges();
 
-        // Clean Message Registration
+        // Unregister everything first
         $messages = $this->GetMessageList();
         foreach ($messages as $senderID => $messageList) {
             $this->UnregisterMessage($senderID, VM_UPDATE);
         }
 
-        // Register Main Sensors
+        // Register Sensors
         $sensorList = json_decode($this->ReadPropertyString('SensorList'), true);
         if (is_array($sensorList)) {
             foreach ($sensorList as $row) {
@@ -47,7 +58,7 @@ class SensorGroup extends IPSModule
             }
         }
 
-        // Register Tamper Sensors
+        // Register Tamper
         $tamperList = json_decode($this->ReadPropertyString('TamperList'), true);
         if (is_array($tamperList)) {
             foreach ($tamperList as $row) {
@@ -55,6 +66,11 @@ class SensorGroup extends IPSModule
                     $this->RegisterMessage($row['VariableID'], VM_UPDATE);
                 }
             }
+        }
+
+        // Initialize Class States if empty
+        if ($this->ReadAttributeString('ClassStateAttribute') == '') {
+            $this->WriteAttributeString('ClassStateAttribute', '{}');
         }
 
         $this->CheckLogic();
@@ -65,14 +81,20 @@ class SensorGroup extends IPSModule
         $this->CheckLogic($SenderID);
     }
 
-    // --- LOGIC ENGINE ---
+    // --- THE FUNNEL LOGIC ENGINE ---
     private function CheckLogic($TriggeringID = 0)
     {
+        // Load Configuration
+        $classList = json_decode($this->ReadPropertyString('ClassList'), true);
         $sensorList = json_decode($this->ReadPropertyString('SensorList'), true);
         $tamperList = json_decode($this->ReadPropertyString('TamperList'), true);
-        $mode = $this->ReadPropertyInteger('LogicMode');
+        $aggMode = $this->ReadPropertyInteger('AggregationMode');
 
-        // 1. Sabotage Check
+        // Load Internal State (Buffers)
+        $classStates = json_decode($this->ReadAttributeString('ClassStateAttribute'), true);
+        if (!is_array($classStates)) $classStates = [];
+
+        // 1. SABOTAGE CHECK (Global Priority)
         $sabotageActive = false;
         if (is_array($tamperList)) {
             foreach ($tamperList as $row) {
@@ -88,71 +110,124 @@ class SensorGroup extends IPSModule
         }
         $this->SetValue('Sabotage', $sabotageActive);
 
-        // 2. Main Sensor Check
-        $activeCount = 0;
-        $totalSensors = is_array($sensorList) ? count($sensorList) : 0;
-        $triggerDetails = null;
+        // 2. CLASS EVALUATION (Level 2)
+        $activeClasses = []; // List of names of currently active classes
+        $triggerDetails = null; // Info about what caused the check
 
-        if (is_array($sensorList)) {
-            foreach ($sensorList as $row) {
-                $id = $row['VariableID'];
-                if (!$id || !IPS_VariableExists($id)) continue;
+        if (is_array($classList)) {
+            foreach ($classList as $classDef) {
+                $className = $classDef['ClassName'];
+                $logicMode = $classDef['LogicMode']; // 0=OR, 1=AND, 2=COUNT
 
-                $currentVal = GetValue($id);
-                $operator = $row['Operator'];
-                $targetVal = $row['ComparisonValue'];
+                // Get State Memory for this class
+                if (!isset($classStates[$className])) {
+                    $classStates[$className] = ['Buffer' => []];
+                }
 
-                if ($this->EvaluateRule($currentVal, $operator, $targetVal)) {
-                    $activeCount++;
-                    if ($triggerDetails === null || $id == $TriggeringID) {
-                        $triggerDetails = [
-                            'variable_id' => $id,
-                            'value' => $currentVal,
-                            'tag' => $row['Tag'] ?? 'General'
-                        ];
+                // Filter sensors belonging to this class
+                $classSensors = [];
+                if (is_array($sensorList)) {
+                    foreach ($sensorList as $sensor) {
+                        if (($sensor['Tag'] ?? '') === $className) {
+                            $classSensors[] = $sensor;
+                        }
                     }
                 }
+
+                // Evaluate Sensors for this Class
+                $activeSensorCount = 0;
+                $totalClassSensors = count($classSensors);
+                $triggerInClass = false; // Did the TriggeringID belong to this class?
+
+                foreach ($classSensors as $sensor) {
+                    $id = $sensor['VariableID'];
+                    if (!$id || !IPS_VariableExists($id)) continue;
+
+                    $val = GetValue($id);
+                    $match = $this->EvaluateRule($val, $sensor['Operator'], $sensor['ComparisonValue']);
+
+                    if ($match) {
+                        $activeSensorCount++;
+                        if ($id == $TriggeringID) {
+                            $triggerInClass = true;
+                            // Capture details for payload
+                            if ($triggerDetails === null) {
+                                $triggerDetails = ['variable_id' => $id, 'value' => $val, 'tag' => $className];
+                            }
+                        }
+                    }
+                }
+
+                // Determine Class Status based on Logic Mode
+                $isClassActive = false;
+
+                if ($logicMode == 0) { // OR
+                    $isClassActive = ($activeSensorCount > 0);
+                } elseif ($logicMode == 1) { // AND
+                    $isClassActive = ($totalClassSensors > 0 && $activeSensorCount == $totalClassSensors);
+                } elseif ($logicMode == 2) { // COUNT
+                    // Get Buffer
+                    $buffer = $classStates[$className]['Buffer'] ?? [];
+                    $window = $classDef['TimeWindow'];
+                    $threshold = $classDef['Threshold'];
+                    $now = time();
+
+                    // Clean Buffer
+                    $buffer = array_filter($buffer, function ($ts) use ($now, $window) {
+                        return ($now - $ts) <= $window;
+                    });
+
+                    // Add Event if this class was triggered
+                    // Note: We only count if the specific sensor triggering this update belongs to this class
+                    // AND that sensor is actually in a triggered state.
+                    if ($triggerInClass && $TriggeringID > 0) {
+                        $buffer[] = $now;
+                    }
+
+                    // Check Threshold
+                    if (count($buffer) >= $threshold) {
+                        $isClassActive = true;
+                        // If this count triggered it, update payload tag to be specific
+                        if ($triggerInClass) $triggerDetails['tag'] = "$className (Count Met)";
+                    }
+
+                    // Save Buffer back to memory
+                    $classStates[$className]['Buffer'] = array_values($buffer);
+                }
+
+                if ($isClassActive) {
+                    $activeClasses[] = $className;
+                }
             }
         }
 
-        // 3. Group Logic Processing
-        $alarmState = false;
-        if ($mode == 0) { // OR
-            $alarmState = ($activeCount > 0);
-        } elseif ($mode == 1) { // AND
-            $alarmState = ($totalSensors > 0 && $activeCount == $totalSensors);
-        } elseif ($mode == 2) { // COUNT
-            if ($activeCount > 0) {
-                $buffer = json_decode($this->ReadAttributeString('EventBuffer'), true);
-                if (!is_array($buffer)) $buffer = [];
+        // Save states
+        $this->WriteAttributeString('ClassStateAttribute', json_encode($classStates));
 
-                $window = $this->ReadPropertyInteger('TimeWindow');
-                $now = time();
-                $buffer = array_filter($buffer, function ($ts) use ($now, $window) {
-                    return ($now - $ts) <= $window;
-                });
+        // 3. GLOBAL AGGREGATION (Level 1)
+        $moduleAlarmState = false;
+        $countActive = count($activeClasses);
+        $countDefined = is_array($classList) ? count($classList) : 0;
 
-                if ($TriggeringID > 0) {
-                    $buffer[] = $now;
-                }
-
-                $this->WriteAttributeString('EventBuffer', json_encode(array_values($buffer)));
-
-                if (count($buffer) >= $this->ReadPropertyInteger('TriggerThreshold')) {
-                    $alarmState = true;
-                    $triggerDetails['tag'] = "Count Threshold Met";
-                }
-            } else {
-                $alarmState = false;
-            }
+        if ($aggMode == 0) { // OR (Any Class)
+            $moduleAlarmState = ($countActive > 0);
+        } elseif ($aggMode == 1) { // AND (All Classes)
+            $moduleAlarmState = ($countDefined > 0 && $countActive == $countDefined);
+        } elseif ($aggMode == 2) { // MULTI-CLASS (Correlation)
+            // Triggers if at least 2 DISTINCT classes are active
+            $moduleAlarmState = ($countActive >= 2);
         }
 
-        // 4. Update Status and Payload
+        // 4. OUTPUT
         $oldState = $this->GetValue('Status');
-        if ($alarmState != $oldState || ($alarmState && $TriggeringID > 0)) {
-            $this->SetValue('Status', $alarmState);
-            if ($alarmState) {
-                $this->UpdatePayload($triggerDetails);
+        if ($moduleAlarmState != $oldState || ($moduleAlarmState && $TriggeringID > 0)) {
+            $this->SetValue('Status', $moduleAlarmState);
+            if ($moduleAlarmState) {
+                // If Multi-Class, the tag should reflect that
+                if ($aggMode == 2 && count($activeClasses) > 1) {
+                    $triggerDetails['tag'] = "Multi-Class: " . implode(' + ', $activeClasses);
+                }
+                $this->UpdatePayload($triggerDetails, $activeClasses);
             }
         }
     }
@@ -183,40 +258,42 @@ class SensorGroup extends IPSModule
         }
     }
 
-    private function UpdatePayload($details)
+    private function UpdatePayload($details, $activeClasses)
     {
-        $classes = json_decode($this->ReadPropertyString('AlarmClassList'), true);
-        $defaultClass = (is_array($classes) && count($classes) > 0) ? $classes[0]['ClassName'] : "General";
-        $finalClass = $details['tag'] ?? $defaultClass;
+        // Primary class is the one from the details, or the first active one
+        $primaryClass = $details['tag'] ?? ($activeClasses[0] ?? 'General');
 
         $payload = [
             'event_id' => uniqid(),
             'timestamp' => time(),
             'source_name' => IPS_GetName($this->InstanceID),
-            'alarm_class' => $finalClass,
+            'alarm_class' => $primaryClass,
+            'active_classes' => $activeClasses, // List of all currently active classes
             'is_maintenance' => $this->ReadPropertyBoolean('MaintenanceMode'),
             'trigger_details' => $details
         ];
         $this->SetValue('EventData', json_encode($payload));
     }
 
-    // --- CONFIGURATION FORM WIZARD (UI LOGIC) ---
+    // --- WIZARD UI LOGIC ---
 
     public function GetConfigurationForm()
     {
         $form = json_decode(file_get_contents(__DIR__ . '/form.json'), true);
 
-        $userClasses = json_decode($this->ReadPropertyString('AlarmClassList'), true);
+        // 1. Populate Class Options for Wizard
+        $definedClasses = json_decode($this->ReadPropertyString('ClassList'), true);
         $classOptions = [];
-        if (is_array($userClasses)) {
-            foreach ($userClasses as $c) {
+        if (is_array($definedClasses)) {
+            foreach ($definedClasses as $c) {
                 $classOptions[] = ['caption' => $c['ClassName'], 'value' => $c['ClassName']];
             }
         }
 
+        // Inject into Wizard Dropdown (ImportClass)
+        // Path: Elements -> ExpansionPanel (last) -> Items -> Select (ImportClass)
         $elements = &$form['elements'];
         $lastIndex = count($elements) - 2;
-
         if (isset($elements[$lastIndex]['items'])) {
             foreach ($elements[$lastIndex]['items'] as &$item) {
                 if (isset($item['name']) && $item['name'] === 'ImportClass') {
@@ -228,27 +305,16 @@ class SensorGroup extends IPSModule
         return json_encode($form);
     }
 
-    // FIXED: Strict Type (int) and using Cache
     public function UI_Scan(int $ImportRootID)
     {
         if ($ImportRootID <= 0) return;
-
         $candidates = [];
         $this->ScanRecursive($ImportRootID, $candidates);
-
         $values = [];
         foreach ($candidates as $id) {
-            $values[] = [
-                'VariableID' => $id,
-                'Name' => IPS_GetName($id),
-                'Selected' => false
-            ];
+            $values[] = ['VariableID' => $id, 'Name' => IPS_GetName($id), 'Selected' => false];
         }
-
-        // Save to Internal Cache
         $this->WriteAttributeString('ScanCache', json_encode($values));
-
-        // Update Form
         $this->UpdateFormField('ImportCandidates', 'values', json_encode($values));
         $this->UpdateFormField('ImportCandidates', 'visible', true);
     }
@@ -266,35 +332,29 @@ class SensorGroup extends IPSModule
         }
     }
 
-    // FIXED: No Arguments needed, reads from Cache
     public function UI_SelectAll()
     {
         $list = json_decode($this->ReadAttributeString('ScanCache'), true);
         if (is_array($list)) {
             foreach ($list as &$row) $row['Selected'] = true;
         }
-
         $this->WriteAttributeString('ScanCache', json_encode($list));
         $this->UpdateFormField('ImportCandidates', 'values', json_encode($list));
     }
 
-    // FIXED: No Arguments needed, reads from Cache
     public function UI_SelectNone()
     {
         $list = json_decode($this->ReadAttributeString('ScanCache'), true);
         if (is_array($list)) {
             foreach ($list as &$row) $row['Selected'] = false;
         }
-
         $this->WriteAttributeString('ScanCache', json_encode($list));
         $this->UpdateFormField('ImportCandidates', 'values', json_encode($list));
     }
 
-    // FIXED: Strict type (string), reads list from Cache
     public function UI_Import(string $TargetClass)
     {
         $candidates = json_decode($this->ReadAttributeString('ScanCache'), true);
-
         $currentRules = json_decode($this->ReadPropertyString('SensorList'), true);
         if (!is_array($currentRules)) $currentRules = [];
 
@@ -310,11 +370,8 @@ class SensorGroup extends IPSModule
                 }
             }
         }
-
         IPS_SetProperty($this->InstanceID, 'SensorList', json_encode($currentRules));
         IPS_ApplyChanges($this->InstanceID);
-
-        // Clear Wizard
         $this->WriteAttributeString('ScanCache', '[]');
         $this->UpdateFormField('ImportCandidates', 'values', json_encode([]));
         $this->UpdateFormField('ImportCandidates', 'visible', false);
