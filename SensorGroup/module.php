@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-class MYALARM_SensorGroup extends IPSModule
+class SensorGroup extends IPSModule
 {
     public function Create()
     {

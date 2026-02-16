@@ -1,6 +1,6 @@
 {
     "id": "{43FBB397-C412-41B2-192E-97054481316D}",
-    "name": "Sensor Group",
+    "name": "SensorGroup",
     "type": 3,
     "vendor": "MyAlarm",
     "aliases": ["Sensor Aggregator", "Universal Sensor"],
