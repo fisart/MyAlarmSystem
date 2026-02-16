@@ -24,7 +24,11 @@ class SensorGroup extends IPSModule
     public function ApplyChanges()
     {
         parent::ApplyChanges();
-
+        // --- DEBUG START ---
+        $rawList = $this->ReadPropertyString('ClassList');
+        $this->SendDebug('ApplyChanges', 'Incoming ClassList: ' . $rawList, 0);
+        IPS_LogMessage('SensorGroup', 'Incoming ClassList: ' . $rawList);
+        // --- DEBUG END ---
         // 1. LIFECYCLE: ID GENERATION
         $classList = json_decode($this->ReadPropertyString('ClassList'), true);
         $idsChanged = false;
