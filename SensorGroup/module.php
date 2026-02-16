@@ -299,52 +299,49 @@ class SensorGroup extends IPSModule
         }
     }
 
-    // Sync from UI (onEdit)
-    public function UI_SyncWizardList($ListValues)
-    {
-        // Safe Decode
-        if (is_string($ListValues)) $values = json_decode($ListValues, true);
-        else $values = json_decode(json_encode($ListValues), true);
-
-        // Only save if it looks like a valid list of arrays
-        if (is_array($values) && count($values) > 0 && isset($values[0]['VariableID'])) {
-            $this->WriteAttributeString('ScanCache', json_encode($values));
-        }
-    }
-
-    // FIXED: Added defensive checks to prevent scalar error
     public function UI_SelectAll()
     {
         $list = json_decode($this->ReadAttributeString('ScanCache'), true);
         if (is_array($list)) {
             foreach ($list as &$row) {
-                if (is_array($row)) $row['Selected'] = true; // Check is_array
+                if (is_array($row)) $row['Selected'] = true;
             }
         }
         $this->WriteAttributeString('ScanCache', json_encode($list));
         $this->UpdateFormField('ImportCandidates', 'values', json_encode($list));
     }
 
-    // FIXED: Added defensive checks
     public function UI_SelectNone()
     {
         $list = json_decode($this->ReadAttributeString('ScanCache'), true);
         if (is_array($list)) {
             foreach ($list as &$row) {
-                if (is_array($row)) $row['Selected'] = false; // Check is_array
+                if (is_array($row)) $row['Selected'] = false;
             }
         }
         $this->WriteAttributeString('ScanCache', json_encode($list));
         $this->UpdateFormField('ImportCandidates', 'values', json_encode($list));
     }
 
-    public function UI_Import(string $TargetClass)
+    // FIXED: Strict Data Normalization
+    public function UI_Import($ListValues, string $TargetClass)
     {
-        $candidates = json_decode($this->ReadAttributeString('ScanCache'), true);
+        $candidates = [];
 
+        // 1. Data Normalization (Handle String/JSON/Object/Array)
+        if (is_string($ListValues)) {
+            $candidates = json_decode($ListValues, true);
+        } elseif (is_object($ListValues)) {
+            $candidates = json_decode(json_encode($ListValues), true);
+        } elseif (is_array($ListValues)) {
+            $candidates = $ListValues;
+        }
+
+        // 2. Read existing rules
         $currentRules = json_decode($this->ReadPropertyString('SensorList'), true);
         if (!is_array($currentRules)) $currentRules = [];
 
+        // 3. Process new candidates
         $added = false;
         if (is_array($candidates)) {
             foreach ($candidates as $row) {
@@ -360,11 +357,16 @@ class SensorGroup extends IPSModule
             }
         }
 
+        // 4. Save and Refresh Visuals
         if ($added) {
             IPS_SetProperty($this->InstanceID, 'SensorList', json_encode($currentRules));
             IPS_ApplyChanges($this->InstanceID);
+
+            // Force the Main List to update on screen immediately
+            $this->UpdateFormField('SensorList', 'values', json_encode($currentRules));
         }
 
+        // 5. Cleanup
         $this->WriteAttributeString('ScanCache', '[]');
         $this->UpdateFormField('ImportCandidates', 'values', json_encode([]));
         $this->UpdateFormField('ImportCandidates', 'visible', false);
@@ -378,7 +380,6 @@ class SensorGroup extends IPSModule
         if (trim($FilterText) == "") $filtered = $fullList;
         else {
             foreach ($fullList as $row) {
-                // Defensive check here too
                 if (is_array($row) && (stripos($row['Name'], $FilterText) !== false || stripos((string)$row['VariableID'], $FilterText) !== false)) {
                     $filtered[] = $row;
                 }
