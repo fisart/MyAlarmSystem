@@ -91,7 +91,7 @@ class SensorGroup extends IPSModule
         // 2. Main Sensor Check
         $activeCount = 0;
         $totalSensors = is_array($sensorList) ? count($sensorList) : 0;
-        $triggerDetails = null; // Store info about the specific trigger
+        $triggerDetails = null;
 
         if (is_array($sensorList)) {
             foreach ($sensorList as $row) {
@@ -104,38 +104,34 @@ class SensorGroup extends IPSModule
 
                 if ($this->EvaluateRule($currentVal, $operator, $targetVal)) {
                     $activeCount++;
-                    // If this is the sensor that triggered the event, capture its details and Tag
                     if ($triggerDetails === null || $id == $TriggeringID) {
                         $triggerDetails = [
                             'variable_id' => $id,
                             'value' => $currentVal,
-                            'tag' => $row['Tag'] ?? 'General' // <--- Capture the Tag/Class
+                            'tag' => $row['Tag'] ?? 'General'
                         ];
                     }
                 }
             }
         }
 
-        // 3. Group Logic Processing (OR/AND/COUNT)
+        // 3. Group Logic Processing
         $alarmState = false;
         if ($mode == 0) { // OR
             $alarmState = ($activeCount > 0);
         } elseif ($mode == 1) { // AND
             $alarmState = ($totalSensors > 0 && $activeCount == $totalSensors);
         } elseif ($mode == 2) { // COUNT
-            // Count Logic: If active sensors > 0, we log a "hit"
             if ($activeCount > 0) {
                 $buffer = json_decode($this->ReadAttributeString('EventBuffer'), true);
                 if (!is_array($buffer)) $buffer = [];
 
-                // Clean old events
                 $window = $this->ReadPropertyInteger('TimeWindow');
                 $now = time();
                 $buffer = array_filter($buffer, function ($ts) use ($now, $window) {
                     return ($now - $ts) <= $window;
                 });
 
-                // Add new hit if this call was triggered by a message (not just manual apply)
                 if ($TriggeringID > 0) {
                     $buffer[] = $now;
                 }
@@ -144,15 +140,14 @@ class SensorGroup extends IPSModule
 
                 if (count($buffer) >= $this->ReadPropertyInteger('TriggerThreshold')) {
                     $alarmState = true;
-                    $triggerDetails['tag'] = "Count Threshold Met"; // Override tag for count events?
+                    $triggerDetails['tag'] = "Count Threshold Met";
                 }
             } else {
-                $alarmState = false; // Reset if no sensors active? Or latch? usually aggregators reset.
+                $alarmState = false;
             }
         }
 
         // 4. Update Status and Payload
-        // We update payload if state goes True OR if it's already True and a new distinct trigger happened
         $oldState = $this->GetValue('Status');
         if ($alarmState != $oldState || ($alarmState && $TriggeringID > 0)) {
             $this->SetValue('Status', $alarmState);
@@ -164,7 +159,6 @@ class SensorGroup extends IPSModule
 
     private function EvaluateRule($current, $operator, $target)
     {
-        // Type Casting
         if (is_bool($current)) {
             $target = ($target === 'true' || $target === '1' || $target === 1);
         } elseif (is_float($current) || is_int($current)) {
@@ -191,17 +185,15 @@ class SensorGroup extends IPSModule
 
     private function UpdatePayload($details)
     {
-        // Use the Tag from the specific sensor rule if available, otherwise default to first Class
         $classes = json_decode($this->ReadPropertyString('AlarmClassList'), true);
         $defaultClass = (is_array($classes) && count($classes) > 0) ? $classes[0]['ClassName'] : "General";
-
         $finalClass = $details['tag'] ?? $defaultClass;
 
         $payload = [
             'event_id' => uniqid(),
             'timestamp' => time(),
             'source_name' => IPS_GetName($this->InstanceID),
-            'alarm_class' => $finalClass, // <--- Using the dynamic tag
+            'alarm_class' => $finalClass,
             'is_maintenance' => $this->ReadPropertyBoolean('MaintenanceMode'),
             'trigger_details' => $details
         ];
@@ -214,7 +206,6 @@ class SensorGroup extends IPSModule
     {
         $form = json_decode(file_get_contents(__DIR__ . '/form.json'), true);
 
-        // Populate "ImportClass" dropdown with User's Alarm Classes
         $userClasses = json_decode($this->ReadPropertyString('AlarmClassList'), true);
         $classOptions = [];
         if (is_array($userClasses)) {
@@ -223,23 +214,24 @@ class SensorGroup extends IPSModule
             }
         }
 
-        // Inject into the Form (Searching by name 'ImportClass')
-        // We know it is inside the ExpansionPanel at the end.
-        // Direct path navigation: elements -> last -> items -> Select named ImportClass
-        $panelIndex = count($form['elements']) - 2; // Second to last element (ExpansionPanel)
-        // Note: Using hardcoded index is risky if form changes, but standard for this snippet.
-        // A robust way iterates.
-        foreach ($form['elements'][$panelIndex]['items'] as &$item) {
-            if (isset($item['name']) && $item['name'] == 'ImportClass') {
-                $item['options'] = $classOptions;
-                break;
+        // Populate Dropdown (Scan for name='ImportClass')
+        // We look into the ExpansionPanel (last element) -> items -> name='ImportClass'
+        $elements = &$form['elements'];
+        $lastIndex = count($elements) - 2; // Adjust if you change form structure!
+
+        if (isset($elements[$lastIndex]['items'])) {
+            foreach ($elements[$lastIndex]['items'] as &$item) {
+                if (isset($item['name']) && $item['name'] === 'ImportClass') {
+                    $item['options'] = $classOptions;
+                }
             }
         }
 
         return json_encode($form);
     }
 
-    public function UI_Scan($ImportRootID)
+    // FIXED: Added Type Hint (int)
+    public function UI_Scan(int $ImportRootID)
     {
         if ($ImportRootID <= 0) return;
 
@@ -272,43 +264,49 @@ class SensorGroup extends IPSModule
         }
     }
 
-    public function UI_SelectAll($CurrentListValues)
+    // FIXED: Added Type Hint (string)
+    public function UI_SelectAll(string $CurrentListValues)
     {
         $list = json_decode($CurrentListValues, true);
-        foreach ($list as &$row) $row['Selected'] = true;
+        if (is_array($list)) {
+            foreach ($list as &$row) $row['Selected'] = true;
+        }
         $this->UpdateFormField('ImportCandidates', 'values', json_encode($list));
     }
 
-    public function UI_SelectNone($CurrentListValues)
+    // FIXED: Added Type Hint (string)
+    public function UI_SelectNone(string $CurrentListValues)
     {
         $list = json_decode($CurrentListValues, true);
-        foreach ($list as &$row) $row['Selected'] = false;
+        if (is_array($list)) {
+            foreach ($list as &$row) $row['Selected'] = false;
+        }
         $this->UpdateFormField('ImportCandidates', 'values', json_encode($list));
     }
 
-    public function UI_Import($CurrentListValues, $TargetClass)
+    // FIXED: Added Type Hints (string, string)
+    public function UI_Import(string $CurrentListValues, string $TargetClass)
     {
         $candidates = json_decode($CurrentListValues, true);
         $currentRules = json_decode($this->ReadPropertyString('SensorList'), true);
         if (!is_array($currentRules)) $currentRules = [];
 
-        $count = 0;
-        foreach ($candidates as $row) {
-            if ($row['Selected']) {
-                $currentRules[] = [
-                    'VariableID' => $row['VariableID'],
-                    'Operator' => 0, // Default: Equals
-                    'ComparisonValue' => "1", // Default: True
-                    'Tag' => $TargetClass // <--- Apply the wizard selection here
-                ];
-                $count++;
+        if (is_array($candidates)) {
+            foreach ($candidates as $row) {
+                if ($row['Selected']) {
+                    $currentRules[] = [
+                        'VariableID' => $row['VariableID'],
+                        'Operator' => 0,
+                        'ComparisonValue' => "1",
+                        'Tag' => $TargetClass
+                    ];
+                }
             }
         }
 
         IPS_SetProperty($this->InstanceID, 'SensorList', json_encode($currentRules));
         IPS_ApplyChanges($this->InstanceID);
 
-        // echo "Imported $count sensors.";
         // Reset Wizard
         $this->UpdateFormField('ImportCandidates', 'values', json_encode([]));
         $this->UpdateFormField('ImportCandidates', 'visible', false);
