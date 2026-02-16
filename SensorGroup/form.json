@@ -16,6 +16,7 @@
                     "caption": "Class Name (e.g. Intrusion, Fire, Water)",
                     "name": "ClassName",
                     "width": "100%",
+                    "add": "Intrusion",
                     "edit": {
                         "type": "ValidationTextBox"
                     }
@@ -70,12 +71,14 @@
                     "caption": "Variable",
                     "name": "VariableID",
                     "width": "300px",
+                    "add": 0,
                     "edit": { "type": "SelectVariable" }
                 },
                 {
                     "caption": "Operator",
                     "name": "Operator",
                     "width": "100px",
+                    "add": 0,
                     "edit": {
                         "type": "Select",
                         "options": [
@@ -92,6 +95,7 @@
                     "caption": "Trigger Value",
                     "name": "ComparisonValue",
                     "width": "150px",
+                    "add": "1",
                     "edit": { "type": "ValidationTextBox" }
                 }
             ]
@@ -111,12 +115,14 @@
                             "caption": "Variable",
                             "name": "VariableID",
                             "width": "400px",
+                            "add": 0,
                             "edit": { "type": "SelectVariable" }
                         },
                         {
                             "caption": "Invert (Trigger if False)",
                             "name": "Invert",
                             "width": "100px",
+                            "add": false,
                             "edit": { "type": "CheckBox" }
                         }
                     ]
