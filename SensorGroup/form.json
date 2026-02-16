@@ -7,9 +7,9 @@
                 { 
                     "caption": "ID", 
                     "name": "ClassID", 
-                    "width": "0px", 
+                    "width": "70px", 
                     "add": "", 
-                    "visible": false 
+                    "edit": { "type": "Label" } 
                 },
                 { "caption": "Class Name", "name": "ClassName", "width": "200px", "add": "NewClass", "edit": { "type": "ValidationTextBox" } },
                 { "caption": "Logic", "name": "LogicMode", "width": "100px", "add": 0, "edit": { "type": "Select", "options": [ { "caption": "OR (Instant)", "value": 0 }, { "caption": "AND (All)", "value": 1 }, { "caption": "COUNT", "value": 2 } ] } },
