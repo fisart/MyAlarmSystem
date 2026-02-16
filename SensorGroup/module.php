@@ -457,36 +457,6 @@ class SensorGroup extends IPSModule
         return false;
     }
 
-    // New Helper: Finds list column definition by name
-    private function UpdateListColumnOption(&$elements, $listName, $columnName, $options)
-    {
-        foreach ($elements as &$element) {
-            if (isset($element['name']) && $element['name'] === $listName && isset($element['columns'])) {
-                foreach ($element['columns'] as &$col) {
-                    if ($col['name'] === $columnName && isset($col['edit']['type']) && $col['edit']['type'] === 'Select') {
-                        $col['edit']['options'] = $options;
-                        return true;
-                    }
-                }
-            }
-        }
-        return false;
-    }
-
-    // New Helper: Finds select element by name (Recursive)
-    private function UpdateFormOption(&$elements, $name, $options)
-    {
-        foreach ($elements as &$element) {
-            if (isset($element['name']) && $element['name'] === $name) {
-                $element['options'] = $options;
-                return true;
-            }
-            if (isset($element['items'])) {
-                if ($this->UpdateFormOption($element['items'], $name, $options)) return true;
-            }
-        }
-        return false;
-    }
 
     public function UI_Scan(int $ImportRootID)
     {
