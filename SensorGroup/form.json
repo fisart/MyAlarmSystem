@@ -46,6 +46,7 @@
                 { "type": "ValidationTextBox", "name": "WizardFilterText", "caption": "Search Name...", "onChange": "MYALARM_UI_FilterWizard($id, $WizardFilterText);" },
                 {
                     "type": "List", "name": "ImportCandidates", "caption": "Found Variables", "visible": false, "rowCount": 8,
+                    "onEdit": "IPS_RequestAction($id, 'UpdateWizardList', json_encode($ImportCandidates));",
                     "columns": [
                         { "caption": "ID", "name": "VariableID", "width": "70px", "edit": { "type": "Label" } },
                         { "caption": "Name", "name": "Name", "width": "300px", "edit": { "type": "Label" } },
@@ -58,7 +59,7 @@
                     "items": [
                         { "type": "Button", "caption": "Select All", "onClick": "MYALARM_UI_SelectAll($id);" },
                         { "type": "Button", "caption": "Select None", "onClick": "MYALARM_UI_SelectNone($id);" },
-                        { "type": "Button", "caption": "ADD SELECTED", "onClick": "MYALARM_UI_Import($id, $ImportCandidates, $ImportClass);" }
+                        { "type": "Button", "caption": "ADD SELECTED", "onClick": "MYALARM_UI_Import($id, $ImportClass);" }
                     ]
                 }
             ]
