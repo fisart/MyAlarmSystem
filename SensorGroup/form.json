@@ -44,13 +44,18 @@
         },
         { "type": "Label", "caption": "3. GROUP DEFINITIONS (Output Container)" },
         {
-            "type": "List", "name": "GroupList", "caption": "Step A: Create Groups", "rowCount": 3, "add": true, "delete": true,
+            "type": "List", "name": "GroupList", "caption": "Step 3a: Create Groups", "rowCount": 3, "add": true, "delete": true,
             "columns": [
-                { "caption": "Group Name", "name": "GroupName", "width": "200px", "add": "AlarmGroup", "edit": { "type": "ValidationTextBox" } },
-                { "caption": "Logic", "name": "GroupLogic", "width": "120px", "add": 0, "edit": { "type": "Select", "options": [ { "caption": "OR (Any Member)", "value": 0 }, { "caption": "AND (All Members)", "value": 1 } ] } },
-                { "caption": "Bedroom", "name": "IsBedroom", "width": "80px", "add": false, "edit": { "type": "CheckBox" } },
-                { "caption": "Active Var", "name": "ActiveVariableID", "width": "200px", "add": 0, "edit": { "type": "SelectVariable" } },
-                { "caption": "Door Class", "name": "BedroomDoorClassID", "width": "150px", "add": "", "edit": { "type": "Select", "options": [] } }
+                { "caption": "Group Name", "name": "GroupName", "width": "250px", "add": "AlarmGroup", "edit": { "type": "ValidationTextBox" } },
+                { "caption": "Logic", "name": "GroupLogic", "width": "150px", "add": 0, "edit": { "type": "Select", "options": [ { "caption": "OR (Any Member)", "value": 0 }, { "caption": "AND (All Members)", "value": 1 } ] } }
+            ]
+        },
+        {
+            "type": "List", "name": "BedroomList", "caption": "Step 3b: Bedroom Behavioral Settings (Optional)", "rowCount": 3, "add": true, "delete": true,
+            "columns": [
+                { "caption": "Select Group", "name": "GroupName", "width": "200px", "add": "", "edit": { "type": "Select", "options": [] } },
+                { "caption": "Active Var (IPSView)", "name": "ActiveVariableID", "width": "200px", "add": 0, "edit": { "type": "SelectVariable" } },
+                { "caption": "Door Class (Trigger)", "name": "BedroomDoorClassID", "width": "200px", "add": "", "edit": { "type": "Select", "options": [] } }
             ]
         },
         {

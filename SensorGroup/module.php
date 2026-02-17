@@ -12,6 +12,7 @@ class SensorGroup extends IPSModule
         $this->RegisterPropertyString('GroupList', '[]');
         $this->RegisterPropertyString('GroupMembers', '[]');
         $this->RegisterPropertyString('TamperList', '[]');
+        $this->RegisterPropertyString('BedroomList', '[]');
         $this->RegisterPropertyBoolean('MaintenanceMode', false);
         $this->RegisterAttributeString('ClassStateAttribute', '{}');
         $this->RegisterAttributeString('ScanCache', '[]');
@@ -51,19 +52,19 @@ class SensorGroup extends IPSModule
         $this->RegisterSensors('SensorList');
         $this->RegisterSensors('TamperList');
 
-        // NEW: Register Bedroom Activation Variables
-        $groupList = json_decode($this->ReadPropertyString('GroupList'), true);
-        if (is_array($groupList)) {
-            foreach ($groupList as $group) {
-                if (($group['IsBedroom'] ?? false) && ($group['ActiveVariableID'] ?? 0) > 0) {
-                    if (IPS_VariableExists($group['ActiveVariableID'])) {
-                        $this->RegisterMessage($group['ActiveVariableID'], VM_UPDATE);
-                    }
+        // NEW: Register Bedroom Activation Variables from the BedroomList property
+        $bedroomList = json_decode($this->ReadPropertyString('BedroomList'), true);
+        if (is_array($bedroomList)) {
+            foreach ($bedroomList as $bed) {
+                $vid = $bed['ActiveVariableID'] ?? 0;
+                if ($vid > 0 && IPS_VariableExists($vid)) {
+                    $this->RegisterMessage($vid, VM_UPDATE);
                 }
             }
         }
 
         // 3. VARIABLES
+        $groupList = json_decode($this->ReadPropertyString('GroupList'), true);
         $keepIdents = ['Status', 'Sabotage', 'EventData'];
 
         if (is_array($groupList)) {
@@ -392,12 +393,8 @@ class SensorGroup extends IPSModule
         $definedClasses = json_decode($this->ReadPropertyString('ClassList'), true);
         $classOptions = [];
 
-        // Log to verify data
-        IPS_LogMessage("SensorGroup", "Generating Form. Raw ClassList: " . json_encode($definedClasses));
-
         if (is_array($definedClasses)) {
             foreach ($definedClasses as $c) {
-                // FALLBACK: Use Name as ID if ID is missing (fixes empty dropdowns on first save)
                 $val = !empty($c['ClassID']) ? $c['ClassID'] : $c['ClassName'];
                 if (!empty($c['ClassName'])) {
                     $classOptions[] = ['caption' => $c['ClassName'], 'value' => $val];
@@ -415,15 +412,19 @@ class SensorGroup extends IPSModule
         }
         if (count($groupOptions) == 0) $groupOptions[] = ['caption' => '- Save Group First -', 'value' => ''];
 
-        // Inject using Recursive Helper (More Robust than Hardcoded)
+        // Inject using Recursive Helper
         $this->UpdateFormOption($form['elements'], 'ImportClass', $classOptions);
         if (isset($form['actions'])) $this->UpdateFormOption($form['actions'], 'ImportClass', $classOptions);
 
-        // Inject into List Columns by identifying the column name
+        // Inject into List Columns
         $this->UpdateListColumnOption($form['elements'], 'GroupMembers', 'GroupName', $groupOptions);
         $this->UpdateListColumnOption($form['elements'], 'GroupMembers', 'ClassID', $classOptions);
         $this->UpdateListColumnOption($form['elements'], 'SensorList', 'ClassID', $classOptions);
-        $this->UpdateListColumnOption($form['elements'], 'GroupList', 'BedroomDoorClassID', $classOptions);
+
+        // NEW: Population for Step 3b (Bedroom Configuration)
+        $this->UpdateListColumnOption($form['elements'], 'BedroomList', 'GroupName', $groupOptions);
+        $this->UpdateListColumnOption($form['elements'], 'BedroomList', 'BedroomDoorClassID', $classOptions);
+
         return json_encode($form);
     }
 
