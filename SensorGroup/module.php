@@ -51,8 +51,19 @@ class SensorGroup extends IPSModule
         $this->RegisterSensors('SensorList');
         $this->RegisterSensors('TamperList');
 
-        // 3. VARIABLES
+        // NEW: Register Bedroom Activation Variables
         $groupList = json_decode($this->ReadPropertyString('GroupList'), true);
+        if (is_array($groupList)) {
+            foreach ($groupList as $group) {
+                if (($group['IsBedroom'] ?? false) && ($group['ActiveVariableID'] ?? 0) > 0) {
+                    if (IPS_VariableExists($group['ActiveVariableID'])) {
+                        $this->RegisterMessage($group['ActiveVariableID'], VM_UPDATE);
+                    }
+                }
+            }
+        }
+
+        // 3. VARIABLES
         $keepIdents = ['Status', 'Sabotage', 'EventData'];
 
         if (is_array($groupList)) {
@@ -75,7 +86,6 @@ class SensorGroup extends IPSModule
         if ($this->ReadAttributeString('ClassStateAttribute') == '') $this->WriteAttributeString('ClassStateAttribute', '{}');
 
         // 4. RELOAD FORM
-        // Unconditional reload to ensure Dropdown Captions (Names) are updated in Step 2 & 3
         $this->ReloadForm();
 
         $this->CheckLogic();
@@ -413,7 +423,7 @@ class SensorGroup extends IPSModule
         $this->UpdateListColumnOption($form['elements'], 'GroupMembers', 'GroupName', $groupOptions);
         $this->UpdateListColumnOption($form['elements'], 'GroupMembers', 'ClassID', $classOptions);
         $this->UpdateListColumnOption($form['elements'], 'SensorList', 'ClassID', $classOptions);
-
+        $this->UpdateListColumnOption($form['elements'], 'GroupList', 'BedroomDoorClassID', $classOptions);
         return json_encode($form);
     }
 
