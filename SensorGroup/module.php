@@ -142,6 +142,22 @@ class SensorGroup extends IPSModule
         $this->CheckLogic($SenderID);
     }
 
+    // Helper to determine the text based on Class Settings
+    private function GetSmartLabel($vid, $mode)
+    {
+        if (!IPS_VariableExists($vid)) return "Unknown";
+        switch ($mode) {
+            case 1: // Parent Name (Location)
+                $parentID = IPS_GetParent($vid);
+                return ($parentID > 0) ? IPS_GetName($parentID) : "Root";
+            case 2: // Status Text (Formatted Value)
+                return GetValueFormatted($vid);
+            case 0: // Sensor Name (Default)
+            default:
+                return IPS_GetName($vid);
+        }
+    }
+
     private function CheckLogic($TriggeringID = 0)
     {
         $classList = json_decode($this->ReadPropertyString('ClassList'), true);
@@ -176,6 +192,9 @@ class SensorGroup extends IPSModule
                 $classNameMap[$classID] = $className;
 
                 $logicMode = $classDef['LogicMode'];
+                // NEW: Read the LabelMode setting (default to 0=Name)
+                $labelMode = $classDef['LabelMode'] ?? 0;
+
                 if (!isset($classStates[$classID])) $classStates[$classID] = ['Buffer' => []];
 
                 $classSensors = [];
@@ -198,7 +217,19 @@ class SensorGroup extends IPSModule
                         $activeCount++;
                         if (($s['VariableID'] ?? 0) == $TriggeringID) {
                             $triggerInClass = true;
-                            $lastTriggerDetails = ['variable_id' => $s['VariableID'], 'value' => GetValue($s['VariableID']), 'tag' => $className];
+                            // EXPANDED PAYLOAD GENERATION
+                            $lastTriggerDetails = [
+                                'variable_id' => $s['VariableID'],
+                                'value_raw'   => GetValue($s['VariableID']),
+                                'tag'         => $className,
+                                'class_id'    => $classID,
+                                // Enriched Data for Tier 2/3
+                                'var_name'    => IPS_GetName($s['VariableID']),
+                                'parent_name' => IPS_GetName(IPS_GetParent($s['VariableID'])),
+                                'value_human' => GetValueFormatted($s['VariableID']),
+                                // Decision based on User Setting
+                                'smart_label' => $this->GetSmartLabel($s['VariableID'], $labelMode)
+                            ];
                         }
                     }
                 }
@@ -217,7 +248,9 @@ class SensorGroup extends IPSModule
                     if ($triggerInClass && $TriggeringID > 0) $buffer[] = $now;
                     if (count($buffer) >= $thresh) {
                         $isActive = true;
-                        if ($triggerInClass) $lastTriggerDetails['tag'] = "$className (Count)";
+                        if ($triggerInClass && $lastTriggerDetails) {
+                            $lastTriggerDetails['tag'] = "$className (Count)";
+                        }
                     }
                     $classStates[$classID]['Buffer'] = array_values($buffer);
                 }
@@ -228,6 +261,7 @@ class SensorGroup extends IPSModule
 
         $primaryPayload = null;
         $mainStatus = false;
+        $activeGroups = []; // Track names of active groups
 
         $mergedGroups = [];
         if (is_array($groupList)) {
@@ -272,6 +306,10 @@ class SensorGroup extends IPSModule
             $ident = "Status_" . $this->SanitizeIdent($gName);
             if (@$this->GetIDForIdent($ident)) $this->SetValue($ident, $groupActive);
 
+            if ($groupActive) {
+                $activeGroups[] = $gName;
+            }
+
             if (!$firstGroupProcessed) {
                 $mainStatus = $groupActive;
                 $firstGroupProcessed = true;
@@ -286,12 +324,19 @@ class SensorGroup extends IPSModule
                 $readableActiveClasses[] = $classNameMap[$aid] ?? $aid;
             }
 
+            // NEW: Updated JSON Structure matching Tier 2 Requirements
             $payload = [
                 'event_id' => uniqid(),
                 'timestamp' => time(),
+                'source_id' => $this->InstanceID, // Added Source ID
                 'source_name' => IPS_GetName($this->InstanceID),
-                'alarm_class' => $primaryPayload['tag'] ?? 'General',
+
+                'primary_class' => $primaryPayload['tag'] ?? 'General',
+                'primary_group' => $activeGroups[0] ?? 'General', // Added Primary Group
+
                 'active_classes' => $readableActiveClasses,
+                'active_groups' => $activeGroups, // Added List of Active Groups
+
                 'is_maintenance' => $this->ReadPropertyBoolean('MaintenanceMode'),
                 'trigger_details' => $primaryPayload
             ];
