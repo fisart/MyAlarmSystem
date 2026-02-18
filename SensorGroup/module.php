@@ -249,19 +249,21 @@ class SensorGroup extends IPSModule
                     $match = $this->CheckSensorRule($s);
                     if ($match) {
                         $activeCount++;
+                        // Inside CheckLogic, update the $lastTriggerDetails block:
                         if (($s['VariableID'] ?? 0) == $TriggeringID) {
                             $triggerInClass = true;
-                            // EXPANDED PAYLOAD GENERATION
+                            $parentID = IPS_GetParent($s['VariableID']);
+                            $grandParentID = ($parentID > 0) ? IPS_GetParent($parentID) : 0;
+
                             $lastTriggerDetails = [
                                 'variable_id' => $s['VariableID'],
                                 'value_raw'   => GetValue($s['VariableID']),
                                 'tag'         => $className,
                                 'class_id'    => $classID,
-                                // Enriched Data for Tier 2/3
                                 'var_name'    => IPS_GetName($s['VariableID']),
-                                'parent_name' => IPS_GetName(IPS_GetParent($s['VariableID'])),
+                                'parent_name' => ($parentID > 0) ? IPS_GetName($parentID) : "Root",
+                                'grandparent_name' => ($grandParentID > 0) ? IPS_GetName($grandParentID) : "", // NEW
                                 'value_human' => GetValueFormatted($s['VariableID']),
-                                // Decision based on User Setting
                                 'smart_label' => $this->GetSmartLabel($s['VariableID'], $labelMode)
                             ];
                         }
@@ -450,15 +452,18 @@ class SensorGroup extends IPSModule
                             return ($s['ClassID'] ?? '') === $classID;
                         }));
 
-                        // NEW: Enrich data with ID and Parent Name for display
                         foreach ($classSensors as &$s) {
                             $vid = $s['VariableID'] ?? 0;
                             $s['DisplayID'] = (string)$vid;
                             if ($vid > 0 && IPS_VariableExists($vid)) {
                                 $parentID = IPS_GetParent($vid);
                                 $s['ParentName'] = ($parentID > 0) ? IPS_GetName($parentID) : "Root";
+                                // NEW: Grandparent resolution
+                                $grandParentID = ($parentID > 0) ? IPS_GetParent($parentID) : 0;
+                                $s['GrandParentName'] = ($grandParentID > 0) ? IPS_GetName($grandParentID) : "-";
                             } else {
                                 $s['ParentName'] = "Unknown";
+                                $s['GrandParentName'] = "-";
                             }
                         }
                         unset($s);
@@ -478,7 +483,8 @@ class SensorGroup extends IPSModule
                                     "columns" => [
                                         ["caption" => "ID", "name" => "DisplayID", "width" => "70px"],
                                         ["caption" => "Variable", "name" => "VariableID", "width" => "250px", "edit" => ["type" => "SelectVariable"]],
-                                        ["caption" => "Parent (Location)", "name" => "ParentName", "width" => "150px"],
+                                        ["caption" => "Location (P)", "name" => "ParentName", "width" => "120px"],
+                                        ["caption" => "Area (GP)", "name" => "GrandParentName", "width" => "120px"],
                                         ["caption" => "Op", "name" => "Operator", "width" => "70px", "edit" => ["type" => "Select", "options" => [["caption" => "=", "value" => 0], ["caption" => "!=", "value" => 1], ["caption" => ">", "value" => 2], ["caption" => "<", "value" => 3], ["caption" => ">=", "value" => 4], ["caption" => "<=", "value" => 5]]]],
                                         ["caption" => "Value", "name" => "ComparisonValue", "width" => "80px", "edit" => ["type" => "ValidationTextBox"]]
                                     ],
@@ -500,7 +506,6 @@ class SensorGroup extends IPSModule
 
         return json_encode($form);
     }
-
     // New Helper: Finds list column definition by name
     private function UpdateListColumnOption(&$elements, $listName, $columnName, $options)
     {
