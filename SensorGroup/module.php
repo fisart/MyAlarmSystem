@@ -443,13 +443,25 @@ class SensorGroup extends IPSModule
             if (isset($element['name']) && $element['name'] === 'DynamicSensorContainer') {
                 if (is_array($definedClasses)) {
                     foreach ($definedClasses as $class) {
-                        // FIX: Use fallback for ClassID if not yet generated
                         $classID = !empty($class['ClassID']) ? $class['ClassID'] : $class['ClassName'];
                         $className = $class['ClassName'];
 
                         $classSensors = array_values(array_filter($sensorList, function ($s) use ($classID) {
                             return ($s['ClassID'] ?? '') === $classID;
                         }));
+
+                        // NEW: Enrich data with ID and Parent Name for display
+                        foreach ($classSensors as &$s) {
+                            $vid = $s['VariableID'] ?? 0;
+                            $s['DisplayID'] = (string)$vid;
+                            if ($vid > 0 && IPS_VariableExists($vid)) {
+                                $parentID = IPS_GetParent($vid);
+                                $s['ParentName'] = ($parentID > 0) ? IPS_GetName($parentID) : "Root";
+                            } else {
+                                $s['ParentName'] = "Unknown";
+                            }
+                        }
+                        unset($s);
 
                         $element['items'][] = [
                             "type" => "ExpansionPanel",
@@ -461,13 +473,14 @@ class SensorGroup extends IPSModule
                                     "rowCount" => 8,
                                     "add" => false,
                                     "delete" => true,
-                                    // FIX: Escaped $id so it is treated as a literal for the Symcon UI
                                     "onEdit" => "IPS_RequestAction(\$id, 'UpdateSensorList', json_encode(['ClassID' => '" . $classID . "', 'Values' => \$List_" . $classID . "]));",
                                     "onDelete" => "IPS_RequestAction(\$id, 'UpdateSensorList', json_encode(['ClassID' => '" . $classID . "', 'Values' => \$List_" . $classID . "]));",
                                     "columns" => [
-                                        ["caption" => "Variable", "name" => "VariableID", "width" => "300px", "edit" => ["type" => "SelectVariable"]],
+                                        ["caption" => "ID", "name" => "DisplayID", "width" => "70px"],
+                                        ["caption" => "Variable", "name" => "VariableID", "width" => "250px", "edit" => ["type" => "SelectVariable"]],
+                                        ["caption" => "Parent (Location)", "name" => "ParentName", "width" => "150px"],
                                         ["caption" => "Op", "name" => "Operator", "width" => "70px", "edit" => ["type" => "Select", "options" => [["caption" => "=", "value" => 0], ["caption" => "!=", "value" => 1], ["caption" => ">", "value" => 2], ["caption" => "<", "value" => 3], ["caption" => ">=", "value" => 4], ["caption" => "<=", "value" => 5]]]],
-                                        ["caption" => "Value", "name" => "ComparisonValue", "width" => "100px", "edit" => ["type" => "ValidationTextBox"]]
+                                        ["caption" => "Value", "name" => "ComparisonValue", "width" => "80px", "edit" => ["type" => "ValidationTextBox"]]
                                     ],
                                     "values" => $classSensors
                                 ]
