@@ -28,8 +28,10 @@ class SensorGroup extends IPSModule
 
         // 1. LIFECYCLE: ID GENERATION
         $classList = json_decode($this->ReadPropertyString('ClassList'), true);
+        $groupList = json_decode($this->ReadPropertyString('GroupList'), true); // Added
         $idsChanged = false;
 
+        // Class IDs
         if (is_array($classList)) {
             foreach ($classList as &$c) {
                 if (empty($c['ClassID'])) {
@@ -40,8 +42,20 @@ class SensorGroup extends IPSModule
             unset($c);
         }
 
+        // NEW: Group IDs (Step 3a Alignment)
+        if (is_array($groupList)) {
+            foreach ($groupList as &$g) {
+                if (empty($g['GroupID'])) {
+                    $g['GroupID'] = uniqid('grp_');
+                    $idsChanged = true;
+                }
+            }
+            unset($g);
+        }
+
         if ($idsChanged) {
             IPS_SetProperty($this->InstanceID, 'ClassList', json_encode($classList));
+            IPS_SetProperty($this->InstanceID, 'GroupList', json_encode($groupList)); // Added
         }
 
         // 2. REGISTRATION
@@ -52,7 +66,7 @@ class SensorGroup extends IPSModule
         $this->RegisterSensors('SensorList');
         $this->RegisterSensors('TamperList');
 
-        // NEW: Register Bedroom Activation Variables from the BedroomList property
+        // Register Bedroom Activation Variables
         $bedroomList = json_decode($this->ReadPropertyString('BedroomList'), true);
         if (is_array($bedroomList)) {
             foreach ($bedroomList as $bed) {
@@ -64,7 +78,6 @@ class SensorGroup extends IPSModule
         }
 
         // 3. VARIABLES
-        $groupList = json_decode($this->ReadPropertyString('GroupList'), true);
         $keepIdents = ['Status', 'Sabotage', 'EventData'];
 
         if (is_array($groupList)) {
@@ -455,14 +468,14 @@ class SensorGroup extends IPSModule
     {
         $form = json_decode(file_get_contents(__DIR__ . '/form.json'), true);
 
-        // Load Properties
+        // 1. Load Properties
         $definedClasses = json_decode($this->ReadPropertyString('ClassList'), true) ?: [];
         $definedGroups = json_decode($this->ReadPropertyString('GroupList'), true) ?: [];
         $sensorList = json_decode($this->ReadPropertyString('SensorList'), true) ?: [];
         $bedroomList = json_decode($this->ReadPropertyString('BedroomList'), true) ?: [];
         $groupMembers = json_decode($this->ReadPropertyString('GroupMembers'), true) ?: [];
 
-        // Build Class Options for dynamic dropdowns
+        // 2. Build Options for dynamic dropdowns
         $classOptions = [];
         foreach ($definedClasses as $c) {
             $val = !empty($c['ClassID']) ? $c['ClassID'] : $c['ClassName'];
@@ -471,6 +484,13 @@ class SensorGroup extends IPSModule
             }
         }
         if (empty($classOptions)) $classOptions[] = ['caption' => '- No Classes -', 'value' => ''];
+
+        $groupOptions = [];
+        foreach ($definedGroups as $g) {
+            if (!empty($g['GroupName'])) {
+                $groupOptions[] = ['caption' => $g['GroupName'], 'value' => $g['GroupName']];
+            }
+        }
 
         foreach ($form['elements'] as &$element) {
             // --- STEP 2: DYNAMIC SENSOR FOLDERS ---
@@ -541,6 +561,7 @@ class SensorGroup extends IPSModule
                             "add" => true,
                             "delete" => true,
                             "onEdit" => "IPS_RequestAction(\$id, 'UpdateBedroomProperty', json_encode(['GroupName' => '" . $gName . "', 'Values' => \$Bed_" . md5($gName) . "]));",
+                            "onDelete" => "IPS_RequestAction(\$id, 'UpdateBedroomProperty', json_encode(['GroupName' => '" . $gName . "', 'Values' => \$Bed_" . md5($gName) . "]));",
                             "columns" => [
                                 ["caption" => "Active Var (IPSView)", "name" => "ActiveVariableID", "width" => "200px", "edit" => ["type" => "SelectVariable"]],
                                 ["caption" => "Door Class (Trigger)", "name" => "BedroomDoorClassID", "width" => "200px", "edit" => ["type" => "Select", "options" => $classOptions]]
@@ -569,6 +590,7 @@ class SensorGroup extends IPSModule
                             "add" => true,
                             "delete" => true,
                             "onEdit" => "IPS_RequestAction(\$id, 'UpdateMemberProperty', json_encode(['GroupName' => '" . $gName . "', 'Values' => \$Mem_" . md5($gName) . "]));",
+                            "onDelete" => "IPS_RequestAction(\$id, 'UpdateMemberProperty', json_encode(['GroupName' => '" . $gName . "', 'Values' => \$Mem_" . md5($gName) . "]));",
                             "columns" => [
                                 ["caption" => "Assigned Class", "name" => "ClassID", "width" => "200px", "edit" => ["type" => "Select", "options" => $classOptions]]
                             ],
@@ -579,7 +601,7 @@ class SensorGroup extends IPSModule
             }
         }
 
-        // Inject Import Options
+        // 3. Inject Wizard Options
         $this->UpdateFormOption($form['elements'], 'ImportClass', $classOptions);
         if (isset($form['actions'])) $this->UpdateFormOption($form['actions'], 'ImportClass', $classOptions);
 

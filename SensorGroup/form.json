@@ -37,7 +37,15 @@
         {
             "type": "List", "name": "GroupList", "caption": "Step 3a: Create Groups", "rowCount": 3, "add": true, "delete": true,
             "columns": [
+                { 
+                    "caption": "ID", 
+                    "name": "GroupID", 
+                    "width": "0px", 
+                    "add": "", 
+                    "visible": false 
+                },
                 { "caption": "Group Name", "name": "GroupName", "width": "200px", "add": "AlarmGroup", "edit": { "type": "ValidationTextBox" } },
+                { "caption": "", "name": "Spacer", "width": "200px" },
                 { "caption": "Logic", "name": "GroupLogic", "width": "200px", "add": 0, "edit": { "type": "Select", "options": [ { "caption": "OR (Any Member)", "value": 0 }, { "caption": "AND (All Members)", "value": 1 } ] } }
             ]
         },
