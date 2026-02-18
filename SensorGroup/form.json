@@ -41,21 +41,10 @@
                 { "caption": "Logic", "name": "GroupLogic", "width": "150px", "add": 0, "edit": { "type": "Select", "options": [ { "caption": "OR (Any Member)", "value": 0 }, { "caption": "AND (All Members)", "value": 1 } ] } }
             ]
         },
-        {
-            "type": "List", "name": "BedroomList", "caption": "Step 3b: Bedroom Behavioral Settings (Optional)", "rowCount": 3, "add": true, "delete": true,
-            "columns": [
-                { "caption": "Select Group", "name": "GroupName", "width": "200px", "add": "", "edit": { "type": "Select", "options": [] } },
-                { "caption": "Active Var (IPSView)", "name": "ActiveVariableID", "width": "200px", "add": 0, "edit": { "type": "SelectVariable" } },
-                { "caption": "Door Class (Trigger)", "name": "BedroomDoorClassID", "width": "200px", "add": "", "edit": { "type": "Select", "options": [] } }
-            ]
-        },
-        {
-            "type": "List", "name": "GroupMembers", "caption": "Step B: Assign Classes to Groups", "rowCount": 5, "add": true, "delete": true,
-            "columns": [
-                { "caption": "Select Group", "name": "GroupName", "width": "250px", "add": "", "edit": { "type": "Select", "options": [] } },
-                { "caption": "Select Class", "name": "ClassID", "width": "250px", "add": "", "edit": { "type": "Select", "options": [] } }
-            ]
-        },
+        { "type": "Label", "caption": "3b. BEDROOM BEHAVIOR (Group-based)" },
+        { "type": "ExpansionPanel", "name": "DynamicBedroomContainer", "caption": "Configure bedroom logic for specific groups", "items": [] },
+        { "type": "Label", "caption": "Step B: ASSIGN CLASSES TO GROUPS" },
+        { "type": "ExpansionPanel", "name": "DynamicGroupMemberContainer", "caption": "Manage which classes belong to which groups", "items": [] },
         { "type": "ExpansionPanel", "caption": "Sabotage / Tamper", "items": [
                 { "type": "List", "name": "TamperList", "caption": "Tamper Sensors", "add": true, "delete": true, "columns": [ { "caption": "Variable", "name": "VariableID", "width": "400px", "add": 0, "edit": { "type": "SelectVariable" } }, { "caption": "Invert", "name": "Invert", "width": "100px", "add": false, "edit": { "type": "CheckBox" } } ] }
             ]
