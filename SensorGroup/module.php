@@ -657,16 +657,16 @@ class SensorGroup extends IPSModule
                                 "rowCount" => 8,
                                 "add" => false,
                                 "delete" => true,
-                                // FIX: Use single quotes to prevent PHP from evaluating $id, $List, and $index
-                                'onEdit' => 'IPS_RequestAction($id, "UpdateSensorList", json_encode(["ClassID" => "' . $classID . '", "Values" => $List_' . $safeID . ']));',
-                                'onDelete' => 'IPS_RequestAction($id, "DeleteSensorListItem", json_encode(["ClassID" => "' . $classID . '", "Index" => $index]));',
+                                // FIX: Escaped dollar signs to prevent premature PHP evaluation
+                                "onEdit" => "IPS_RequestAction(\$id, 'UpdateSensorList', json_encode(['ClassID' => '" . $classID . "', 'Values' => \$List_" . $safeID . "]));",
+                                "onDelete" => "IPS_RequestAction(\$id, 'DeleteSensorListItem', json_encode(['ClassID' => '" . $classID . "', 'Index' => \$index]));",
                                 "columns" => [
                                     ["caption" => "ID", "name" => "DisplayID", "width" => "70px"],
-                                    ["caption" => "Variable", "name" => "VariableID", "width" => "200px", "edit" => ["type" => "SelectVariable"]],
-                                    ["caption" => "Location (P)", "name" => "ParentName", "width" => "100px"],
-                                    ["caption" => "Area (GP)", "name" => "GrandParentName", "width" => "100px"],
-                                    ["caption" => "Op", "name" => "Operator", "width" => "100px", "edit" => ["type" => "Select", "options" => [["caption" => "=", "value" => 0], ["caption" => "!=", "value" => 1], ["caption" => ">", "value" => 2], ["caption" => "<", "value" => 3], ["caption" => ">=", "value" => 4], ["caption" => "<=", "value" => 5]]]],
-                                    ["caption" => "Value", "name" => "ComparisonValue", "width" => "100px", "edit" => ["type" => "ValidationTextBox"]]
+                                    ["caption" => "Variable", "name" => "VariableID", "width" => "250px", "edit" => ["type" => "SelectVariable"]],
+                                    ["caption" => "Location (P)", "name" => "ParentName", "width" => "120px"],
+                                    ["caption" => "Area (GP)", "name" => "GrandParentName", "width" => "120px"],
+                                    ["caption" => "Op", "name" => "Operator", "width" => "70px", "edit" => ["type" => "Select", "options" => [["caption" => "=", "value" => 0], ["caption" => "!=", "value" => 1], ["caption" => ">", "value" => 2], ["caption" => "<", "value" => 3], ["caption" => ">=", "value" => 4], ["caption" => "<=", "value" => 5]]]],
+                                    ["caption" => "Value", "name" => "ComparisonValue", "width" => "80px", "edit" => ["type" => "ValidationTextBox"]]
                                 ],
                                 "values" => $classSensors
                             ]
