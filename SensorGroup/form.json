@@ -15,7 +15,7 @@
                 { 
                     "caption": "Label Mode", 
                     "name": "LabelMode", 
-                    "width": "200px", 
+                    "width": "120px", 
                     "add": 0, 
                     "edit": { 
                         "type": "Select", 
@@ -26,9 +26,9 @@
                         ]
                     } 
                 },
-                { "caption": "Logic", "name": "LogicMode", "width": "200px", "add": 0, "edit": { "type": "Select", "options": [ { "caption": "OR (Instant)", "value": 0 }, { "caption": "AND (All)", "value": 1 }, { "caption": "COUNT", "value": 2 } ] } },
-                { "caption": "Threshold", "name": "Threshold", "width": "100px", "add": 1, "edit": { "type": "NumberSpinner", "minimum": 1 } },
-                { "caption": "Window", "name": "TimeWindow", "width": "100px", "add": 10, "edit": { "type": "NumberSpinner", "minimum": 1 } }
+                { "caption": "Logic", "name": "LogicMode", "width": "100px", "add": 0, "edit": { "type": "Select", "options": [ { "caption": "OR (Instant)", "value": 0 }, { "caption": "AND (All)", "value": 1 }, { "caption": "COUNT", "value": 2 } ] } },
+                { "caption": "Threshold", "name": "Threshold", "width": "80px", "add": 1, "edit": { "type": "NumberSpinner", "minimum": 1 } },
+                { "caption": "Window", "name": "TimeWindow", "width": "80px", "add": 10, "edit": { "type": "NumberSpinner", "minimum": 1 } }
             ]
         },
         { "type": "Label", "caption": "2. SENSOR INPUTS (Grouped by Class)" },
@@ -37,16 +37,8 @@
         {
             "type": "List", "name": "GroupList", "caption": "Step 3a: Create Groups", "rowCount": 3, "add": true, "delete": true,
             "columns": [
-                { 
-                    "caption": "ID", 
-                    "name": "GroupID", 
-                    "width": "0px", 
-                    "add": "", 
-                    "visible": false 
-                },
-                { "caption": "Group Name", "name": "GroupName", "width": "200px", "add": "AlarmGroup", "edit": { "type": "ValidationTextBox" } },
-                { "caption": "", "name": "Spacer", "width": "200px" },
-                { "caption": "Logic", "name": "GroupLogic", "width": "200px", "add": 0, "edit": { "type": "Select", "options": [ { "caption": "OR (Any Member)", "value": 0 }, { "caption": "AND (All Members)", "value": 1 } ] } }
+                { "caption": "Group Name", "name": "GroupName", "width": "250px", "add": "AlarmGroup", "edit": { "type": "ValidationTextBox" } },
+                { "caption": "Logic", "name": "GroupLogic", "width": "150px", "add": 0, "edit": { "type": "Select", "options": [ { "caption": "OR (Any Member)", "value": 0 }, { "caption": "AND (All Members)", "value": 1 } ] } }
             ]
         },
         { "type": "Label", "caption": "3b. BEDROOM BEHAVIOR (Group-based)" },
@@ -54,7 +46,7 @@
         { "type": "Label", "caption": "Step B: ASSIGN CLASSES TO GROUPS" },
         { "type": "ExpansionPanel", "name": "DynamicGroupMemberContainer", "caption": "Manage which classes belong to which groups", "items": [] },
         { "type": "ExpansionPanel", "caption": "Sabotage / Tamper", "items": [
-                { "type": "List", "name": "TamperList", "caption": "Tamper Sensors", "add": true, "delete": true, "columns": [ { "caption": "Variable", "name": "VariableID", "width": "200px", "add": 0, "edit": { "type": "SelectVariable" } }, { "caption": "Invert", "name": "Invert", "width": "100px", "add": false, "edit": { "type": "CheckBox" } } ] }
+                { "type": "List", "name": "TamperList", "caption": "Tamper Sensors", "add": true, "delete": true, "columns": [ { "caption": "Variable", "name": "VariableID", "width": "400px", "add": 0, "edit": { "type": "SelectVariable" } }, { "caption": "Invert", "name": "Invert", "width": "100px", "add": false, "edit": { "type": "CheckBox" } } ] }
             ]
         },
         { "type": "CheckBox", "name": "MaintenanceMode", "caption": "Maintenance Mode" }
@@ -78,7 +70,7 @@
                     "onEdit": "IPS_RequestAction($id, 'UpdateWizardList', json_encode($ImportCandidates));",
                     "columns": [
                         { "caption": "ID", "name": "VariableID", "width": "70px", "edit": { "type": "Label" } },
-                        { "caption": "Name", "name": "Name", "width": "200px", "edit": { "type": "Label" } },
+                        { "caption": "Name", "name": "Name", "width": "300px", "edit": { "type": "Label" } },
                         { "caption": "Import", "name": "Selected", "width": "50px", "edit": { "type": "CheckBox" } }
                     ],
                     "values": []
