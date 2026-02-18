@@ -443,10 +443,10 @@ class SensorGroup extends IPSModule
             if (isset($element['name']) && $element['name'] === 'DynamicSensorContainer') {
                 if (is_array($definedClasses)) {
                     foreach ($definedClasses as $class) {
-                        $classID = $class['ClassID'];
+                        // FIX: Use fallback for ClassID if not yet generated
+                        $classID = !empty($class['ClassID']) ? $class['ClassID'] : $class['ClassName'];
                         $className = $class['ClassName'];
 
-                        // Filter sensors for this class
                         $classSensors = array_values(array_filter($sensorList, function ($s) use ($classID) {
                             return ($s['ClassID'] ?? '') === $classID;
                         }));
@@ -459,10 +459,11 @@ class SensorGroup extends IPSModule
                                     "type" => "List",
                                     "name" => "List_" . $classID,
                                     "rowCount" => 8,
-                                    "add" => false, // Only Bulk Import allows adding
+                                    "add" => false,
                                     "delete" => true,
-                                    "onEdit" => "IPS_RequestAction($id, 'UpdateSensorList', json_encode(['ClassID' => '" . $classID . "', 'Values' => \$List_" . $classID . "]));",
-                                    "onDelete" => "IPS_RequestAction($id, 'UpdateSensorList', json_encode(['ClassID' => '" . $classID . "', 'Values' => \$List_" . $classID . "]));",
+                                    // FIX: Escaped $id so it is treated as a literal for the Symcon UI
+                                    "onEdit" => "IPS_RequestAction(\$id, 'UpdateSensorList', json_encode(['ClassID' => '" . $classID . "', 'Values' => \$List_" . $classID . "]));",
+                                    "onDelete" => "IPS_RequestAction(\$id, 'UpdateSensorList', json_encode(['ClassID' => '" . $classID . "', 'Values' => \$List_" . $classID . "]));",
                                     "columns" => [
                                         ["caption" => "Variable", "name" => "VariableID", "width" => "300px", "edit" => ["type" => "SelectVariable"]],
                                         ["caption" => "Op", "name" => "Operator", "width" => "70px", "edit" => ["type" => "Select", "options" => [["caption" => "=", "value" => 0], ["caption" => "!=", "value" => 1], ["caption" => ">", "value" => 2], ["caption" => "<", "value" => 3], ["caption" => ">=", "value" => 4], ["caption" => "<=", "value" => 5]]]],
@@ -477,7 +478,6 @@ class SensorGroup extends IPSModule
             }
         }
 
-        // Inject using Helpers
         $this->UpdateFormOption($form['elements'], 'ImportClass', $classOptions);
         if (isset($form['actions'])) $this->UpdateFormOption($form['actions'], 'ImportClass', $classOptions);
         $this->UpdateListColumnOption($form['elements'], 'GroupMembers', 'GroupName', $groupOptions);
