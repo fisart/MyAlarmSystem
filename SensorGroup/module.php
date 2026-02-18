@@ -58,7 +58,7 @@ class SensorGroup extends IPSModule
         $this->RegisterSensors('SensorList');
         $this->RegisterSensors('TamperList');
 
-        // NEW: Register Bedroom Activation Variables from the BedroomList property
+        // Register Bedroom Activation Variables
         $bedroomList = json_decode($this->ReadPropertyString('BedroomList'), true);
         if (is_array($bedroomList)) {
             foreach ($bedroomList as $bed) {
@@ -79,6 +79,7 @@ class SensorGroup extends IPSModule
                 if (empty($group['GroupName'])) continue;
                 $cleanName = $this->SanitizeIdent($group['GroupName']);
                 $ident = "Status_" . $cleanName;
+                // Line 82: Ensure $pos is used here, NOT $index
                 $this->RegisterVariableBoolean($ident, "Status (" . $group['GroupName'] . ")", "~Alert", $pos++);
                 $keepIdents[] = $ident;
             }
