@@ -592,14 +592,13 @@ class SensorGroup extends IPSModule
     {
         $form = json_decode(file_get_contents(__DIR__ . '/form.json'), true);
 
-        // Blueprint 2.0 - Step 2: Initial RAM Sync & Label Healing
+        // Blueprint 2.0: Prioritize RAM Buffer over Property for dynamic persistence
+        $sensorList = json_decode($this->ReadAttributeString('SensorListBuffer'), true) ?: json_decode($this->ReadPropertyString('SensorList'), true) ?: [];
+        $bedroomList = json_decode($this->ReadAttributeString('BedroomListBuffer'), true) ?: json_decode($this->ReadPropertyString('BedroomList'), true) ?: [];
+        $groupMembers = json_decode($this->ReadAttributeString('GroupMembersBuffer'), true) ?: json_decode($this->ReadPropertyString('GroupMembers'), true) ?: [];
+
+        // Blueprint 2.0 - Step 2: Label Healing using Source of Truth
         $metadata = $this->GetMasterMetadata();
-
-        $sensorList = json_decode($this->ReadPropertyString('SensorList'), true) ?: [];
-        $bedroomList = json_decode($this->ReadPropertyString('BedroomList'), true) ?: [];
-        $groupMembers = json_decode($this->ReadPropertyString('GroupMembers'), true) ?: [];
-
-        // Heal Sensor Labels from Master Metadata
         foreach ($sensorList as &$s) {
             $vid = $s['VariableID'] ?? 0;
             if (isset($metadata[$vid])) {
@@ -610,7 +609,7 @@ class SensorGroup extends IPSModule
         }
         unset($s);
 
-        // Sync to RAM Buffers (Attributes) immediately on form load
+        // Sync to RAM Buffers immediately on form load
         $this->WriteAttributeString('SensorListBuffer', json_encode($sensorList));
         $this->WriteAttributeString('BedroomListBuffer', json_encode($bedroomList));
         $this->WriteAttributeString('GroupMembersBuffer', json_encode($groupMembers));
@@ -636,13 +635,11 @@ class SensorGroup extends IPSModule
         if (count($groupOptions) == 0) $groupOptions[] = ['caption' => '- Save Group First -', 'value' => ''];
 
         foreach ($form['elements'] as &$element) {
-            // --- DYNAMIC STEP 2 GENERATION ---
             if (isset($element['name']) && $element['name'] === 'DynamicSensorContainer') {
                 foreach ($definedClasses as $class) {
                     $classID = !empty($class['ClassID']) ? $class['ClassID'] : $class['ClassName'];
                     $safeID = md5($classID);
                     $className = $class['ClassName'];
-
                     $classSensors = array_values(array_filter($sensorList, function ($s) use ($classID) {
                         return ($s['ClassID'] ?? '') === $classID;
                     }));
@@ -650,27 +647,25 @@ class SensorGroup extends IPSModule
                     $element['items'][] = [
                         "type" => "ExpansionPanel",
                         "caption" => $className . " (" . count($classSensors) . ")",
-                        "items" => [
-                            [
-                                "type" => "List",
-                                "name" => "List_" . $safeID,
-                                "rowCount" => 8,
-                                "add" => false,
-                                "delete" => true,
-                                // FIX: Escaped dollar signs to prevent premature PHP evaluation
-                                "onEdit" => "IPS_RequestAction(\$id, 'UpdateSensorList', json_encode(['ClassID' => '" . $classID . "', 'Values' => \$List_" . $safeID . "]));",
-                                "onDelete" => "IPS_RequestAction(\$id, 'DeleteSensorListItem', json_encode(['ClassID' => '" . $classID . "', 'Index' => \$index]));",
-                                "columns" => [
-                                    ["caption" => "ID", "name" => "DisplayID", "width" => "70px"],
-                                    ["caption" => "Variable", "name" => "VariableID", "width" => "250px", "edit" => ["type" => "SelectVariable"]],
-                                    ["caption" => "Location (P)", "name" => "ParentName", "width" => "120px"],
-                                    ["caption" => "Area (GP)", "name" => "GrandParentName", "width" => "120px"],
-                                    ["caption" => "Op", "name" => "Operator", "width" => "70px", "edit" => ["type" => "Select", "options" => [["caption" => "=", "value" => 0], ["caption" => "!=", "value" => 1], ["caption" => ">", "value" => 2], ["caption" => "<", "value" => 3], ["caption" => ">=", "value" => 4], ["caption" => "<=", "value" => 5]]]],
-                                    ["caption" => "Value", "name" => "ComparisonValue", "width" => "80px", "edit" => ["type" => "ValidationTextBox"]]
-                                ],
-                                "values" => $classSensors
-                            ]
-                        ]
+                        "items" => [[
+                            "type" => "List",
+                            "name" => "List_" . $safeID,
+                            "rowCount" => 8,
+                            "add" => false,
+                            "delete" => true,
+                            // FIX: Use single quotes to prevent server-side evaluation of $id, $List, and $index
+                            'onEdit' => 'IPS_RequestAction($id, "UpdateSensorList", json_encode(["ClassID" => "' . $classID . '", "Values" => $List_' . $safeID . ']));',
+                            'onDelete' => 'IPS_RequestAction($id, "DeleteSensorListItem", json_encode(["ClassID" => "' . $classID . '", "Index" => $index]));',
+                            "columns" => [
+                                ["caption" => "ID", "name" => "DisplayID", "width" => "70px"],
+                                ["caption" => "Variable", "name" => "VariableID", "width" => "200px", "edit" => ["type" => "SelectVariable"]],
+                                ["caption" => "Location (P)", "name" => "ParentName", "width" => "120px"],
+                                ["caption" => "Area (GP)", "name" => "GrandParentName", "width" => "120px"],
+                                ["caption" => "Op", "name" => "Operator", "width" => "70px", "edit" => ["type" => "Select", "options" => [["caption" => "=", "value" => 0], ["caption" => "!=", "value" => 1], ["caption" => ">", "value" => 2], ["caption" => "<", "value" => 3], ["caption" => ">=", "value" => 4], ["caption" => "<=", "value" => 5]]]],
+                                ["caption" => "Value", "name" => "ComparisonValue", "width" => "80px", "edit" => ["type" => "ValidationTextBox"]]
+                            ],
+                            "values" => $classSensors
+                        ]]
                     ];
                 }
             }
