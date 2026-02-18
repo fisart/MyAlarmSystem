@@ -63,6 +63,7 @@
         { "type": "CheckBox", "name": "MaintenanceMode", "caption": "Maintenance Mode" }
     ],
     "actions": [
+            { "type": "Button", "caption": "SAVE ALL CHANGES", "onClick": "MYALARM_SaveConfiguration($id);" },
         { "type": "ExpansionPanel", "caption": "BULK IMPORT WIZARD", "items": [
                 { "type": "Label", "caption": "Scan for sensors and assign them to a Class defined above." },
                 { "type": "SelectObject", "name": "ImportRootID", "caption": "Search Root" },

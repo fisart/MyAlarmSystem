@@ -14,6 +14,12 @@ class SensorGroup extends IPSModule
         $this->RegisterPropertyString('TamperList', '[]');
         $this->RegisterPropertyString('BedroomList', '[]');
         $this->RegisterPropertyBoolean('MaintenanceMode', false);
+
+        // RAM Buffers for Blueprint Strategy 2.0
+        $this->RegisterAttributeString('SensorListBuffer', '[]');
+        $this->RegisterAttributeString('BedroomListBuffer', '[]');
+        $this->RegisterAttributeString('GroupMembersBuffer', '[]');
+
         $this->RegisterAttributeString('ClassStateAttribute', '{}');
         $this->RegisterAttributeString('ScanCache', '[]');
         $this->RegisterVariableBoolean('Status', 'Status', '~Alert', 10);
@@ -91,7 +97,24 @@ class SensorGroup extends IPSModule
 
         $this->CheckLogic();
     }
-
+    private function GetMasterMetadata()
+    {
+        $sensorList = json_decode($this->ReadPropertyString('SensorList'), true) ?: [];
+        $metadata = [];
+        foreach ($sensorList as $s) {
+            $vid = $s['VariableID'] ?? 0;
+            if ($vid > 0 && IPS_VariableExists($vid)) {
+                $parentID = IPS_GetParent($vid);
+                $grandParentID = ($parentID > 0) ? IPS_GetParent($parentID) : 0;
+                $metadata[$vid] = [
+                    'DisplayID'       => (string)$vid,
+                    'ParentName'      => ($parentID > 0) ? IPS_GetName($parentID) : "Root",
+                    'GrandParentName' => ($grandParentID > 0) ? IPS_GetName($grandParentID) : "-"
+                ];
+            }
+        }
+        return $metadata;
+    }
     public function RequestAction($Ident, $Value)
     {
         switch ($Ident) {
@@ -100,28 +123,38 @@ class SensorGroup extends IPSModule
                 $classID = $data['ClassID'];
                 $newValues = $data['Values'];
 
-                $masterList = json_decode($this->ReadPropertyString('SensorList'), true);
-                if (!is_array($masterList)) $masterList = [];
+                // Blueprint 2.0 - Step 3: Keyed Merge logic
+                // Load the full RAM Buffer instead of just the property
+                $fullBuffer = json_decode($this->ReadAttributeString('SensorListBuffer'), true) ?: [];
 
-                // Remove old entries for this class
-                $masterList = array_values(array_filter($masterList, function ($s) use ($classID) {
+                // Remove all existing sensors for THIS specific class from the buffer
+                $fullBuffer = array_values(array_filter($fullBuffer, function ($s) use ($classID) {
                     return ($s['ClassID'] ?? '') !== $classID;
                 }));
 
-                // Add updated entries and re-inject ClassID
+                // Blueprint 2.0 - Step 4: Label Healing
+                $metadata = $this->GetMasterMetadata();
+
                 if (is_array($newValues)) {
                     foreach ($newValues as $row) {
-                        // FIX: Safety check to prevent "offset on string" error
                         if (is_array($row)) {
                             $row['ClassID'] = $classID;
-                            // Clean up display-only metadata before saving
-                            unset($row['DisplayID'], $row['ParentName'], $row['GrandParentName']);
-                            $masterList[] = $row;
+                            $vid = $row['VariableID'] ?? 0;
+
+                            // Re-inject labels from Source of Truth to prevent "Unknown" entries
+                            if ($vid > 0 && isset($metadata[$vid])) {
+                                $row['DisplayID'] = $metadata[$vid]['DisplayID'];
+                                $row['ParentName'] = $metadata[$vid]['ParentName'];
+                                $row['GrandParentName'] = $metadata[$vid]['GrandParentName'];
+                            }
+                            $fullBuffer[] = $row;
                         }
                     }
                 }
 
-                IPS_SetProperty($this->InstanceID, 'SensorList', json_encode($masterList));
+                // Update the RAM Buffer and commit to the property
+                $this->WriteAttributeString('SensorListBuffer', json_encode($fullBuffer));
+                IPS_SetProperty($this->InstanceID, 'SensorList', json_encode($fullBuffer));
                 IPS_ApplyChanges($this->InstanceID);
                 break;
 
@@ -161,7 +194,38 @@ class SensorGroup extends IPSModule
                 break;
         }
     }
+    public function SaveConfiguration()
+    {
+        // 1. Load data from RAM Buffers
+        $sensorList = json_decode($this->ReadAttributeString('SensorListBuffer'), true) ?: [];
+        $bedroomList = json_decode($this->ReadAttributeString('BedroomListBuffer'), true) ?: [];
+        $groupMembers = json_decode($this->ReadAttributeString('GroupMembersBuffer'), true) ?: [];
 
+        // 2. Final Label Healing (Source of Truth)
+        $metadata = $this->GetMasterMetadata();
+        foreach ($sensorList as &$s) {
+            $vid = $s['VariableID'] ?? 0;
+            if (isset($metadata[$vid])) {
+                $s['DisplayID'] = $metadata[$vid]['DisplayID'];
+                $s['ParentName'] = $metadata[$vid]['ParentName'];
+                $s['GrandParentName'] = $metadata[$vid]['GrandParentName'];
+            }
+        }
+        unset($s);
+
+        // 3. Persist to Properties
+        IPS_SetProperty($this->InstanceID, 'SensorList', json_encode($sensorList));
+        IPS_SetProperty($this->InstanceID, 'BedroomList', json_encode($bedroomList));
+        IPS_SetProperty($this->InstanceID, 'GroupMembers', json_encode($groupMembers));
+
+        // 4. Force System Apply
+        if (IPS_HasChanges($this->InstanceID)) {
+            IPS_ApplyChanges($this->InstanceID);
+            echo "Configuration saved and applied successfully.";
+        } else {
+            echo "No changes detected.";
+        }
+    }
     private function RegisterSensors($propName)
     {
         $list = json_decode($this->ReadPropertyString($propName), true);
@@ -422,88 +486,90 @@ class SensorGroup extends IPSModule
     {
         $form = json_decode(file_get_contents(__DIR__ . '/form.json'), true);
 
-        $definedClasses = json_decode($this->ReadPropertyString('ClassList'), true);
-        $classOptions = [];
+        // Blueprint 2.0 - Step 2: Initial RAM Sync & Label Healing
+        $metadata = $this->GetMasterMetadata();
 
-        if (is_array($definedClasses)) {
-            foreach ($definedClasses as $c) {
-                $val = !empty($c['ClassID']) ? $c['ClassID'] : $c['ClassName'];
-                if (!empty($c['ClassName'])) {
-                    $classOptions[] = ['caption' => $c['ClassName'], 'value' => $val];
-                }
+        $sensorList = json_decode($this->ReadPropertyString('SensorList'), true) ?: [];
+        $bedroomList = json_decode($this->ReadPropertyString('BedroomList'), true) ?: [];
+        $groupMembers = json_decode($this->ReadPropertyString('GroupMembers'), true) ?: [];
+
+        // Heal Sensor Labels from Master Metadata
+        foreach ($sensorList as &$s) {
+            $vid = $s['VariableID'] ?? 0;
+            if (isset($metadata[$vid])) {
+                $s['DisplayID'] = $metadata[$vid]['DisplayID'];
+                $s['ParentName'] = $metadata[$vid]['ParentName'];
+                $s['GrandParentName'] = $metadata[$vid]['GrandParentName'];
+            }
+        }
+        unset($s);
+
+        // Sync to RAM Buffers (Attributes) immediately on form load
+        $this->WriteAttributeString('SensorListBuffer', json_encode($sensorList));
+        $this->WriteAttributeString('BedroomListBuffer', json_encode($bedroomList));
+        $this->WriteAttributeString('GroupMembersBuffer', json_encode($groupMembers));
+
+        // Options for standard lists
+        $definedClasses = json_decode($this->ReadPropertyString('ClassList'), true) ?: [];
+        $classOptions = [];
+        foreach ($definedClasses as $c) {
+            $val = !empty($c['ClassID']) ? $c['ClassID'] : $c['ClassName'];
+            if (!empty($c['ClassName'])) {
+                $classOptions[] = ['caption' => $c['ClassName'], 'value' => $val];
             }
         }
         if (count($classOptions) == 0) $classOptions[] = ['caption' => '- No Classes -', 'value' => ''];
 
-        $definedGroups = json_decode($this->ReadPropertyString('GroupList'), true);
+        $definedGroups = json_decode($this->ReadPropertyString('GroupList'), true) ?: [];
         $groupOptions = [];
-        if (is_array($definedGroups)) {
-            foreach ($definedGroups as $g) {
-                if (!empty($g['GroupName'])) $groupOptions[] = ['caption' => $g['GroupName'], 'value' => $g['GroupName']];
+        foreach ($definedGroups as $g) {
+            if (!empty($g['GroupName'])) {
+                $groupOptions[] = ['caption' => $g['GroupName'], 'value' => $g['GroupName']];
             }
         }
         if (count($groupOptions) == 0) $groupOptions[] = ['caption' => '- Save Group First -', 'value' => ''];
 
-        // --- DYNAMIC STEP 2 GENERATION ---
-        $sensorList = json_decode($this->ReadPropertyString('SensorList'), true);
-        if (!is_array($sensorList)) $sensorList = [];
-
         foreach ($form['elements'] as &$element) {
+            // --- DYNAMIC STEP 2 GENERATION ---
             if (isset($element['name']) && $element['name'] === 'DynamicSensorContainer') {
-                if (is_array($definedClasses)) {
-                    foreach ($definedClasses as $class) {
-                        $classID = !empty($class['ClassID']) ? $class['ClassID'] : $class['ClassName'];
-                        $className = $class['ClassName'];
+                foreach ($definedClasses as $class) {
+                    $classID = !empty($class['ClassID']) ? $class['ClassID'] : $class['ClassName'];
+                    $safeID = md5($classID);
+                    $className = $class['ClassName'];
 
-                        $classSensors = array_values(array_filter($sensorList, function ($s) use ($classID) {
-                            return ($s['ClassID'] ?? '') === $classID;
-                        }));
+                    $classSensors = array_values(array_filter($sensorList, function ($s) use ($classID) {
+                        return ($s['ClassID'] ?? '') === $classID;
+                    }));
 
-                        foreach ($classSensors as &$s) {
-                            $vid = $s['VariableID'] ?? 0;
-                            $s['DisplayID'] = (string)$vid;
-                            if ($vid > 0 && IPS_VariableExists($vid)) {
-                                $parentID = IPS_GetParent($vid);
-                                $s['ParentName'] = ($parentID > 0) ? IPS_GetName($parentID) : "Root";
-                                // NEW: Grandparent resolution
-                                $grandParentID = ($parentID > 0) ? IPS_GetParent($parentID) : 0;
-                                $s['GrandParentName'] = ($grandParentID > 0) ? IPS_GetName($grandParentID) : "-";
-                            } else {
-                                $s['ParentName'] = "Unknown";
-                                $s['GrandParentName'] = "-";
-                            }
-                        }
-                        unset($s);
-
-                        $element['items'][] = [
-                            "type" => "ExpansionPanel",
-                            "caption" => $className . " (" . count($classSensors) . ")",
-                            "items" => [
-                                [
-                                    "type" => "List",
-                                    "name" => "List_" . $classID,
-                                    "rowCount" => 8,
-                                    "add" => false,
-                                    "delete" => true,
-                                    "onEdit" => "IPS_RequestAction(\$id, 'UpdateSensorList', json_encode(['ClassID' => '" . $classID . "', 'Values' => \$List_" . $classID . "]));",
-                                    "onDelete" => "IPS_RequestAction(\$id, 'UpdateSensorList', json_encode(['ClassID' => '" . $classID . "', 'Values' => \$List_" . $classID . "]));",
-                                    "columns" => [
-                                        ["caption" => "ID", "name" => "DisplayID", "width" => "70px"],
-                                        ["caption" => "Variable", "name" => "VariableID", "width" => "250px", "edit" => ["type" => "SelectVariable"]],
-                                        ["caption" => "Location (P)", "name" => "ParentName", "width" => "120px"],
-                                        ["caption" => "Area (GP)", "name" => "GrandParentName", "width" => "120px"],
-                                        ["caption" => "Op", "name" => "Operator", "width" => "70px", "edit" => ["type" => "Select", "options" => [["caption" => "=", "value" => 0], ["caption" => "!=", "value" => 1], ["caption" => ">", "value" => 2], ["caption" => "<", "value" => 3], ["caption" => ">=", "value" => 4], ["caption" => "<=", "value" => 5]]]],
-                                        ["caption" => "Value", "name" => "ComparisonValue", "width" => "80px", "edit" => ["type" => "ValidationTextBox"]]
-                                    ],
-                                    "values" => $classSensors
-                                ]
+                    $element['items'][] = [
+                        "type" => "ExpansionPanel",
+                        "caption" => $className . " (" . count($classSensors) . ")",
+                        "items" => [
+                            [
+                                "type" => "List",
+                                "name" => "List_" . $safeID,
+                                "rowCount" => 8,
+                                "add" => false,
+                                "delete" => true,
+                                "onEdit" => "IPS_RequestAction(\$id, 'UpdateSensorList', json_encode(['ClassID' => '" . $classID . "', 'Values' => \$List_" . $safeID . "]));",
+                                "onDelete" => "IPS_RequestAction(\$id, 'UpdateSensorList', json_encode(['ClassID' => '" . $classID . "', 'Values' => \$List_" . $safeID . "]));",
+                                "columns" => [
+                                    ["caption" => "ID", "name" => "DisplayID", "width" => "70px"],
+                                    ["caption" => "Variable", "name" => "VariableID", "width" => "250px", "edit" => ["type" => "SelectVariable"]],
+                                    ["caption" => "Location (P)", "name" => "ParentName", "width" => "120px"],
+                                    ["caption" => "Area (GP)", "name" => "GrandParentName", "width" => "120px"],
+                                    ["caption" => "Op", "name" => "Operator", "width" => "70px", "edit" => ["type" => "Select", "options" => [["caption" => "=", "value" => 0], ["caption" => "!=", "value" => 1], ["caption" => ">", "value" => 2], ["caption" => "<", "value" => 3], ["caption" => ">=", "value" => 4], ["caption" => "<=", "value" => 5]]]],
+                                    ["caption" => "Value", "name" => "ComparisonValue", "width" => "80px", "edit" => ["type" => "ValidationTextBox"]]
+                                ],
+                                "values" => $classSensors
                             ]
-                        ];
-                    }
+                        ]
+                    ];
                 }
             }
         }
 
+        // Inject options into Step 3b and Step B lists
         $this->UpdateFormOption($form['elements'], 'ImportClass', $classOptions);
         if (isset($form['actions'])) $this->UpdateFormOption($form['actions'], 'ImportClass', $classOptions);
         $this->UpdateListColumnOption($form['elements'], 'GroupMembers', 'GroupName', $groupOptions);
