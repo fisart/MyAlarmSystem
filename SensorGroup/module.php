@@ -110,8 +110,12 @@ class SensorGroup extends IPSModule
 
                 // Add updated entries and re-inject ClassID
                 foreach ($newValues as $row) {
-                    $row['ClassID'] = $classID;
-                    $masterList[] = $row;
+                    if (is_array($row)) { // Safety check to prevent "offset on string" error
+                        $row['ClassID'] = $classID;
+                        // Clean up display-only metadata before saving to property
+                        unset($row['DisplayID'], $row['ParentName'], $row['GrandParentName']);
+                        $masterList[] = $row;
+                    }
                 }
 
                 IPS_SetProperty($this->InstanceID, 'SensorList', json_encode($masterList));
@@ -130,8 +134,10 @@ class SensorGroup extends IPSModule
 
                 // Add updated entries and ensure GroupName is present
                 foreach ($newValues as $row) {
-                    $row['GroupName'] = $gName;
-                    $master[] = $row;
+                    if (is_array($row)) {
+                        $row['GroupName'] = $gName;
+                        $master[] = $row;
+                    }
                 }
 
                 IPS_SetProperty($this->InstanceID, 'BedroomList', json_encode($master));
@@ -150,8 +156,10 @@ class SensorGroup extends IPSModule
 
                 // Add updated entries and ensure GroupName is present
                 foreach ($newValues as $row) {
-                    $row['GroupName'] = $gName;
-                    $master[] = $row;
+                    if (is_array($row)) {
+                        $row['GroupName'] = $gName;
+                        $master[] = $row;
+                    }
                 }
 
                 IPS_SetProperty($this->InstanceID, 'GroupMembers', json_encode($master));
