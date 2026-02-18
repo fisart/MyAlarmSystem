@@ -457,6 +457,9 @@ class SensorGroup extends IPSModule
     {
         $form = json_decode(file_get_contents(__DIR__ . '/form.json'), true);
 
+        // LOG 1: Verify the raw state of ClassList property
+        $this->LogMessage("DEBUG: GetConfigurationForm - Raw ClassList: " . $this->ReadPropertyString('ClassList'), KL_MESSAGE);
+
         $definedClasses = json_decode($this->ReadPropertyString('ClassList'), true);
         $classOptions = [];
 
@@ -484,6 +487,9 @@ class SensorGroup extends IPSModule
         $bedroomList = json_decode($this->ReadPropertyString('BedroomList'), true) ?: [];
         $groupMembers = json_decode($this->ReadPropertyString('GroupMembers'), true) ?: [];
 
+        // LOG 2: Check if data survived the Wizard call
+        $this->LogMessage("DEBUG: GetConfigurationForm - Data Counts: Classes=" . count((array)$definedClasses) . ", Groups=" . count((array)$definedGroups) . ", Sensors=" . count($sensorList), KL_MESSAGE);
+
         foreach ($form['elements'] as &$element) {
             // --- DYNAMIC STEP 2 GENERATION ---
             if (isset($element['name']) && $element['name'] === 'DynamicSensorContainer') {
@@ -491,6 +497,9 @@ class SensorGroup extends IPSModule
                     foreach ($definedClasses as $class) {
                         $classID = !empty($class['ClassID']) ? $class['ClassID'] : $class['ClassName'];
                         $className = $class['ClassName'];
+
+                        // LOG 3: Check for spaces or invalid characters in the internal List identifier
+                        $this->LogMessage("DEBUG: GetConfigurationForm - Step 2 List identifier: List_" . $classID, KL_MESSAGE);
 
                         $classSensors = array_values(array_filter($sensorList, function ($s) use ($classID) {
                             return ($s['ClassID'] ?? '') === $classID;
@@ -690,6 +699,11 @@ class SensorGroup extends IPSModule
         $currentRules = json_decode($this->ReadPropertyString('SensorList'), true);
         if (!is_array($currentRules)) $currentRules = [];
 
+        // DEBUG LOG: State of definitions before the wizard commits data
+        $this->LogMessage("DEBUG: UI_Import - Start. Target Class: " . $TargetClassID, KL_MESSAGE);
+        $this->LogMessage("DEBUG: UI_Import - ClassList on Server: " . $this->ReadPropertyString('ClassList'), KL_MESSAGE);
+        $this->LogMessage("DEBUG: UI_Import - GroupList on Server: " . $this->ReadPropertyString('GroupList'), KL_MESSAGE);
+
         $added = false;
         if (is_array($candidates)) {
             foreach ($candidates as $row) {
@@ -706,6 +720,7 @@ class SensorGroup extends IPSModule
         }
 
         if ($added) {
+            $this->LogMessage("DEBUG: UI_Import - Saving " . count($currentRules) . " sensors to property.", KL_MESSAGE);
             IPS_SetProperty($this->InstanceID, 'SensorList', json_encode($currentRules));
             IPS_ApplyChanges($this->InstanceID);
             $this->UpdateFormField('SensorList', 'values', json_encode($currentRules));
