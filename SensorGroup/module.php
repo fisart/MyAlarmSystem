@@ -514,8 +514,8 @@ class SensorGroup extends IPSModule
                                 ["caption" => "Variable", "name" => "VariableID", "width" => "200px", "edit" => ["type" => "SelectVariable"]],
                                 ["caption" => "Loc (P)", "name" => "ParentName", "width" => "100px"],
                                 ["caption" => "Area (GP)", "name" => "GrandParentName", "width" => "100px"],
-                                ["caption" => "Op", "name" => "Operator", "width" => "70px", "edit" => ["type" => "Select", "options" => [["caption" => "=", "value" => 0], ["caption" => "!=", "value" => 1], ["caption" => ">", "value" => 2], ["caption" => "<", "value" => 3], ["caption" => ">=", "value" => 4], ["caption" => "<=", "value" => 5]]]],
-                                ["caption" => "Value", "name" => "ComparisonValue", "width" => "80px", "edit" => ["type" => "ValidationTextBox"]]
+                                ["caption" => "Op", "name" => "Operator", "width" => "100px", "edit" => ["type" => "Select", "options" => [["caption" => "=", "value" => 0], ["caption" => "!=", "value" => 1], ["caption" => ">", "value" => 2], ["caption" => "<", "value" => 3], ["caption" => ">=", "value" => 4], ["caption" => "<=", "value" => 5]]]],
+                                ["caption" => "Value", "name" => "ComparisonValue", "width" => "100px", "edit" => ["type" => "ValidationTextBox"]]
                             ],
                             "values" => $classSensors
                         ]]
@@ -542,8 +542,8 @@ class SensorGroup extends IPSModule
                             "delete" => true,
                             "onEdit" => "IPS_RequestAction(\$id, 'UpdateBedroomProperty', json_encode(['GroupName' => '" . $gName . "', 'Values' => \$Bed_" . md5($gName) . "]));",
                             "columns" => [
-                                ["caption" => "Active Var (IPSView)", "name" => "ActiveVariableID", "width" => "250px", "edit" => ["type" => "SelectVariable"]],
-                                ["caption" => "Door Class (Trigger)", "name" => "BedroomDoorClassID", "width" => "250px", "edit" => ["type" => "Select", "options" => $classOptions]]
+                                ["caption" => "Active Var (IPSView)", "name" => "ActiveVariableID", "width" => "200px", "edit" => ["type" => "SelectVariable"]],
+                                ["caption" => "Door Class (Trigger)", "name" => "BedroomDoorClassID", "width" => "200px", "edit" => ["type" => "Select", "options" => $classOptions]]
                             ],
                             "values" => $bedData
                         ]]
@@ -570,7 +570,7 @@ class SensorGroup extends IPSModule
                             "delete" => true,
                             "onEdit" => "IPS_RequestAction(\$id, 'UpdateMemberProperty', json_encode(['GroupName' => '" . $gName . "', 'Values' => \$Mem_" . md5($gName) . "]));",
                             "columns" => [
-                                ["caption" => "Assigned Class", "name" => "ClassID", "width" => "400px", "edit" => ["type" => "Select", "options" => $classOptions]]
+                                ["caption" => "Assigned Class", "name" => "ClassID", "width" => "200px", "edit" => ["type" => "Select", "options" => $classOptions]]
                             ],
                             "values" => $members
                         ]]
