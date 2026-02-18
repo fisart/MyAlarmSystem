@@ -31,17 +31,8 @@
                 { "caption": "Window", "name": "TimeWindow", "width": "80px", "add": 10, "edit": { "type": "NumberSpinner", "minimum": 1 } }
             ]
         },
-        { "type": "Label", "caption": "2. SENSOR INPUTS (Mapped to Classes)" },
-        {
-            "type": "List", "name": "SensorList", "caption": "Mapped Sensors", "rowCount": 10, "add": true, "delete": true,
-            "sort": { "column": "VariableID", "direction": "ascending" },
-            "columns": [
-                { "caption": "Variable", "name": "VariableID", "width": "250px", "add": 0, "edit": { "type": "SelectVariable" } },
-                { "caption": "Op", "name": "Operator", "width": "70px", "add": 0, "edit": { "type": "Select", "options": [ { "caption": "=", "value": 0 }, { "caption": "!=", "value": 1 }, { "caption": ">", "value": 2 }, { "caption": "<", "value": 3 }, { "caption": ">=", "value": 4 }, { "caption": "<=", "value": 5 } ] } },
-                { "caption": "Value", "name": "ComparisonValue", "width": "80px", "add": "1", "edit": { "type": "ValidationTextBox" } },
-                { "caption": "Assigned Class", "name": "ClassID", "width": "200px", "add": "", "edit": { "type": "Select", "options": [] } }
-            ]
-        },
+        { "type": "Label", "caption": "2. SENSOR INPUTS (Grouped by Class)" },
+        { "type": "ExpansionPanel", "name": "DynamicSensorContainer", "caption": "Manage sensors within their classes", "items": [] },
         { "type": "Label", "caption": "3. GROUP DEFINITIONS (Output Container)" },
         {
             "type": "List", "name": "GroupList", "caption": "Step 3a: Create Groups", "rowCount": 3, "add": true, "delete": true,

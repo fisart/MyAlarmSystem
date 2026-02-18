@@ -95,6 +95,29 @@ class SensorGroup extends IPSModule
     public function RequestAction($Ident, $Value)
     {
         switch ($Ident) {
+            case 'UpdateSensorList':
+                $data = json_decode($Value, true);
+                $classID = $data['ClassID'];
+                $newValues = $data['Values'];
+
+                $masterList = json_decode($this->ReadPropertyString('SensorList'), true);
+                if (!is_array($masterList)) $masterList = [];
+
+                // Remove old entries for this class
+                $masterList = array_values(array_filter($masterList, function ($s) use ($classID) {
+                    return ($s['ClassID'] ?? '') !== $classID;
+                }));
+
+                // Add updated entries and re-inject ClassID
+                foreach ($newValues as $row) {
+                    $row['ClassID'] = $classID;
+                    $masterList[] = $row;
+                }
+
+                IPS_SetProperty($this->InstanceID, 'SensorList', json_encode($masterList));
+                IPS_ApplyChanges($this->InstanceID);
+                break;
+
             case 'UpdateWizardList':
                 $changes = json_decode($Value, true);
                 $cache = json_decode($this->ReadAttributeString('ScanCache'), true);
@@ -412,16 +435,53 @@ class SensorGroup extends IPSModule
         }
         if (count($groupOptions) == 0) $groupOptions[] = ['caption' => '- Save Group First -', 'value' => ''];
 
-        // Inject using Recursive Helper
+        // --- DYNAMIC STEP 2 GENERATION ---
+        $sensorList = json_decode($this->ReadPropertyString('SensorList'), true);
+        if (!is_array($sensorList)) $sensorList = [];
+
+        foreach ($form['elements'] as &$element) {
+            if (isset($element['name']) && $element['name'] === 'DynamicSensorContainer') {
+                if (is_array($definedClasses)) {
+                    foreach ($definedClasses as $class) {
+                        $classID = $class['ClassID'];
+                        $className = $class['ClassName'];
+
+                        // Filter sensors for this class
+                        $classSensors = array_values(array_filter($sensorList, function ($s) use ($classID) {
+                            return ($s['ClassID'] ?? '') === $classID;
+                        }));
+
+                        $element['items'][] = [
+                            "type" => "ExpansionPanel",
+                            "caption" => $className . " (" . count($classSensors) . ")",
+                            "items" => [
+                                [
+                                    "type" => "List",
+                                    "name" => "List_" . $classID,
+                                    "rowCount" => 8,
+                                    "add" => false, // Only Bulk Import allows adding
+                                    "delete" => true,
+                                    "onEdit" => "IPS_RequestAction($id, 'UpdateSensorList', json_encode(['ClassID' => '" . $classID . "', 'Values' => \$List_" . $classID . "]));",
+                                    "onDelete" => "IPS_RequestAction($id, 'UpdateSensorList', json_encode(['ClassID' => '" . $classID . "', 'Values' => \$List_" . $classID . "]));",
+                                    "columns" => [
+                                        ["caption" => "Variable", "name" => "VariableID", "width" => "300px", "edit" => ["type" => "SelectVariable"]],
+                                        ["caption" => "Op", "name" => "Operator", "width" => "70px", "edit" => ["type" => "Select", "options" => [["caption" => "=", "value" => 0], ["caption" => "!=", "value" => 1], ["caption" => ">", "value" => 2], ["caption" => "<", "value" => 3], ["caption" => ">=", "value" => 4], ["caption" => "<=", "value" => 5]]]],
+                                        ["caption" => "Value", "name" => "ComparisonValue", "width" => "100px", "edit" => ["type" => "ValidationTextBox"]]
+                                    ],
+                                    "values" => $classSensors
+                                ]
+                            ]
+                        ];
+                    }
+                }
+            }
+        }
+
+        // Inject using Helpers
         $this->UpdateFormOption($form['elements'], 'ImportClass', $classOptions);
         if (isset($form['actions'])) $this->UpdateFormOption($form['actions'], 'ImportClass', $classOptions);
-
-        // Inject into List Columns
         $this->UpdateListColumnOption($form['elements'], 'GroupMembers', 'GroupName', $groupOptions);
         $this->UpdateListColumnOption($form['elements'], 'GroupMembers', 'ClassID', $classOptions);
-        $this->UpdateListColumnOption($form['elements'], 'SensorList', 'ClassID', $classOptions);
-
-        // NEW: Population for Step 3b (Bedroom Configuration)
         $this->UpdateListColumnOption($form['elements'], 'BedroomList', 'GroupName', $groupOptions);
         $this->UpdateListColumnOption($form['elements'], 'BedroomList', 'BedroomDoorClassID', $classOptions);
 
