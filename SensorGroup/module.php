@@ -119,6 +119,7 @@ class SensorGroup extends IPSModule
                 }
 
                 IPS_SetProperty($this->InstanceID, 'SensorList', json_encode($masterList));
+                $this->ReloadForm();
                 break;
 
             case 'UpdateBedroomProperty':
@@ -141,6 +142,7 @@ class SensorGroup extends IPSModule
                 }
 
                 IPS_SetProperty($this->InstanceID, 'BedroomList', json_encode($master));
+                $this->ReloadForm();
                 break;
 
             case 'UpdateMemberProperty':
@@ -163,6 +165,7 @@ class SensorGroup extends IPSModule
                 }
 
                 IPS_SetProperty($this->InstanceID, 'GroupMembers', json_encode($master));
+                $this->ReloadForm();
                 break;
 
             case 'UpdateWizardList':
