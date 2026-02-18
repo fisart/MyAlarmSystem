@@ -567,9 +567,9 @@ class SensorGroup extends IPSModule
                                 "rowCount" => 8,
                                 "add" => false,
                                 "delete" => true,
-                                "onEdit" => "IPS_RequestAction(\$id, 'UpdateSensorList', json_encode(['ClassID' => '" . $classID . "', 'Values' => \$List_" . $safeID . "]));",
-                                // FIX: Use Index-based deletion to prevent data loss
-                                "onDelete" => "IPS_RequestAction(\$id, 'DeleteSensorListItem', json_encode(['ClassID' => '" . $classID . "', 'Index' => \$index]));",
+                                // FIX: Use single quotes to prevent PHP from evaluating $id, $List, and $index
+                                'onEdit' => 'IPS_RequestAction($id, "UpdateSensorList", json_encode(["ClassID" => "' . $classID . '", "Values" => $List_' . $safeID . ']));',
+                                'onDelete' => 'IPS_RequestAction($id, "DeleteSensorListItem", json_encode(["ClassID" => "' . $classID . '", "Index" => $index]));',
                                 "columns" => [
                                     ["caption" => "ID", "name" => "DisplayID", "width" => "70px"],
                                     ["caption" => "Variable", "name" => "VariableID", "width" => "200px", "edit" => ["type" => "SelectVariable"]],
