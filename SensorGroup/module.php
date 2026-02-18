@@ -118,6 +118,9 @@ class SensorGroup extends IPSModule
     }
     public function RequestAction($Ident, $Value)
     {
+        // DEBUG LOG: Capture raw incoming request
+        $this->LogMessage("DEBUG: RequestAction - Ident: " . $Ident . " - Value: " . $Value, KL_MESSAGE);
+
         switch ($Ident) {
             case 'UpdateSensorList':
                 $data = json_decode($Value, true);
@@ -154,6 +157,9 @@ class SensorGroup extends IPSModule
 
             case 'DeleteSensorListItem':
                 $data = json_decode($Value, true);
+                // DEBUG LOG: Capture decoded deletion parameters
+                $this->LogMessage("DEBUG: Deleting Index: " . ($data['Index'] ?? 'NOT SET') . " for Class: " . ($data['ClassID'] ?? 'NOT SET'), KL_MESSAGE);
+
                 $classID = $data['ClassID'];
                 $index = $data['Index'];
 
@@ -171,7 +177,91 @@ class SensorGroup extends IPSModule
                 }
 
                 $this->WriteAttributeString('SensorListBuffer', json_encode(array_merge($others, $target)));
-                $this->ReloadForm(); // Refresh UI to show row is removed from folder
+                $this->ReloadForm();
+                break;
+
+            case 'DeleteBedroomListItem':
+                $data = json_decode($Value, true);
+                $gName = $data['GroupName'];
+                $index = $data['Index'];
+
+                $master = json_decode($this->ReadPropertyString('BedroomList'), true) ?: [];
+                $others = array_values(array_filter($master, function ($b) use ($gName) {
+                    return ($b['GroupName'] ?? '') !== $gName;
+                }));
+                $target = array_values(array_filter($master, function ($b) use ($gName) {
+                    return ($b['GroupName'] ?? '') === $gName;
+                }));
+
+                if (isset($target[$index])) {
+                    array_splice($target, $index, 1);
+                }
+
+                IPS_SetProperty($this->InstanceID, 'BedroomList', json_encode(array_merge($others, $target)));
+                IPS_ApplyChanges($this->InstanceID);
+                break;
+
+            case 'DeleteMemberListItem':
+                $data = json_decode($Value, true);
+                $gName = $data['GroupName'];
+                $index = $data['Index'];
+
+                $master = json_decode($this->ReadPropertyString('GroupMembers'), true) ?: [];
+                $others = array_values(array_filter($master, function ($m) use ($gName) {
+                    return ($m['GroupName'] ?? '') !== $gName;
+                }));
+                $target = array_values(array_filter($master, function ($m) use ($gName) {
+                    return ($m['GroupName'] ?? '') === $gName;
+                }));
+
+                if (isset($target[$index])) {
+                    array_splice($target, $index, 1);
+                }
+
+                IPS_SetProperty($this->InstanceID, 'GroupMembers', json_encode(array_merge($others, $target)));
+                IPS_ApplyChanges($this->InstanceID);
+                break;
+
+            case 'UpdateBedroomProperty':
+                $data = json_decode($Value, true);
+                $gName = $data['GroupName'];
+                $newValues = $data['Values'];
+
+                $master = json_decode($this->ReadPropertyString('BedroomList'), true) ?: [];
+                $master = array_values(array_filter($master, function ($b) use ($gName) {
+                    return ($b['GroupName'] ?? '') !== $gName;
+                }));
+
+                foreach ($newValues as $row) {
+                    if (is_array($row)) {
+                        $row['GroupName'] = $gName;
+                        $master[] = $row;
+                    }
+                }
+
+                IPS_SetProperty($this->InstanceID, 'BedroomList', json_encode($master));
+                IPS_ApplyChanges($this->InstanceID);
+                break;
+
+            case 'UpdateMemberProperty':
+                $data = json_decode($Value, true);
+                $gName = $data['GroupName'];
+                $newValues = $data['Values'];
+
+                $master = json_decode($this->ReadPropertyString('GroupMembers'), true) ?: [];
+                $master = array_values(array_filter($master, function ($m) use ($gName) {
+                    return ($m['GroupName'] ?? '') !== $gName;
+                }));
+
+                foreach ($newValues as $row) {
+                    if (is_array($row)) {
+                        $row['GroupName'] = $gName;
+                        $master[] = $row;
+                    }
+                }
+
+                IPS_SetProperty($this->InstanceID, 'GroupMembers', json_encode($master));
+                IPS_ApplyChanges($this->InstanceID);
                 break;
 
             case 'UpdateWizardList':
