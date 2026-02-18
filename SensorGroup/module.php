@@ -123,39 +123,54 @@ class SensorGroup extends IPSModule
                 $classID = $data['ClassID'];
                 $newValues = $data['Values'];
 
-                // Blueprint 2.0 - Step 3: Keyed Merge logic
-                // Load the full RAM Buffer instead of just the property
+                // Blueprint 2.0 - Step 3: Keyed Merge (into RAM Buffer)
                 $fullBuffer = json_decode($this->ReadAttributeString('SensorListBuffer'), true) ?: [];
-
-                // Remove all existing sensors for THIS specific class from the buffer
-                $fullBuffer = array_values(array_filter($fullBuffer, function ($s) use ($classID) {
+                $others = array_values(array_filter($fullBuffer, function ($s) use ($classID) {
                     return ($s['ClassID'] ?? '') !== $classID;
                 }));
 
                 // Blueprint 2.0 - Step 4: Label Healing
                 $metadata = $this->GetMasterMetadata();
-
+                $updatedClass = [];
                 if (is_array($newValues)) {
                     foreach ($newValues as $row) {
                         if (is_array($row)) {
                             $row['ClassID'] = $classID;
                             $vid = $row['VariableID'] ?? 0;
-
-                            // Re-inject labels from Source of Truth to prevent "Unknown" entries
                             if ($vid > 0 && isset($metadata[$vid])) {
                                 $row['DisplayID'] = $metadata[$vid]['DisplayID'];
                                 $row['ParentName'] = $metadata[$vid]['ParentName'];
                                 $row['GrandParentName'] = $metadata[$vid]['GrandParentName'];
                             }
-                            $fullBuffer[] = $row;
+                            $updatedClass[] = $row;
                         }
                     }
                 }
 
-                // Update the RAM Buffer and commit to the property
-                $this->WriteAttributeString('SensorListBuffer', json_encode($fullBuffer));
-                IPS_SetProperty($this->InstanceID, 'SensorList', json_encode($fullBuffer));
-                IPS_ApplyChanges($this->InstanceID);
+                // Update Buffer (State stays in RAM until manual Save)
+                $this->WriteAttributeString('SensorListBuffer', json_encode(array_merge($others, $updatedClass)));
+                break;
+
+            case 'DeleteSensorListItem':
+                $data = json_decode($Value, true);
+                $classID = $data['ClassID'];
+                $index = $data['Index'];
+
+                // Blueprint 2.0 - Safe Index-based removal in RAM Buffer
+                $fullBuffer = json_decode($this->ReadAttributeString('SensorListBuffer'), true) ?: [];
+                $others = array_values(array_filter($fullBuffer, function ($s) use ($classID) {
+                    return ($s['ClassID'] ?? '') !== $classID;
+                }));
+                $target = array_values(array_filter($fullBuffer, function ($s) use ($classID) {
+                    return ($s['ClassID'] ?? '') === $classID;
+                }));
+
+                if (isset($target[$index])) {
+                    array_splice($target, $index, 1);
+                }
+
+                $this->WriteAttributeString('SensorListBuffer', json_encode(array_merge($others, $target)));
+                $this->ReloadForm(); // Refresh UI to show row is removed from folder
                 break;
 
             case 'UpdateWizardList':
@@ -552,14 +567,15 @@ class SensorGroup extends IPSModule
                                 "add" => false,
                                 "delete" => true,
                                 "onEdit" => "IPS_RequestAction(\$id, 'UpdateSensorList', json_encode(['ClassID' => '" . $classID . "', 'Values' => \$List_" . $safeID . "]));",
-                                "onDelete" => "IPS_RequestAction(\$id, 'UpdateSensorList', json_encode(['ClassID' => '" . $classID . "', 'Values' => \$List_" . $safeID . "]));",
+                                // FIX: Use Index-based deletion to prevent data loss
+                                "onDelete" => "IPS_RequestAction(\$id, 'DeleteSensorListItem', json_encode(['ClassID' => '" . $classID . "', 'Index' => \$index]));",
                                 "columns" => [
                                     ["caption" => "ID", "name" => "DisplayID", "width" => "70px"],
-                                    ["caption" => "Variable", "name" => "VariableID", "width" => "250px", "edit" => ["type" => "SelectVariable"]],
-                                    ["caption" => "Location (P)", "name" => "ParentName", "width" => "120px"],
-                                    ["caption" => "Area (GP)", "name" => "GrandParentName", "width" => "120px"],
-                                    ["caption" => "Op", "name" => "Operator", "width" => "70px", "edit" => ["type" => "Select", "options" => [["caption" => "=", "value" => 0], ["caption" => "!=", "value" => 1], ["caption" => ">", "value" => 2], ["caption" => "<", "value" => 3], ["caption" => ">=", "value" => 4], ["caption" => "<=", "value" => 5]]]],
-                                    ["caption" => "Value", "name" => "ComparisonValue", "width" => "80px", "edit" => ["type" => "ValidationTextBox"]]
+                                    ["caption" => "Variable", "name" => "VariableID", "width" => "200px", "edit" => ["type" => "SelectVariable"]],
+                                    ["caption" => "Location (P)", "name" => "ParentName", "width" => "100px"],
+                                    ["caption" => "Area (GP)", "name" => "GrandParentName", "width" => "100px"],
+                                    ["caption" => "Op", "name" => "Operator", "width" => "100px", "edit" => ["type" => "Select", "options" => [["caption" => "=", "value" => 0], ["caption" => "!=", "value" => 1], ["caption" => ">", "value" => 2], ["caption" => "<", "value" => 3], ["caption" => ">=", "value" => 4], ["caption" => "<=", "value" => 5]]]],
+                                    ["caption" => "Value", "name" => "ComparisonValue", "width" => "100px", "edit" => ["type" => "ValidationTextBox"]]
                                 ],
                                 "values" => $classSensors
                             ]
@@ -569,7 +585,6 @@ class SensorGroup extends IPSModule
             }
         }
 
-        // Inject options into Step 3b and Step B lists
         $this->UpdateFormOption($form['elements'], 'ImportClass', $classOptions);
         if (isset($form['actions'])) $this->UpdateFormOption($form['actions'], 'ImportClass', $classOptions);
         $this->UpdateListColumnOption($form['elements'], 'GroupMembers', 'GroupName', $groupOptions);
