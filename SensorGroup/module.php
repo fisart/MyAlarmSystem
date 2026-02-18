@@ -110,16 +110,16 @@ class SensorGroup extends IPSModule
 
                 // Add updated entries and re-inject ClassID
                 foreach ($newValues as $row) {
-                    if (is_array($row)) { // Safety check to prevent "offset on string" error
+                    if (is_array($row)) {
                         $row['ClassID'] = $classID;
-                        // Clean up display-only metadata before saving to property
+                        // Strip display metadata to keep properties clean
                         unset($row['DisplayID'], $row['ParentName'], $row['GrandParentName']);
                         $masterList[] = $row;
                     }
                 }
 
                 IPS_SetProperty($this->InstanceID, 'SensorList', json_encode($masterList));
-                $this->ReloadForm();
+                IPS_ApplyChanges($this->InstanceID); // Required for persistence in dynamic forms
                 break;
 
             case 'UpdateBedroomProperty':
@@ -128,12 +128,10 @@ class SensorGroup extends IPSModule
                 $newValues = $data['Values'];
 
                 $master = json_decode($this->ReadPropertyString('BedroomList'), true) ?: [];
-                // Remove old entries for this specific Group
                 $master = array_values(array_filter($master, function ($b) use ($gName) {
                     return ($b['GroupName'] ?? '') !== $gName;
                 }));
 
-                // Add updated entries and ensure GroupName is present
                 foreach ($newValues as $row) {
                     if (is_array($row)) {
                         $row['GroupName'] = $gName;
@@ -142,7 +140,7 @@ class SensorGroup extends IPSModule
                 }
 
                 IPS_SetProperty($this->InstanceID, 'BedroomList', json_encode($master));
-                $this->ReloadForm();
+                IPS_ApplyChanges($this->InstanceID);
                 break;
 
             case 'UpdateMemberProperty':
@@ -151,12 +149,10 @@ class SensorGroup extends IPSModule
                 $newValues = $data['Values'];
 
                 $master = json_decode($this->ReadPropertyString('GroupMembers'), true) ?: [];
-                // Remove old entries for this specific Group
                 $master = array_values(array_filter($master, function ($m) use ($gName) {
                     return ($m['GroupName'] ?? '') !== $gName;
                 }));
 
-                // Add updated entries and ensure GroupName is present
                 foreach ($newValues as $row) {
                     if (is_array($row)) {
                         $row['GroupName'] = $gName;
@@ -165,7 +161,7 @@ class SensorGroup extends IPSModule
                 }
 
                 IPS_SetProperty($this->InstanceID, 'GroupMembers', json_encode($master));
-                $this->ReloadForm();
+                IPS_ApplyChanges($this->InstanceID);
                 break;
 
             case 'UpdateWizardList':
