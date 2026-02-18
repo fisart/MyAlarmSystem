@@ -100,9 +100,6 @@ class SensorGroup extends IPSModule
                 $classID = $data['ClassID'];
                 $newValues = $data['Values'];
 
-                // DEBUG LOG: Check the overall structure of incoming values
-                $this->LogMessage("DEBUG: RequestAction - Values count: " . count((array)$newValues), KL_MESSAGE);
-
                 $masterList = json_decode($this->ReadPropertyString('SensorList'), true);
                 if (!is_array($masterList)) $masterList = [];
 
@@ -112,14 +109,16 @@ class SensorGroup extends IPSModule
                 }));
 
                 // Add updated entries and re-inject ClassID
-                foreach ($newValues as $idx => $row) {
-                    // DEBUG LOG: Identify the type and content of the row that causes the crash
-                    $type = gettype($row);
-                    $content = is_array($row) ? json_encode($row) : (string)$row;
-                    $this->LogMessage("DEBUG: Loop index $idx. Type: $type, Content: $content", KL_MESSAGE);
-
-                    $row['ClassID'] = $classID;
-                    $masterList[] = $row;
+                if (is_array($newValues)) {
+                    foreach ($newValues as $row) {
+                        // FIX: Safety check to prevent "offset on string" error
+                        if (is_array($row)) {
+                            $row['ClassID'] = $classID;
+                            // Clean up display-only metadata before saving
+                            unset($row['DisplayID'], $row['ParentName'], $row['GrandParentName']);
+                            $masterList[] = $row;
+                        }
+                    }
                 }
 
                 IPS_SetProperty($this->InstanceID, 'SensorList', json_encode($masterList));
