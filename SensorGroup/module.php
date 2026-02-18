@@ -110,120 +110,11 @@ class SensorGroup extends IPSModule
 
                 // Add updated entries and re-inject ClassID
                 foreach ($newValues as $row) {
-                    if (is_array($row)) {
-                        $row['ClassID'] = $classID;
-                        // Strip display metadata
-                        unset($row['DisplayID'], $row['ParentName'], $row['GrandParentName']);
-                        $masterList[] = $row;
-                    }
+                    $row['ClassID'] = $classID;
+                    $masterList[] = $row;
                 }
 
                 IPS_SetProperty($this->InstanceID, 'SensorList', json_encode($masterList));
-                IPS_ApplyChanges($this->InstanceID);
-                break;
-
-            case 'DeleteSensorListItem':
-                $data = json_decode($Value, true);
-                $classID = $data['ClassID'];
-                $index = $data['Index'];
-
-                $masterList = json_decode($this->ReadPropertyString('SensorList'), true) ?: [];
-                $others = array_values(array_filter($masterList, function ($s) use ($classID) {
-                    return ($s['ClassID'] ?? '') !== $classID;
-                }));
-                $target = array_values(array_filter($masterList, function ($s) use ($classID) {
-                    return ($s['ClassID'] ?? '') === $classID;
-                }));
-
-                if (isset($target[$index])) {
-                    array_splice($target, $index, 1);
-                }
-
-                IPS_SetProperty($this->InstanceID, 'SensorList', json_encode(array_merge($others, $target)));
-                IPS_ApplyChanges($this->InstanceID);
-                break;
-
-            case 'UpdateBedroomProperty':
-                $data = json_decode($Value, true);
-                $gName = $data['GroupName'];
-                $newValues = $data['Values'];
-
-                $master = json_decode($this->ReadPropertyString('BedroomList'), true) ?: [];
-                $master = array_values(array_filter($master, function ($b) use ($gName) {
-                    return ($b['GroupName'] ?? '') !== $gName;
-                }));
-
-                foreach ($newValues as $row) {
-                    if (is_array($row)) {
-                        $row['GroupName'] = $gName;
-                        $master[] = $row;
-                    }
-                }
-
-                IPS_SetProperty($this->InstanceID, 'BedroomList', json_encode($master));
-                IPS_ApplyChanges($this->InstanceID);
-                break;
-
-            case 'DeleteBedroomListItem':
-                $data = json_decode($Value, true);
-                $gName = $data['GroupName'];
-                $index = $data['Index'];
-
-                $master = json_decode($this->ReadPropertyString('BedroomList'), true) ?: [];
-                $others = array_values(array_filter($master, function ($b) use ($gName) {
-                    return ($b['GroupName'] ?? '') !== $gName;
-                }));
-                $target = array_values(array_filter($master, function ($b) use ($gName) {
-                    return ($b['GroupName'] ?? '') === $gName;
-                }));
-
-                if (isset($target[$index])) {
-                    array_splice($target, $index, 1);
-                }
-
-                IPS_SetProperty($this->InstanceID, 'BedroomList', json_encode(array_merge($others, $target)));
-                IPS_ApplyChanges($this->InstanceID);
-                break;
-
-            case 'UpdateMemberProperty':
-                $data = json_decode($Value, true);
-                $gName = $data['GroupName'];
-                $newValues = $data['Values'];
-
-                $master = json_decode($this->ReadPropertyString('GroupMembers'), true) ?: [];
-                $master = array_values(array_filter($master, function ($m) use ($gName) {
-                    return ($m['GroupName'] ?? '') !== $gName;
-                }));
-
-                foreach ($newValues as $row) {
-                    if (is_array($row)) {
-                        $row['GroupName'] = $gName;
-                        $master[] = $row;
-                    }
-                }
-
-                IPS_SetProperty($this->InstanceID, 'GroupMembers', json_encode($master));
-                IPS_ApplyChanges($this->InstanceID);
-                break;
-
-            case 'DeleteMemberListItem':
-                $data = json_decode($Value, true);
-                $gName = $data['GroupName'];
-                $index = $data['Index'];
-
-                $master = json_decode($this->ReadPropertyString('GroupMembers'), true) ?: [];
-                $others = array_values(array_filter($master, function ($m) use ($gName) {
-                    return ($m['GroupName'] ?? '') !== $gName;
-                }));
-                $target = array_values(array_filter($master, function ($m) use ($gName) {
-                    return ($m['GroupName'] ?? '') === $gName;
-                }));
-
-                if (isset($target[$index])) {
-                    array_splice($target, $index, 1);
-                }
-
-                IPS_SetProperty($this->InstanceID, 'GroupMembers', json_encode(array_merge($others, $target)));
                 IPS_ApplyChanges($this->InstanceID);
                 break;
 
@@ -546,17 +437,15 @@ class SensorGroup extends IPSModule
         }
         if (count($groupOptions) == 0) $groupOptions[] = ['caption' => '- Save Group First -', 'value' => ''];
 
-        $sensorList = json_decode($this->ReadPropertyString('SensorList'), true) ?: [];
-        $bedroomList = json_decode($this->ReadPropertyString('BedroomList'), true) ?: [];
-        $groupMembers = json_decode($this->ReadPropertyString('GroupMembers'), true) ?: [];
+        // --- DYNAMIC STEP 2 GENERATION ---
+        $sensorList = json_decode($this->ReadPropertyString('SensorList'), true);
+        if (!is_array($sensorList)) $sensorList = [];
 
         foreach ($form['elements'] as &$element) {
-            // --- DYNAMIC STEP 2 GENERATION ---
             if (isset($element['name']) && $element['name'] === 'DynamicSensorContainer') {
                 if (is_array($definedClasses)) {
                     foreach ($definedClasses as $class) {
                         $classID = !empty($class['ClassID']) ? $class['ClassID'] : $class['ClassName'];
-                        $safeID = md5($classID);
                         $className = $class['ClassName'];
 
                         $classSensors = array_values(array_filter($sensorList, function ($s) use ($classID) {
@@ -569,6 +458,7 @@ class SensorGroup extends IPSModule
                             if ($vid > 0 && IPS_VariableExists($vid)) {
                                 $parentID = IPS_GetParent($vid);
                                 $s['ParentName'] = ($parentID > 0) ? IPS_GetName($parentID) : "Root";
+                                // NEW: Grandparent resolution
                                 $grandParentID = ($parentID > 0) ? IPS_GetParent($parentID) : 0;
                                 $s['GrandParentName'] = ($grandParentID > 0) ? IPS_GetName($grandParentID) : "-";
                             } else {
@@ -584,13 +474,12 @@ class SensorGroup extends IPSModule
                             "items" => [
                                 [
                                     "type" => "List",
-                                    "name" => "List_" . $safeID,
+                                    "name" => "List_" . $classID,
                                     "rowCount" => 8,
                                     "add" => false,
                                     "delete" => true,
-                                    "onEdit" => "IPS_RequestAction(\$id, 'UpdateSensorList', json_encode(['ClassID' => '" . $classID . "', 'Values' => \$List_" . $safeID . "]));",
-                                    // FIX: Pass index for deletion
-                                    "onDelete" => "IPS_RequestAction(\$id, 'DeleteSensorListItem', json_encode(['ClassID' => '" . $classID . "', 'Index' => \$index]));",
+                                    "onEdit" => "IPS_RequestAction(\$id, 'UpdateSensorList', json_encode(['ClassID' => '" . $classID . "', 'Values' => \$List_" . $classID . "]));",
+                                    "onDelete" => "IPS_RequestAction(\$id, 'UpdateSensorList', json_encode(['ClassID' => '" . $classID . "', 'Values' => \$List_" . $classID . "]));",
                                     "columns" => [
                                         ["caption" => "ID", "name" => "DisplayID", "width" => "70px"],
                                         ["caption" => "Variable", "name" => "VariableID", "width" => "250px", "edit" => ["type" => "SelectVariable"]],
@@ -606,71 +495,14 @@ class SensorGroup extends IPSModule
                     }
                 }
             }
-
-            // --- STEP 3b: DYNAMIC BEDROOM FOLDERS ---
-            if (isset($element['name']) && $element['name'] === 'DynamicBedroomContainer') {
-                if (is_array($definedGroups)) {
-                    foreach ($definedGroups as $group) {
-                        $gName = $group['GroupName'];
-                        $bedData = array_values(array_filter($bedroomList, function ($b) use ($gName) {
-                            return ($b['GroupName'] ?? '') === $gName;
-                        }));
-                        $element['items'][] = [
-                            "type" => "ExpansionPanel",
-                            "caption" => "Group: " . $gName,
-                            "items" => [[
-                                "type" => "List",
-                                "name" => "Bed_" . md5($gName),
-                                "rowCount" => 2,
-                                "add" => true,
-                                "delete" => true,
-                                "onEdit" => "IPS_RequestAction(\$id, 'UpdateBedroomProperty', json_encode(['GroupName' => '" . $gName . "', 'Values' => \$Bed_" . md5($gName) . "]));",
-                                // FIX: Pass index for deletion
-                                "onDelete" => "IPS_RequestAction(\$id, 'DeleteBedroomListItem', json_encode(['GroupName' => '" . $gName . "', 'Index' => \$index]));",
-                                "columns" => [
-                                    ["caption" => "Active Var (IPSView)", "name" => "ActiveVariableID", "width" => "200px", "edit" => ["type" => "SelectVariable"]],
-                                    ["caption" => "Door Class (Trigger)", "name" => "BedroomDoorClassID", "width" => "200px", "edit" => ["type" => "Select", "options" => $classOptions]]
-                                ],
-                                "values" => $bedData
-                            ]]
-                        ];
-                    }
-                }
-            }
-
-            // --- STEP B: DYNAMIC GROUP MEMBER FOLDERS ---
-            if (isset($element['name']) && $element['name'] === 'DynamicGroupMemberContainer') {
-                if (is_array($definedGroups)) {
-                    foreach ($definedGroups as $group) {
-                        $gName = $group['GroupName'];
-                        $members = array_values(array_filter($groupMembers, function ($m) use ($gName) {
-                            return ($m['GroupName'] ?? '') === $gName;
-                        }));
-                        $element['items'][] = [
-                            "type" => "ExpansionPanel",
-                            "caption" => "Members for " . $gName,
-                            "items" => [[
-                                "type" => "List",
-                                "name" => "Mem_" . md5($gName),
-                                "rowCount" => 5,
-                                "add" => true,
-                                "delete" => true,
-                                "onEdit" => "IPS_RequestAction(\$id, 'UpdateMemberProperty', json_encode(['GroupName' => '" . $gName . "', 'Values' => \$Mem_" . md5($gName) . "]));",
-                                // FIX: Pass index for deletion
-                                "onDelete" => "IPS_RequestAction(\$id, 'DeleteMemberListItem', json_encode(['GroupName' => '" . $gName . "', 'Index' => \$index]));",
-                                "columns" => [
-                                    ["caption" => "Assigned Class", "name" => "ClassID", "width" => "250px", "edit" => ["type" => "Select", "options" => $classOptions]]
-                                ],
-                                "values" => $members
-                            ]]
-                        ];
-                    }
-                }
-            }
         }
 
         $this->UpdateFormOption($form['elements'], 'ImportClass', $classOptions);
         if (isset($form['actions'])) $this->UpdateFormOption($form['actions'], 'ImportClass', $classOptions);
+        $this->UpdateListColumnOption($form['elements'], 'GroupMembers', 'GroupName', $groupOptions);
+        $this->UpdateListColumnOption($form['elements'], 'GroupMembers', 'ClassID', $classOptions);
+        $this->UpdateListColumnOption($form['elements'], 'BedroomList', 'GroupName', $groupOptions);
+        $this->UpdateListColumnOption($form['elements'], 'BedroomList', 'BedroomDoorClassID', $classOptions);
 
         return json_encode($form);
     }
