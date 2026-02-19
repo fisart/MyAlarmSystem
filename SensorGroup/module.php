@@ -42,28 +42,27 @@ class SensorGroup extends IPSModule
         // Load persistent ID Map
         $stateData = json_decode($this->ReadAttributeString('ClassStateAttribute'), true) ?: [];
         $idMap = $stateData['IDMap'] ?? [];
+        $groupIDMap = $stateData['GroupIDMap'] ?? []; // Sticky Group IDs
 
         $idsChanged = false;
+        $regenCountClasses = 0;
+        $regenCountGroups = 0;
+
         $validClassIDs = [];
         $classNameMap = [];
 
         foreach ($classList as &$c) {
             $name = $c['ClassName'] ?? '';
-
-            // If ID is missing (UI glitch), try to restore it from memory
             if (empty($c['ClassID'])) {
+                $regenCountClasses++;
                 if (!empty($name) && isset($idMap[$name])) {
                     $c['ClassID'] = $idMap[$name];
-                    $this->LogMessage("DEBUG: Restored ID for Class '$name': " . $c['ClassID'], KL_MESSAGE);
                     $idsChanged = true;
                 } else {
                     $c['ClassID'] = uniqid('cls_');
                     $idsChanged = true;
-                    $this->LogMessage("WARNING: Generated NEW ID for Class '$name': " . $c['ClassID'], KL_WARNING);
                 }
             }
-
-            // Update Map
             if (!empty($name)) {
                 $idMap[$name] = $c['ClassID'];
                 $classNameMap[$name] = $c['ClassID'];
@@ -72,22 +71,44 @@ class SensorGroup extends IPSModule
         }
         unset($c);
 
-        // SYNC: Update the ClassListBuffer so the UI sees the stabilized IDs immediately
-        $this->WriteAttributeString('ClassListBuffer', json_encode($classList));
-
-        // Save Map
-        $stateData['IDMap'] = $idMap;
-        $this->WriteAttributeString('ClassStateAttribute', json_encode($stateData));
-
         $validGroupNames = [];
         foreach ($groupList as &$g) {
+            $gName = $g['GroupName'] ?? '';
             if (empty($g['GroupID'])) {
-                $g['GroupID'] = uniqid('grp_');
-                $idsChanged = true;
+                $regenCountGroups++;
+                if (!empty($gName) && isset($groupIDMap[$gName])) {
+                    $g['GroupID'] = $groupIDMap[$gName];
+                    $idsChanged = true;
+                } else {
+                    $g['GroupID'] = uniqid('grp_');
+                    $idsChanged = true;
+                }
             }
-            $validGroupNames[] = $g['GroupName'];
+            if (!empty($gName)) {
+                $groupIDMap[$gName] = $g['GroupID'];
+                $validGroupNames[] = $gName;
+            }
         }
         unset($g);
+
+        // SAFETY ABORT: If 100% of data came in without IDs, it is a UI glitch. 
+        // Restore and exit before Garbage Collection can delete data.
+        $totalClasses = count($classList);
+        $totalGroups = count($groupList);
+        if (($totalClasses > 0 && $regenCountClasses == $totalClasses) || ($totalGroups > 0 && $regenCountGroups == $totalGroups)) {
+            $this->LogMessage("CRITICAL: UI Data Loss detected. Restoring IDs and Aborting Cleanup to protect data.", KL_WARNING);
+            IPS_SetProperty($this->InstanceID, 'ClassList', json_encode($classList));
+            IPS_SetProperty($this->InstanceID, 'GroupList', json_encode($groupList));
+            $this->WriteAttributeString('ClassListBuffer', json_encode($classList));
+            $this->ReloadForm();
+            return;
+        }
+
+        // Save Maps and Buffers
+        $this->WriteAttributeString('ClassListBuffer', json_encode($classList));
+        $stateData['IDMap'] = $idMap;
+        $stateData['GroupIDMap'] = $groupIDMap;
+        $this->WriteAttributeString('ClassStateAttribute', json_encode($stateData));
 
         if ($idsChanged) {
             IPS_SetProperty($this->InstanceID, 'ClassList', json_encode($classList));
@@ -104,29 +125,22 @@ class SensorGroup extends IPSModule
 
         foreach ($sensorList as $s) {
             $sID = $s['ClassID'] ?? '';
-
-            // REPAIR: If ID matches a known Name, migrate to UUID
             if (!in_array($sID, $validClassIDs) && isset($classNameMap[$sID])) {
-                $this->LogMessage("DEBUG: Migrating Sensor " . ($s['VariableID'] ?? 0) . " from Name '$sID' to UUID", KL_MESSAGE);
                 $s['ClassID'] = $classNameMap[$sID];
                 $sID = $s['ClassID'];
                 $sensorsDirty = true;
             }
-
             if (in_array($sID, $validClassIDs)) {
                 $cleanSensors[] = $s;
             } else {
                 $sensorsDirty = true;
-                $this->LogMessage("DEBUG: GC - Deleting Orphan Sensor: " . ($s['VariableID'] ?? 0) . " (ClassID: $sID)", KL_MESSAGE);
             }
         }
 
-        // Always sync Buffer and Property
         $json = json_encode($cleanSensors);
         IPS_SetProperty($this->InstanceID, 'SensorList', $json);
         $this->WriteAttributeString('SensorListBuffer', $json);
 
-        // Cleanup Bedroom List
         $bedroomList = json_decode($this->ReadAttributeString('BedroomListBuffer'), true) ?: json_decode($this->ReadPropertyString('BedroomList'), true) ?: [];
         $cleanBedrooms = [];
         foreach ($bedroomList as $b) {
@@ -138,7 +152,6 @@ class SensorGroup extends IPSModule
         IPS_SetProperty($this->InstanceID, 'BedroomList', $jsonBed);
         $this->WriteAttributeString('BedroomListBuffer', $jsonBed);
 
-        // Cleanup Group Members
         $groupMembers = json_decode($this->ReadAttributeString('GroupMembersBuffer'), true) ?: json_decode($this->ReadPropertyString('GroupMembers'), true) ?: [];
         $cleanMembers = [];
         foreach ($groupMembers as $m) {
@@ -180,9 +193,7 @@ class SensorGroup extends IPSModule
         $children = IPS_GetChildrenIDs($this->InstanceID);
         foreach ($children as $child) {
             $obj = IPS_GetObject($child);
-            if ($obj['ObjectType'] == 2) {
-                if (!in_array($obj['ObjectIdent'], $keepIdents)) $this->UnregisterVariable($obj['ObjectIdent']);
-            }
+            if ($obj['ObjectType'] == 2 && !in_array($obj['ObjectIdent'], $keepIdents)) $this->UnregisterVariable($obj['ObjectIdent']);
         }
         if ($this->ReadAttributeString('ClassStateAttribute') == '') $this->WriteAttributeString('ClassStateAttribute', '{}');
 
@@ -190,6 +201,7 @@ class SensorGroup extends IPSModule
         $this->ReloadForm();
         $this->CheckLogic();
     }
+
 
     private function GetMasterMetadata()
     {
@@ -216,16 +228,14 @@ class SensorGroup extends IPSModule
 
     public function RequestAction($Ident, $Value)
     {
-        // DEBUG LOG: Flight Recorder - Capture every incoming request before processing
+        // DEBUG LOG: Flight Recorder
         $logVal = is_array($Value) ? "ARRAY_DATA" : (string)$Value;
         $this->LogMessage("DEBUG: RequestAction Arrival - Ident: $Ident - Value: $logVal", KL_MESSAGE);
 
-        // 1. DYNAMIC IDENTIFIER HANDLING (Step 2 Folders)
+        // 1. DYNAMIC IDENTIFIER HANDLING (Step 2 Folders: Sensors)
         if (strpos($Ident, 'UPD_SENS_') === 0 || strpos($Ident, 'DEL_SENS_') === 0 || strpos($Ident, 'DELETE_BY_INDEX_') === 0) {
-
             $isDeleteByID = (strpos($Ident, 'DEL_SENS_') === 0);
             $isDeleteByIndex = (strpos($Ident, 'DELETE_BY_INDEX_') === 0);
-
             if ($isDeleteByIndex) $safeID = substr($Ident, 16);
             else $safeID = substr($Ident, 9);
 
@@ -238,31 +248,21 @@ class SensorGroup extends IPSModule
                     break;
                 }
             }
-
             if ($classID === '') return;
 
             $fullBuffer = json_decode($this->ReadAttributeString('SensorListBuffer'), true) ?: [];
 
             if ($isDeleteByID) {
                 $vidToDelete = (int)$Value;
-                $newBuffer = [];
-                foreach ($fullBuffer as $row) {
-                    if (($row['ClassID'] ?? '') === $classID && ($row['VariableID'] ?? 0) === $vidToDelete) {
-                        continue;
-                    }
-                    $newBuffer[] = $row;
-                }
+                $newBuffer = array_values(array_filter($fullBuffer, function ($row) use ($classID, $vidToDelete) {
+                    return !(($row['ClassID'] ?? '') === $classID && ($row['VariableID'] ?? 0) === $vidToDelete);
+                }));
                 $json = json_encode($newBuffer);
                 $this->WriteAttributeString('SensorListBuffer', $json);
                 IPS_SetProperty($this->InstanceID, 'SensorList', $json);
                 $this->ReloadForm();
             } elseif ($isDeleteByIndex) {
-                // SAFETY CHECK: Prevent index-0 fallback if Value is null/invalid
-                if ($Value === null || $Value === "") {
-                    $this->LogMessage("DEBUG: Deletion aborted - Index variable was null or empty.", KL_WARNING);
-                    return;
-                }
-
+                if ($Value === null || $Value === "") return;
                 $index = (int)$Value;
                 $others = array_values(array_filter($fullBuffer, function ($s) use ($classID) {
                     return ($s['ClassID'] ?? '') !== $classID;
@@ -270,22 +270,18 @@ class SensorGroup extends IPSModule
                 $target = array_values(array_filter($fullBuffer, function ($s) use ($classID) {
                     return ($s['ClassID'] ?? '') === $classID;
                 }));
-
                 if (isset($target[$index])) {
                     array_splice($target, $index, 1);
                 }
-
                 $json = json_encode(array_merge($others, $target));
                 $this->WriteAttributeString('SensorListBuffer', $json);
                 IPS_SetProperty($this->InstanceID, 'SensorList', $json);
                 $this->ReloadForm();
             } else {
-                // UPDATE LOGIC: Keyed Merge - Only update if the VariableID exists in the buffer
                 $incoming = json_decode($Value, true);
                 if (!$incoming) return;
                 $rowsToProcess = isset($incoming['VariableID']) ? [$incoming] : $incoming;
                 $metadata = $this->GetMasterMetadata();
-
                 foreach ($rowsToProcess as $inRow) {
                     if (!is_array($inRow)) continue;
                     $inVID = $inRow['VariableID'] ?? 0;
@@ -310,6 +306,78 @@ class SensorGroup extends IPSModule
         }
 
         switch ($Ident) {
+            case 'UpdateBedroomProperty':
+                $data = json_decode($Value, true);
+                $gName = $data['GroupName'];
+                $newValues = is_array($data['Values']) ? $data['Values'] : [];
+                $master = json_decode($this->ReadAttributeString('BedroomListBuffer'), true) ?: json_decode($this->ReadPropertyString('BedroomList'), true) ?: [];
+                $others = array_values(array_filter($master, function ($b) use ($gName) {
+                    return ($b['GroupName'] ?? '') !== $gName;
+                }));
+                foreach ($newValues as &$row) {
+                    if (is_array($row)) $row['GroupName'] = $gName;
+                }
+                $json = json_encode(array_merge($others, $newValues));
+                $this->WriteAttributeString('BedroomListBuffer', $json);
+                IPS_SetProperty($this->InstanceID, 'BedroomList', $json);
+                break;
+
+            case 'DeleteBedroomListItem':
+                $data = json_decode($Value, true);
+                $gName = $data['GroupName'];
+                $index = $data['Index'];
+                $master = json_decode($this->ReadAttributeString('BedroomListBuffer'), true) ?: json_decode($this->ReadPropertyString('BedroomList'), true) ?: [];
+                $others = array_values(array_filter($master, function ($b) use ($gName) {
+                    return ($b['GroupName'] ?? '') !== $gName;
+                }));
+                $target = array_values(array_filter($master, function ($b) use ($gName) {
+                    return ($b['GroupName'] ?? '') === $gName;
+                }));
+                if (isset($target[$index])) {
+                    array_splice($target, $index, 1);
+                }
+                $json = json_encode(array_merge($others, $target));
+                $this->WriteAttributeString('BedroomListBuffer', $json);
+                IPS_SetProperty($this->InstanceID, 'BedroomList', $json);
+                $this->ReloadForm();
+                break;
+
+            case 'UpdateMemberProperty':
+                $data = json_decode($Value, true);
+                $gName = $data['GroupName'];
+                $newValues = is_array($data['Values']) ? $data['Values'] : [];
+                $master = json_decode($this->ReadAttributeString('GroupMembersBuffer'), true) ?: json_decode($this->ReadPropertyString('GroupMembers'), true) ?: [];
+                $others = array_values(array_filter($master, function ($m) use ($gName) {
+                    return ($m['GroupName'] ?? '') !== $gName;
+                }));
+                foreach ($newValues as &$row) {
+                    if (is_array($row)) $row['GroupName'] = $gName;
+                }
+                $json = json_encode(array_merge($others, $newValues));
+                $this->WriteAttributeString('GroupMembersBuffer', $json);
+                IPS_SetProperty($this->InstanceID, 'GroupMembers', $json);
+                break;
+
+            case 'DeleteMemberListItem':
+                $data = json_decode($Value, true);
+                $gName = $data['GroupName'];
+                $index = $data['Index'];
+                $master = json_decode($this->ReadAttributeString('GroupMembersBuffer'), true) ?: json_decode($this->ReadPropertyString('GroupMembers'), true) ?: [];
+                $others = array_values(array_filter($master, function ($m) use ($gName) {
+                    return ($m['GroupName'] ?? '') !== $gName;
+                }));
+                $target = array_values(array_filter($master, function ($m) use ($gName) {
+                    return ($m['GroupName'] ?? '') === $gName;
+                }));
+                if (isset($target[$index])) {
+                    array_splice($target, $index, 1);
+                }
+                $json = json_encode(array_merge($others, $target));
+                $this->WriteAttributeString('GroupMembersBuffer', $json);
+                IPS_SetProperty($this->InstanceID, 'GroupMembers', $json);
+                $this->ReloadForm();
+                break;
+
             case 'UpdateWizardList':
                 $changes = json_decode($Value, true);
                 $cache = json_decode($this->ReadAttributeString('ScanCache'), true);
