@@ -100,7 +100,10 @@ class SensorGroup extends IPSModule
     }
     private function GetMasterMetadata()
     {
-        $sensorList = json_decode($this->ReadPropertyString('SensorList'), true) ?: [];
+        // FIX: Read from Buffer first to include unsaved (newly added) sensors
+        $sensorList = json_decode($this->ReadAttributeString('SensorListBuffer'), true) ?:
+            json_decode($this->ReadPropertyString('SensorList'), true) ?: [];
+
         $metadata = [];
         foreach ($sensorList as $s) {
             $vid = $s['VariableID'] ?? 0;
