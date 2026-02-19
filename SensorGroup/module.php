@@ -1,5 +1,5 @@
 <?php
-
+// Looks like a stable version
 declare(strict_types=1);
 
 class SensorGroup extends IPSModule
