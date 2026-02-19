@@ -17,20 +17,6 @@
         },
         { "type": "Label", "caption": "2. SENSOR INPUTS (Grouped by Class)" },
         { "type": "ExpansionPanel", "name": "DynamicSensorContainer", "caption": "Manage sensors within their classes", "items": [] },
-        { "type": "Label", "caption": "3. GROUP DEFINITIONS (Output Container)" },
-        {
-            "type": "List", "name": "GroupList", "caption": "Step 3a: Create Groups", "rowCount": 3, "add": true, "delete": true,
-            "columns": [
-                { "caption": "ID", "name": "GroupID", "width": "0px", "add": "", "visible": false },
-                { "caption": "Group Name", "name": "GroupName", "width": "200px", "add": "AlarmGroup", "edit": { "type": "ValidationTextBox" } },
-                { "caption": "Alignment Spacer", "name": "Spacer", "width": "200px", "add": "" },
-                { "caption": "Logic", "name": "GroupLogic", "width": "200px", "add": 0, "edit": { "type": "Select", "options": [ { "caption": "OR (Any Member)", "value": 0 }, { "caption": "AND (All Members)", "value": 1 } ] } }
-            ]
-        },
-        { "type": "Label", "caption": "3b. BEDROOM BEHAVIOR (Group-based)" },
-        { "type": "ExpansionPanel", "name": "DynamicBedroomContainer", "caption": "Configure bedroom logic for specific groups", "items": [] },
-        { "type": "Label", "caption": "Step B: ASSIGN CLASSES TO GROUPS" },
-        { "type": "ExpansionPanel", "name": "DynamicGroupMemberContainer", "caption": "Manage which classes belong to which groups", "items": [] },
         { "type": "ExpansionPanel", "caption": "Sabotage / Tamper", "items": [
                 { "type": "List", "name": "TamperList", "caption": "Tamper Sensors", "add": true, "delete": true, "columns": [ { "caption": "Variable", "name": "VariableID", "width": "200px", "add": 0, "edit": { "type": "SelectVariable" } }, { "caption": "Invert", "name": "Invert", "width": "100px", "add": false, "edit": { "type": "CheckBox" } } ] }
             ]
@@ -38,6 +24,11 @@
         { "type": "CheckBox", "name": "MaintenanceMode", "caption": "Maintenance Mode" }
     ],
     "actions": [
+        { "type": "Button", "caption": "COMMIT ALL CHANGES TO DISK", "onClick": "MYALARM_SaveConfiguration($id);" },
+        { "type": "Label", "caption": "3. GROUP MANAGEMENT (Stateless)" },
+        { "type": "ExpansionPanel", "name": "DynamicGroupContainer", "caption": "Step 3a: Create and Edit Groups", "items": [] },
+        { "type": "ExpansionPanel", "name": "DynamicBedroomContainer", "caption": "Step 3b: Bedroom Behavioral Settings", "items": [] },
+        { "type": "ExpansionPanel", "name": "DynamicGroupMemberContainer", "caption": "Step B: Assign Classes to Groups", "items": [] },
         { "type": "ExpansionPanel", "caption": "BULK IMPORT WIZARD", "items": [
                 { "type": "Label", "caption": "Scan for sensors and assign them to a Class defined above." },
                 { "type": "SelectObject", "name": "ImportRootID", "caption": "Search Root" },

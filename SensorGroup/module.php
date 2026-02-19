@@ -314,6 +314,16 @@ class SensorGroup extends IPSModule
         }
 
         switch ($Ident) {
+            case 'UpdateGroupList': // NEW: Handle Step 3a (Stateless)
+                $newValues = json_decode($Value, true);
+                if (!is_array($newValues)) return;
+                foreach ($newValues as &$row) {
+                    if (is_array($row)) unset($row['Spacer']);
+                }
+                $this->WriteAttributeString('GroupListBuffer', json_encode($newValues));
+                $this->ReloadForm(); // Refresh 3b/B dependent folders
+                break;
+
             case 'UpdateBedroomProperty':
                 $data = json_decode($Value, true);
                 $gName = $data['GroupName'];
@@ -327,7 +337,7 @@ class SensorGroup extends IPSModule
                 }
                 $json = json_encode(array_merge($others, $newValues));
                 $this->WriteAttributeString('BedroomListBuffer', $json);
-                IPS_SetProperty($this->InstanceID, 'BedroomList', $json);
+                // IPS_SetProperty removed (Stateless)
                 break;
 
             case 'DeleteBedroomListItem':
@@ -346,7 +356,7 @@ class SensorGroup extends IPSModule
                 }
                 $json = json_encode(array_merge($others, $target));
                 $this->WriteAttributeString('BedroomListBuffer', $json);
-                IPS_SetProperty($this->InstanceID, 'BedroomList', $json);
+                // IPS_SetProperty removed (Stateless)
                 $this->ReloadForm();
                 break;
 
@@ -363,7 +373,7 @@ class SensorGroup extends IPSModule
                 }
                 $json = json_encode(array_merge($others, $newValues));
                 $this->WriteAttributeString('GroupMembersBuffer', $json);
-                IPS_SetProperty($this->InstanceID, 'GroupMembers', $json);
+                // IPS_SetProperty removed (Stateless)
                 break;
 
             case 'DeleteMemberListItem':
@@ -382,7 +392,7 @@ class SensorGroup extends IPSModule
                 }
                 $json = json_encode(array_merge($others, $target));
                 $this->WriteAttributeString('GroupMembersBuffer', $json);
-                IPS_SetProperty($this->InstanceID, 'GroupMembers', $json);
+                // IPS_SetProperty removed (Stateless)
                 $this->ReloadForm();
                 break;
 
@@ -427,9 +437,11 @@ class SensorGroup extends IPSModule
 
     public function SaveConfiguration()
     {
-        // 1. Load data from RAM Buffers
-        $sensorList = json_decode($this->ReadAttributeString('SensorListBuffer'), true) ?: [];
-        $bedroomList = json_decode($this->ReadAttributeString('BedroomListBuffer'), true) ?: [];
+        // 1. Load data from RAM Buffers (The stateless Source of Truth)
+        $classList    = json_decode($this->ReadAttributeString('ClassListBuffer'), true) ?: [];
+        $groupList    = json_decode($this->ReadAttributeString('GroupListBuffer'), true) ?: [];
+        $sensorList   = json_decode($this->ReadAttributeString('SensorListBuffer'), true) ?: [];
+        $bedroomList  = json_decode($this->ReadAttributeString('BedroomListBuffer'), true) ?: [];
         $groupMembers = json_decode($this->ReadAttributeString('GroupMembersBuffer'), true) ?: [];
 
         // 2. Final Label Healing (Source of Truth)
@@ -444,7 +456,9 @@ class SensorGroup extends IPSModule
         }
         unset($s);
 
-        // 3. Persist to Properties
+        // 3. Persist all verified data to Properties (Physical Disk)
+        IPS_SetProperty($this->InstanceID, 'ClassList', json_encode($classList));
+        IPS_SetProperty($this->InstanceID, 'GroupList', json_encode($groupList));
         IPS_SetProperty($this->InstanceID, 'SensorList', json_encode($sensorList));
         IPS_SetProperty($this->InstanceID, 'BedroomList', json_encode($bedroomList));
         IPS_SetProperty($this->InstanceID, 'GroupMembers', json_encode($groupMembers));
@@ -457,6 +471,8 @@ class SensorGroup extends IPSModule
             echo "No changes detected.";
         }
     }
+
+
     private function RegisterSensors($propName)
     {
         $list = json_decode($this->ReadPropertyString($propName), true);
@@ -717,8 +733,9 @@ class SensorGroup extends IPSModule
     {
         $form = json_decode(file_get_contents(__DIR__ . '/form.json'), true);
 
-        // Blueprint 2.0: Prioritize RAM Buffers
+        // Blueprint 2.0: Prioritize RAM Buffers (Source of Truth)
         $definedClasses = json_decode($this->ReadAttributeString('ClassListBuffer'), true) ?: json_decode($this->ReadPropertyString('ClassList'), true) ?: [];
+        $definedGroups = json_decode($this->ReadAttributeString('GroupListBuffer'), true) ?: json_decode($this->ReadPropertyString('GroupList'), true) ?: [];
 
         $sensorList = json_decode($this->ReadAttributeString('SensorListBuffer'), true) ?: json_decode($this->ReadPropertyString('SensorList'), true) ?: [];
         $bedroomList = json_decode($this->ReadAttributeString('BedroomListBuffer'), true) ?: json_decode($this->ReadPropertyString('BedroomList'), true) ?: [];
@@ -736,8 +753,9 @@ class SensorGroup extends IPSModule
         }
         unset($s);
 
-        // Sync to RAM Buffers
+        // Sync to RAM Buffers immediately on form load
         $this->WriteAttributeString('ClassListBuffer', json_encode($definedClasses));
+        $this->WriteAttributeString('GroupListBuffer', json_encode($definedGroups));
         $this->WriteAttributeString('SensorListBuffer', json_encode($sensorList));
         $this->WriteAttributeString('BedroomListBuffer', json_encode($bedroomList));
         $this->WriteAttributeString('GroupMembersBuffer', json_encode($groupMembers));
@@ -752,101 +770,49 @@ class SensorGroup extends IPSModule
         }
         if (count($classOptions) == 0) $classOptions[] = ['caption' => '- No Classes -', 'value' => ''];
 
-        $definedGroups = json_decode($this->ReadPropertyString('GroupList'), true) ?: [];
-        $groupOptions = [];
-        foreach ($definedGroups as $g) {
-            if (!empty($g['GroupName'])) {
-                $groupOptions[] = ['caption' => $g['GroupName'], 'value' => $g['GroupName']];
-            }
-        }
-
+        // --- PART A: PROCESS ELEMENTS SECTION ---
         foreach ($form['elements'] as &$element) {
-            // --- STEP 2: DYNAMIC SENSORS ---
+            // STEP 2: SENSORS
             if (isset($element['name']) && $element['name'] === 'DynamicSensorContainer') {
                 foreach ($definedClasses as $class) {
                     $classID = !empty($class['ClassID']) ? $class['ClassID'] : $class['ClassName'];
                     $safeID = md5($classID);
-                    $className = $class['ClassName'];
                     $classSensors = array_values(array_filter($sensorList, function ($s) use ($classID) {
                         return ($s['ClassID'] ?? '') === $classID;
                     }));
-
-                    $element['items'][] = [
-                        "type" => "ExpansionPanel",
-                        "caption" => $className . " (" . count($classSensors) . ")",
-                        "items" => [[
-                            "type" => "List",
-                            "name" => "List_" . $safeID,
-                            "rowCount" => 8,
-                            "add" => false,
-                            "delete" => false,
-                            "onEdit" => "IPS_RequestAction(\$id, 'UPD_SENS_$safeID', json_encode(\$List_$safeID));",
-                            "columns" => [
-                                ["caption" => "ID", "name" => "DisplayID", "width" => "70px"],
-                                ["caption" => "Variable", "name" => "VariableID", "width" => "200px", "edit" => ["type" => "SelectVariable"]],
-                                ["caption" => "Loc (P)", "name" => "ParentName", "width" => "100px"],
-                                ["caption" => "Area (GP)", "name" => "GrandParentName", "width" => "100px"],
-                                ["caption" => "Op", "name" => "Operator", "width" => "100px", "edit" => ["type" => "Select", "options" => [["caption" => "=", "value" => 0], ["caption" => "!=", "value" => 1], ["caption" => ">", "value" => 2], ["caption" => "<", "value" => 3], ["caption" => ">=", "value" => 4], ["caption" => "<=", "value" => 5]]]],
-                                ["caption" => "Value", "name" => "ComparisonValue", "width" => "100px", "edit" => ["type" => "ValidationTextBox"]]
-                            ],
-                            "values" => $classSensors
-                        ]]
-                    ];
+                    $element['items'][] = ["type" => "ExpansionPanel", "caption" => $class['ClassName'] . " (" . count($classSensors) . ")", "items" => [["type" => "List", "name" => "List_" . $safeID, "rowCount" => 8, "add" => false, "delete" => false, "onEdit" => "IPS_RequestAction(\$id, 'UPD_SENS_$safeID', json_encode(\$List_$safeID));", "columns" => [["caption" => "ID", "name" => "DisplayID", "width" => "70px"], ["caption" => "Variable", "name" => "VariableID", "width" => "200px", "edit" => ["type" => "SelectVariable"]], ["caption" => "Loc (P)", "name" => "ParentName", "width" => "100px"], ["caption" => "Area (GP)", "name" => "GrandParentName", "width" => "100px"], ["caption" => "Op", "name" => "Operator", "width" => "100px", "edit" => ["type" => "Select", "options" => [["caption" => "=", "value" => 0], ["caption" => "!=", "value" => 1], ["caption" => ">", "value" => 2], ["caption" => "<", "value" => 3], ["caption" => ">=", "value" => 4], ["caption" => "<=", "value" => 5]]]], ["caption" => "Value", "name" => "ComparisonValue", "width" => "100px", "edit" => ["type" => "ValidationTextBox"]]], "values" => $classSensors]]];
                 }
             }
+        }
 
-            // --- STEP 3b: DYNAMIC BEDROOMS (RE-INTRODUCED ADD) ---
-            if (isset($element['name']) && $element['name'] === 'DynamicBedroomContainer') {
-                foreach ($definedGroups as $group) {
-                    $gName = $group['GroupName'];
-                    $bedData = array_values(array_filter($bedroomList, function ($b) use ($gName) {
-                        return ($b['GroupName'] ?? '') === $gName;
-                    }));
-                    $element['items'][] = [
-                        "type" => "ExpansionPanel",
-                        "caption" => "Group: " . $gName,
-                        "items" => [[
-                            "type" => "List",
-                            "name" => "Bed_" . md5($gName),
-                            "rowCount" => 3,
-                            "add" => true,
-                            "delete" => true,
-                            "onEdit" => "IPS_RequestAction(\$id, 'UpdateBedroomProperty', json_encode(['GroupName' => '$gName', 'Values' => \$Bed_" . md5($gName) . "]));",
-                            "onDelete" => "IPS_RequestAction(\$id, 'UpdateBedroomProperty', json_encode(['GroupName' => '$gName', 'Values' => \$Bed_" . md5($gName) . "]));",
-                            "columns" => [
-                                ["caption" => "Active Var (IPSView)", "name" => "ActiveVariableID", "width" => "200px", "add" => 0, "edit" => ["type" => "SelectVariable"]],
-                                ["caption" => "Door Class (Trigger)", "name" => "BedroomDoorClassID", "width" => "200px", "add" => "", "edit" => ["type" => "Select", "options" => $classOptions]]
-                            ],
-                            "values" => $bedData
-                        ]]
-                    ];
+        // --- PART B: PROCESS ACTIONS SECTION (Stateless Management) ---
+        if (isset($form['actions'])) {
+            foreach ($form['actions'] as &$element) {
+                // STEP 3a: GROUP DEFINITIONS
+                if (isset($element['name']) && $element['name'] === 'DynamicGroupContainer') {
+                    $element['items'][] = ["type" => "List", "name" => "List_Groups", "rowCount" => 5, "add" => true, "delete" => true, "onEdit" => "IPS_RequestAction(\$id, 'UpdateGroupList', json_encode(\$List_Groups));", "onDelete" => "IPS_RequestAction(\$id, 'UpdateGroupList', json_encode(\$List_Groups));", "columns" => [["caption" => "ID", "name" => "GroupID", "width" => "0px", "add" => "", "visible" => false], ["caption" => "Group Name", "name" => "GroupName", "width" => "200px", "add" => "NewGroup", "edit" => ["type" => "ValidationTextBox"]], ["caption" => "Alignment Spacer", "name" => "Spacer", "width" => "200px", "add" => ""], ["caption" => "Logic", "name" => "GroupLogic", "width" => "200px", "add" => 0, "edit" => ["type" => "Select", "options" => [["caption" => "OR (Any Member)", "value" => 0], ["caption" => "AND (All Members)", "value" => 1]]]]], "values" => $definedGroups];
                 }
-            }
 
-            // --- STEP B: DYNAMIC MEMBERS (RE-INTRODUCED ADD) ---
-            if (isset($element['name']) && $element['name'] === 'DynamicGroupMemberContainer') {
-                foreach ($definedGroups as $group) {
-                    $gName = $group['GroupName'];
-                    $members = array_values(array_filter($groupMembers, function ($m) use ($gName) {
-                        return ($m['GroupName'] ?? '') === $gName;
-                    }));
-                    $element['items'][] = [
-                        "type" => "ExpansionPanel",
-                        "caption" => "Members for " . $gName,
-                        "items" => [[
-                            "type" => "List",
-                            "name" => "Mem_" . md5($gName),
-                            "rowCount" => 5,
-                            "add" => true,
-                            "delete" => true,
-                            "onEdit" => "IPS_RequestAction(\$id, 'UpdateMemberProperty', json_encode(['GroupName' => '$gName', 'Values' => \$Mem_" . md5($gName) . "]));",
-                            "onDelete" => "IPS_RequestAction(\$id, 'UpdateMemberProperty', json_encode(['GroupName' => '$gName', 'Values' => \$Mem_" . md5($gName) . "]));",
-                            "columns" => [
-                                ["caption" => "Assigned Class", "name" => "ClassID", "width" => "200px", "add" => "", "edit" => ["type" => "Select", "options" => $classOptions]]
-                            ],
-                            "values" => $members
-                        ]]
-                    ];
+                // STEP 3b: BEDROOMS
+                if (isset($element['name']) && $element['name'] === 'DynamicBedroomContainer') {
+                    foreach ($definedGroups as $group) {
+                        $gName = $group['GroupName'];
+                        $bedData = array_values(array_filter($bedroomList, function ($b) use ($gName) {
+                            return ($b['GroupName'] ?? '') === $gName;
+                        }));
+                        $element['items'][] = ["type" => "ExpansionPanel", "caption" => "Group: " . $gName, "items" => [["type" => "List", "name" => "Bed_" . md5($gName), "rowCount" => 3, "add" => true, "delete" => true, "onEdit" => "IPS_RequestAction(\$id, 'UpdateBedroomProperty', json_encode(['GroupName' => '$gName', 'Values' => \$Bed_" . md5($gName) . "]));", "onDelete" => "IPS_RequestAction(\$id, 'UpdateBedroomProperty', json_encode(['GroupName' => '$gName', 'Values' => \$Bed_" . md5($gName) . "]));", "columns" => [["caption" => "Active Var (IPSView)", "name" => "ActiveVariableID", "width" => "200px", "add" => 0, "edit" => ["type" => "SelectVariable"]], ["caption" => "Door Class (Trigger)", "name" => "BedroomDoorClassID", "width" => "200px", "add" => "", "edit" => ["type" => "Select", "options" => $classOptions]]], "values" => $bedData]]];
+                    }
+                }
+
+                // STEP B: MEMBERS
+                if (isset($element['name']) && $element['name'] === 'DynamicGroupMemberContainer') {
+                    foreach ($definedGroups as $group) {
+                        $gName = $group['GroupName'];
+                        $members = array_values(array_filter($groupMembers, function ($m) use ($gName) {
+                            return ($m['GroupName'] ?? '') === $gName;
+                        }));
+                        $element['items'][] = ["type" => "ExpansionPanel", "caption" => "Members for " . $gName, "items" => [["type" => "List", "name" => "Mem_" . md5($gName), "rowCount" => 5, "add" => true, "delete" => true, "onEdit" => "IPS_RequestAction(\$id, 'UpdateMemberProperty', json_encode(['GroupName' => '$gName', 'Values' => \$Mem_" . md5($gName) . "]));", "onDelete" => "IPS_RequestAction(\$id, 'UpdateMemberProperty', json_encode(['GroupName' => '$gName', 'Values' => \$Mem_" . md5($gName) . "]));", "columns" => [["caption" => "Assigned Class", "name" => "ClassID", "width" => "200px", "add" => "", "edit" => ["type" => "Select", "options" => $classOptions]]], "values" => $members]]];
+                    }
                 }
             }
         }
