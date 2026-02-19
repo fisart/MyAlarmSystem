@@ -716,13 +716,18 @@ class SensorGroup extends IPSModule
 
     private function ScanRecursive($parentID, &$result)
     {
+        // FIX: Verify object existence to prevent crashes on invalid Root IDs
+        if (!IPS_ObjectExists($parentID)) return;
+
         $children = IPS_GetChildrenIDs($parentID);
-        foreach ($children as $child) {
-            if (IPS_VariableExists($child)) {
-                $result[] = $child;
-            }
-            if (IPS_HasChildren($child)) {
-                $this->ScanRecursive($child, $result);
+        if (is_array($children)) {
+            foreach ($children as $child) {
+                if (IPS_VariableExists($child)) {
+                    $result[] = $child;
+                }
+                if (IPS_HasChildren($child)) {
+                    $this->ScanRecursive($child, $result);
+                }
             }
         }
     }
