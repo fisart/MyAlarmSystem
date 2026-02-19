@@ -582,12 +582,12 @@ class SensorGroup extends IPSModule
     {
         $form = json_decode(file_get_contents(__DIR__ . '/form.json'), true);
 
-        // 1. Blueprint 2.0: Prioritize RAM Buffer
+        // Blueprint 2.0: Prioritize RAM Buffer over Property
         $sensorList = json_decode($this->ReadAttributeString('SensorListBuffer'), true) ?: json_decode($this->ReadPropertyString('SensorList'), true) ?: [];
         $bedroomList = json_decode($this->ReadAttributeString('BedroomListBuffer'), true) ?: json_decode($this->ReadPropertyString('BedroomList'), true) ?: [];
         $groupMembers = json_decode($this->ReadAttributeString('GroupMembersBuffer'), true) ?: json_decode($this->ReadPropertyString('GroupMembers'), true) ?: [];
 
-        // 2. Blueprint 2.0: Label Healing
+        // Blueprint 2.0 - Step 2: Label Healing
         $metadata = $this->GetMasterMetadata();
         foreach ($sensorList as &$s) {
             $vid = $s['VariableID'] ?? 0;
@@ -599,12 +599,11 @@ class SensorGroup extends IPSModule
         }
         unset($s);
 
-        // 3. Sync to RAM Buffers
+        // Sync to RAM Buffers immediately on form load
         $this->WriteAttributeString('SensorListBuffer', json_encode($sensorList));
         $this->WriteAttributeString('BedroomListBuffer', json_encode($bedroomList));
         $this->WriteAttributeString('GroupMembersBuffer', json_encode($groupMembers));
 
-        // 4. Build Options
         $definedClasses = json_decode($this->ReadPropertyString('ClassList'), true) ?: [];
         $classOptions = [];
         foreach ($definedClasses as $c) {
@@ -623,38 +622,7 @@ class SensorGroup extends IPSModule
             }
         }
 
-        // =====================================================================================
-        // MASTER COLUMN SCHEMAS (Visual Consistency Strategy)
-        // =====================================================================================
-
-        // Schema for Step 2: Sensors
-        $colSchemaSensors = [
-            ["caption" => "ID", "name" => "DisplayID", "width" => "70px"],
-            ["caption" => "Variable", "name" => "VariableID", "width" => "200px", "edit" => ["type" => "SelectVariable"]],
-            ["caption" => "Location (P)", "name" => "ParentName", "width" => "120px"],
-            ["caption" => "Area (GP)", "name" => "GrandParentName", "width" => "120px"],
-            ["caption" => "Op", "name" => "Operator", "width" => "100px", "edit" => ["type" => "Select", "options" => [["caption" => "=", "value" => 0], ["caption" => "!=", "value" => 1], ["caption" => ">", "value" => 2], ["caption" => "<", "value" => 3], ["caption" => ">=", "value" => 4], ["caption" => "<=", "value" => 5]]]],
-            ["caption" => "Value", "name" => "ComparisonValue", "width" => "100px", "edit" => ["type" => "ValidationTextBox"]]
-        ];
-
-        // Schema for Step 3b: Bedrooms
-        $colSchemaBedrooms = [
-            ["caption" => "Active Var (IPSView)", "name" => "ActiveVariableID", "width" => "200px", "edit" => ["type" => "SelectVariable"]],
-            ["caption" => "Door Class (Trigger)", "name" => "BedroomDoorClassID", "width" => "200px", "edit" => ["type" => "Select", "options" => $classOptions]]
-        ];
-
-        // Schema for Step B: Members
-        $colSchemaMembers = [
-            ["caption" => "Assigned Class", "name" => "ClassID", "width" => "200px", "edit" => ["type" => "Select", "options" => $classOptions]]
-        ];
-
-        // =====================================================================================
-        // DYNAMIC FORM GENERATION
-        // =====================================================================================
-
         foreach ($form['elements'] as &$element) {
-
-            // --- STEP 2: SENSORS ---
             if (isset($element['name']) && $element['name'] === 'DynamicSensorContainer') {
                 foreach ($definedClasses as $class) {
                     $classID = !empty($class['ClassID']) ? $class['ClassID'] : $class['ClassName'];
@@ -664,14 +632,6 @@ class SensorGroup extends IPSModule
                         return ($s['ClassID'] ?? '') === $classID;
                     }));
 
-                    // Inject Action Column into Schema
-                    $currentCols = $colSchemaSensors;
-                    $currentCols[] = [
-                        "caption" => "Action",
-                        "width" => "80px",
-                        "edit" => ["type" => "Button", "caption" => "Del", "onClick" => "IPS_RequestAction(\$id, 'DEL_SENS_$safeID', \$VariableID);"]
-                    ];
-
                     $element['items'][] = [
                         "type" => "ExpansionPanel",
                         "caption" => $className . " (" . count($classSensors) . ")",
@@ -680,76 +640,19 @@ class SensorGroup extends IPSModule
                             "name" => "List_" . $safeID,
                             "rowCount" => 8,
                             "add" => false,
-                            "delete" => false,
+                            "delete" => false, // Disable native trash can (unstable in Pro Console)
                             "onEdit" => "IPS_RequestAction(\$id, 'UPD_SENS_$safeID', \$List_$safeID);",
-                            "columns" => $currentCols, // Injected Schema
+                            "columns" => [
+                                ["caption" => "ID", "name" => "DisplayID", "width" => "70px"],
+                                ["caption" => "Variable", "name" => "VariableID", "width" => "200px", "edit" => ["type" => "SelectVariable"]],
+                                ["caption" => "Location (P)", "name" => "ParentName", "width" => "120px"],
+                                ["caption" => "Area (GP)", "name" => "GrandParentName", "width" => "120px"],
+                                ["caption" => "Op", "name" => "Operator", "width" => "70px", "edit" => ["type" => "Select", "options" => [["caption" => "=", "value" => 0], ["caption" => "!=", "value" => 1], ["caption" => ">", "value" => 2], ["caption" => "<", "value" => 3], ["caption" => ">=", "value" => 4], ["caption" => "<=", "value" => 5]]]],
+                                ["caption" => "Value", "name" => "ComparisonValue", "width" => "80px", "edit" => ["type" => "ValidationTextBox"]],
+                                // NEW: Robust Delete Button Column
+                                ["caption" => "Action", "width" => "80px", "edit" => ["type" => "Button", "caption" => "Del", "onClick" => "IPS_RequestAction(\$id, 'DEL_SENS_$safeID', \$VariableID);"]]
+                            ],
                             "values" => $classSensors
-                        ]]
-                    ];
-                }
-            }
-
-            // --- STEP 3b: BEDROOMS ---
-            if (isset($element['name']) && $element['name'] === 'DynamicBedroomContainer') {
-                foreach ($definedGroups as $group) {
-                    $gName = $group['GroupName'];
-                    $bedData = array_values(array_filter($bedroomList, function ($b) use ($gName) {
-                        return ($b['GroupName'] ?? '') === $gName;
-                    }));
-
-                    // Inject Action Column (Use simple string concatenation for legacy handlers)
-                    $currentCols = $colSchemaBedrooms;
-                    $currentCols[] = [
-                        "caption" => "Action",
-                        "width" => "80px",
-                        "edit" => ["type" => "Button", "caption" => "Del", "onClick" => "IPS_RequestAction(\$id, 'DeleteBedroomListItem', json_encode(['GroupName' => '$gName', 'Index' => \$index]));"]
-                    ];
-
-                    $element['items'][] = [
-                        "type" => "ExpansionPanel",
-                        "caption" => "Group: " . $gName,
-                        "items" => [[
-                            "type" => "List",
-                            "name" => "Bed_" . md5($gName),
-                            "rowCount" => 2,
-                            "add" => true,
-                            "delete" => false,
-                            "onEdit" => "IPS_RequestAction(\$id, 'UpdateBedroomProperty', json_encode(['GroupName' => '$gName', 'Values' => \$Bed_" . md5($gName) . "]));",
-                            "columns" => $currentCols, // Injected Schema
-                            "values" => $bedData
-                        ]]
-                    ];
-                }
-            }
-
-            // --- STEP B: MEMBERS ---
-            if (isset($element['name']) && $element['name'] === 'DynamicGroupMemberContainer') {
-                foreach ($definedGroups as $group) {
-                    $gName = $group['GroupName'];
-                    $members = array_values(array_filter($groupMembers, function ($m) use ($gName) {
-                        return ($m['GroupName'] ?? '') === $gName;
-                    }));
-
-                    // Inject Action Column
-                    $currentCols = $colSchemaMembers;
-                    $currentCols[] = [
-                        "caption" => "Action",
-                        "width" => "80px",
-                        "edit" => ["type" => "Button", "caption" => "Del", "onClick" => "IPS_RequestAction(\$id, 'DeleteMemberListItem', json_encode(['GroupName' => '$gName', 'Index' => \$index]));"]
-                    ];
-
-                    $element['items'][] = [
-                        "type" => "ExpansionPanel",
-                        "caption" => "Members for " . $gName,
-                        "items" => [[
-                            "type" => "List",
-                            "name" => "Mem_" . md5($gName),
-                            "rowCount" => 5,
-                            "add" => true,
-                            "delete" => false,
-                            "onEdit" => "IPS_RequestAction(\$id, 'UpdateMemberProperty', json_encode(['GroupName' => '$gName', 'Values' => \$Mem_" . md5($gName) . "]));",
-                            "columns" => $currentCols, // Injected Schema
-                            "values" => $members
                         ]]
                     ];
                 }
@@ -758,6 +661,10 @@ class SensorGroup extends IPSModule
 
         $this->UpdateFormOption($form['elements'], 'ImportClass', $classOptions);
         if (isset($form['actions'])) $this->UpdateFormOption($form['actions'], 'ImportClass', $classOptions);
+        $this->UpdateListColumnOption($form['elements'], 'GroupMembers', 'GroupName', $groupOptions);
+        $this->UpdateListColumnOption($form['elements'], 'GroupMembers', 'ClassID', $classOptions);
+        $this->UpdateListColumnOption($form['elements'], 'BedroomList', 'GroupName', $groupOptions);
+        $this->UpdateListColumnOption($form['elements'], 'BedroomList', 'BedroomDoorClassID', $classOptions);
 
         return json_encode($form);
     }
