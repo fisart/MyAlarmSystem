@@ -30,7 +30,6 @@ class SensorGroup extends IPSModule
 
     public function ApplyChanges()
     {
-        $this->LogMessage("TRACE: ApplyChanges - Entry", KL_MESSAGE);
         parent::ApplyChanges();
 
         // 1. LIFECYCLE: ID GENERATION
@@ -48,7 +47,6 @@ class SensorGroup extends IPSModule
         }
 
         if ($idsChanged) {
-            $this->LogMessage("TRACE: ApplyChanges - Saving new Class IDs", KL_MESSAGE);
             IPS_SetProperty($this->InstanceID, 'ClassList', json_encode($classList));
         }
 
@@ -76,10 +74,8 @@ class SensorGroup extends IPSModule
         $keepIdents = ['Status', 'Sabotage', 'EventData'];
 
         if (is_array($groupList)) {
-            $this->LogMessage("TRACE: ApplyChanges - Entering Group Loop", KL_MESSAGE);
             $pos = 20;
             foreach ($groupList as $group) {
-                $this->LogMessage("TRACE: ApplyChanges - Processing Group: " . ($group['GroupName'] ?? 'Unnamed'), KL_MESSAGE);
                 if (empty($group['GroupName'])) continue;
                 $cleanName = $this->SanitizeIdent($group['GroupName']);
                 $ident = "Status_" . $cleanName;
@@ -98,10 +94,8 @@ class SensorGroup extends IPSModule
         if ($this->ReadAttributeString('ClassStateAttribute') == '') $this->WriteAttributeString('ClassStateAttribute', '{}');
 
         // 4. RELOAD FORM
-        $this->LogMessage("TRACE: ApplyChanges - Triggering ReloadForm", KL_MESSAGE);
         $this->ReloadForm();
 
-        $this->LogMessage("TRACE: ApplyChanges - Exit", KL_MESSAGE);
         $this->CheckLogic();
     }
     private function GetMasterMetadata()
@@ -619,7 +613,7 @@ class SensorGroup extends IPSModule
         $this->WriteAttributeString('BedroomListBuffer', json_encode($bedroomList));
         $this->WriteAttributeString('GroupMembersBuffer', json_encode($groupMembers));
 
-        // Options for dynamic dropdowns
+        // Options for standard lists
         $definedClasses = json_decode($this->ReadPropertyString('ClassList'), true) ?: [];
         $classOptions = [];
         foreach ($definedClasses as $c) {
@@ -657,9 +651,9 @@ class SensorGroup extends IPSModule
                             "rowCount" => 8,
                             "add" => false,
                             "delete" => true,
-                            // FIX: Removed backslashes. Single quotes prevent PHP evaluation; Console handles substitution.
-                            'onEdit' => 'MYALARM_UI_UpdateSensorList($id, "' . $classID . '", json_encode($List_' . $safeID . '));',
-                            'onDelete' => 'MYALARM_UI_DeleteSensorListItem($id, "' . $classID . '", $index);',
+                            // NEW STRATEGY: Use double-quotes for the string to pass clean variable names to the Pro Console
+                            "onEdit" => "MYALARM_UI_UpdateSensorList(\$id, '$classID', json_encode(\$List_$safeID));",
+                            "onDelete" => "MYALARM_UI_DeleteSensorListItem(\$id, '$classID', \$index);",
                             "columns" => [
                                 ["caption" => "ID", "name" => "DisplayID", "width" => "70px"],
                                 ["caption" => "Variable", "name" => "VariableID", "width" => "200px", "edit" => ["type" => "SelectVariable"]],
