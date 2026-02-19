@@ -30,7 +30,8 @@ class SensorGroup extends IPSModule
 
     public function ApplyChanges()
     {
-        $this->LogMessage("DEBUG: ApplyChanges - START", KL_MESSAGE);
+        // DEBUG: Start of Cycle
+        $this->LogMessage("DEBUG: ApplyChanges --------------------------------", KL_MESSAGE);
         parent::ApplyChanges();
 
         // 1. LIFECYCLE: ID GENERATION
@@ -59,16 +60,21 @@ class SensorGroup extends IPSModule
         unset($g);
 
         if ($idsChanged) {
+            $this->LogMessage("DEBUG: ID Generation triggered. Saving new IDs.", KL_MESSAGE);
             IPS_SetProperty($this->InstanceID, 'ClassList', json_encode($classList));
             IPS_SetProperty($this->InstanceID, 'GroupList', json_encode($groupList));
         }
 
-        // 2. GARBAGE COLLECTION (Fix: Read from Buffer to catch Zombies)
-        $this->LogMessage("DEBUG: GC - Valid Class IDs: " . implode(', ', $validClassIDs), KL_MESSAGE);
+        // 2. GARBAGE COLLECTION
+        $this->LogMessage("DEBUG: GC - Valid Class IDs: " . json_encode($validClassIDs), KL_MESSAGE);
 
         // Load Sensor Source (Buffer preferred)
         $bufferJson = $this->ReadAttributeString('SensorListBuffer');
         $propJson = $this->ReadPropertyString('SensorList');
+
+        // Log source status
+        $this->LogMessage("DEBUG: GC - Buffer Len: " . strlen($bufferJson) . " | Prop Len: " . strlen($propJson), KL_MESSAGE);
+
         $sensorList = json_decode($bufferJson, true) ?: json_decode($propJson, true) ?: [];
 
         $cleanSensors = [];
@@ -76,25 +82,27 @@ class SensorGroup extends IPSModule
 
         foreach ($sensorList as $s) {
             $sID = $s['ClassID'] ?? '';
+            // Strict check: Is the sensor's class ID in the valid list?
             if (in_array($sID, $validClassIDs)) {
                 $cleanSensors[] = $s;
             } else {
                 $sensorsDirty = true;
-                $this->LogMessage("DEBUG: GC - DELETING ORPHAN: Sensor '" . ($s['VariableID'] ?? '0') . "' points to invalid ClassID: '$sID'", KL_MESSAGE);
+                $this->LogMessage("DEBUG: GC - DELETING ORPHAN: Sensor '" . ($s['VariableID'] ?? '0') . "' has ClassID: '$sID'", KL_MESSAGE);
             }
         }
 
-        // FORCE SAVE: Always write back to Buffer and Property to ensure they are in sync and clean
-        // We write even if !$sensorsDirty to ensure Buffer and Property match
+        // FORCE SAVE: Always write back to ensure sync
         $json = json_encode($cleanSensors);
         IPS_SetProperty($this->InstanceID, 'SensorList', $json);
         $this->WriteAttributeString('SensorListBuffer', $json);
 
         if ($sensorsDirty) {
-            $this->LogMessage("DEBUG: GC - Orphans removed. New Sensor Count: " . count($cleanSensors), KL_MESSAGE);
+            $this->LogMessage("DEBUG: GC - Cleanup Complete. Kept " . count($cleanSensors) . " sensors.", KL_MESSAGE);
+        } else {
+            $this->LogMessage("DEBUG: GC - No changes. Total Sensors: " . count($cleanSensors), KL_MESSAGE);
         }
 
-        // Repeat logic for Bedrooms (Buffer preferred)
+        // Cleanup Bedroom List
         $bedroomList = json_decode($this->ReadAttributeString('BedroomListBuffer'), true) ?: json_decode($this->ReadPropertyString('BedroomList'), true) ?: [];
         $cleanBedrooms = [];
         foreach ($bedroomList as $b) {
@@ -106,7 +114,7 @@ class SensorGroup extends IPSModule
         IPS_SetProperty($this->InstanceID, 'BedroomList', $jsonBed);
         $this->WriteAttributeString('BedroomListBuffer', $jsonBed);
 
-        // Repeat logic for GroupMembers (Buffer preferred)
+        // Cleanup Group Members
         $groupMembers = json_decode($this->ReadAttributeString('GroupMembersBuffer'), true) ?: json_decode($this->ReadPropertyString('GroupMembers'), true) ?: [];
         $cleanMembers = [];
         foreach ($groupMembers as $m) {
