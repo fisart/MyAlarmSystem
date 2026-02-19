@@ -708,10 +708,10 @@ class SensorGroup extends IPSModule
                             "columns" => [
                                 ["caption" => "ID", "name" => "DisplayID", "width" => "70px"],
                                 ["caption" => "Variable", "name" => "VariableID", "width" => "200px", "edit" => ["type" => "SelectVariable"]],
-                                ["caption" => "Location (P)", "name" => "ParentName", "width" => "120px"],
-                                ["caption" => "Area (GP)", "name" => "GrandParentName", "width" => "120px"],
-                                ["caption" => "Op", "name" => "Operator", "width" => "70px", "edit" => ["type" => "Select", "options" => [["caption" => "=", "value" => 0], ["caption" => "!=", "value" => 1], ["caption" => ">", "value" => 2], ["caption" => "<", "value" => 3], ["caption" => ">=", "value" => 4], ["caption" => "<=", "value" => 5]]]],
-                                ["caption" => "Value", "name" => "ComparisonValue", "width" => "80px", "edit" => ["type" => "ValidationTextBox"]]
+                                ["caption" => "Loc (P)", "name" => "ParentName", "width" => "100px"],
+                                ["caption" => "Area (GP)", "name" => "GrandParentName", "width" => "100px"],
+                                ["caption" => "Op", "name" => "Operator", "width" => "100px", "edit" => ["type" => "Select", "options" => [["caption" => "=", "value" => 0], ["caption" => "!=", "value" => 1], ["caption" => ">", "value" => 2], ["caption" => "<", "value" => 3], ["caption" => ">=", "value" => 4], ["caption" => "<=", "value" => 5]]]],
+                                ["caption" => "Value", "name" => "ComparisonValue", "width" => "100px", "edit" => ["type" => "ValidationTextBox"]]
                             ],
                             "values" => $classSensors
                         ]]
@@ -766,7 +766,7 @@ class SensorGroup extends IPSModule
                             "onEdit" => "IPS_RequestAction(\$id, 'UpdateMemberProperty', json_encode(['GroupName' => '$gName', 'Values' => \$Mem_" . md5($gName) . "]));",
                             "onDelete" => "IPS_RequestAction(\$id, 'UpdateMemberProperty', json_encode(['GroupName' => '$gName', 'Values' => \$Mem_" . md5($gName) . "]));",
                             "columns" => [
-                                ["caption" => "Assigned Class", "name" => "ClassID", "width" => "250px", "add" => "", "edit" => ["type" => "Select", "options" => $classOptions]]
+                                ["caption" => "Assigned Class", "name" => "ClassID", "width" => "200px", "add" => "", "edit" => ["type" => "Select", "options" => $classOptions]]
                             ],
                             "values" => $members
                         ]]

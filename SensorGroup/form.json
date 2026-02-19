@@ -7,20 +7,10 @@
                 { "caption": "ID", "name": "ClassID", "width": "0px", "add": "", "visible": false },
                 { "caption": "Class Name", "name": "ClassName", "width": "200px", "add": "NewClass", "edit": { "type": "ValidationTextBox" } },
                 { 
-                    "caption": "Label Mode", 
-                    "name": "LabelMode", 
-                    "width": "120px", 
-                    "add": 0, 
-                    "edit": { 
-                        "type": "Select", 
-                        "options": [
-                            { "caption": "Sensor Name", "value": 0 },
-                            { "caption": "Parent (Location)", "value": 1 },
-                            { "caption": "Status Text", "value": 2 }
-                        ]
-                    } 
+                    "caption": "Label Mode", "name": "LabelMode", "width": "200px", "add": 0, 
+                    "edit": { "type": "Select", "options": [ { "caption": "Sensor Name", "value": 0 }, { "caption": "Parent (Location)", "value": 1 }, { "caption": "Status Text", "value": 2 } ] } 
                 },
-                { "caption": "Logic", "name": "LogicMode", "width": "100px", "add": 0, "edit": { "type": "Select", "options": [ { "caption": "OR (Instant)", "value": 0 }, { "caption": "AND (All)", "value": 1 }, { "caption": "COUNT", "value": 2 } ] } },
+                { "caption": "Logic", "name": "LogicMode", "width": "200px", "add": 0, "edit": { "type": "Select", "options": [ { "caption": "OR (Instant)", "value": 0 }, { "caption": "AND (All)", "value": 1 }, { "caption": "COUNT", "value": 2 } ] } },
                 { "caption": "Threshold", "name": "Threshold", "width": "100px", "add": 1, "edit": { "type": "NumberSpinner", "minimum": 1 } },
                 { "caption": "Window", "name": "TimeWindow", "width": "100px", "add": 10, "edit": { "type": "NumberSpinner", "minimum": 1 } }
             ]
@@ -33,7 +23,7 @@
             "columns": [
                 { "caption": "ID", "name": "GroupID", "width": "0px", "add": "", "visible": false },
                 { "caption": "Group Name", "name": "GroupName", "width": "200px", "add": "AlarmGroup", "edit": { "type": "ValidationTextBox" } },
-                { "caption": "Alignment Spacer", "name": "Spacer", "width": "200px" },
+                { "caption": "Alignment Spacer", "name": "Spacer", "width": "200px", "add": "" },
                 { "caption": "Logic", "name": "GroupLogic", "width": "200px", "add": 0, "edit": { "type": "Select", "options": [ { "caption": "OR (Any Member)", "value": 0 }, { "caption": "AND (All Members)", "value": 1 } ] } }
             ]
         },
