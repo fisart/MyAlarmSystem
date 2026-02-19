@@ -657,9 +657,9 @@ class SensorGroup extends IPSModule
                             "rowCount" => 8,
                             "add" => false,
                             "delete" => true,
-                            // STRATEGY CHANGE: Use direct public functions for maximum Pro Console stability
-                            'onEdit' => 'MYALARM_UI_UpdateSensorList($id, "' . $classID . '", json_encode($List_' . $safeID . '));',
-                            'onDelete' => 'MYALARM_UI_DeleteSensorListItem($id, "' . $classID . '", $index);',
+                            // FIX: Escaped dollar signs to ensure variables are resolved by the Console, not PHP
+                            'onEdit' => 'MYALARM_UI_UpdateSensorList($id, "' . $classID . '", json_encode(\$List_' . $safeID . '));',
+                            'onDelete' => 'MYALARM_UI_DeleteSensorListItem($id, "' . $classID . '", \$index);',
                             "columns" => [
                                 ["caption" => "ID", "name" => "DisplayID", "width" => "70px"],
                                 ["caption" => "Variable", "name" => "VariableID", "width" => "200px", "edit" => ["type" => "SelectVariable"]],
@@ -684,6 +684,44 @@ class SensorGroup extends IPSModule
 
         return json_encode($form);
     }
+
+
+    public function UI_UpdateSensorList(string $ClassID, string $Values)
+    {
+        $newValues = json_decode($Values, true);
+
+        // 1. Load the full RAM Buffer (Blueprint Strategy 2.0)
+        $fullBuffer = json_decode($this->ReadAttributeString('SensorListBuffer'), true) ?: [];
+
+        // 2. Separate sensors for other classes
+        $others = array_values(array_filter($fullBuffer, function ($s) use ($ClassID) {
+            return ($s['ClassID'] ?? '') !== $ClassID;
+        }));
+
+        // 3. Process new values with Label Healing
+        $metadata = $this->GetMasterMetadata();
+        $updatedClass = [];
+
+        if (is_array($newValues)) {
+            foreach ($newValues as $row) {
+                if (is_array($row)) {
+                    $row['ClassID'] = $ClassID;
+                    $vid = $row['VariableID'] ?? 0;
+
+                    // Heal labels from Source of Truth
+                    if ($vid > 0 && isset($metadata[$vid])) {
+                        $row['DisplayID'] = $metadata[$vid]['DisplayID'];
+                        $row['ParentName'] = $metadata[$vid]['ParentName'];
+                        $row['GrandParentName'] = $metadata[$vid]['GrandParentName'];
+                    }
+                    $updatedClass[] = $row;
+                }
+            }
+        }
+
+        // 4. Update the RAM Buffer
+        $this->WriteAttributeString('SensorListBuffer', json_encode(array_merge($others, $updatedClass)));
+    }
     // New Helper: Finds list column definition by name
     private function UpdateListColumnOption(&$elements, $listName, $columnName, $options)
     {
@@ -704,10 +742,15 @@ class SensorGroup extends IPSModule
         // 1. Load the full RAM Buffer (Blueprint Strategy 2.0)
         $fullBuffer = json_decode($this->ReadAttributeString('SensorListBuffer'), true) ?: [];
 
-        // 2. Separate sensors for this class and all others
+        // 2. Separate sensors for this class and all others to maintain class integrity
         $others = array_values(array_filter($fullBuffer, function ($s) use ($ClassID) {
             return ($s['ClassID'] ?? '') !== $ClassID;
         }));
+        $target = array_values(array_filter($fullBuffer, function ($s) use ($ClassID) {
+            return ($s['ClassID'] ?? '') === $classID; // Should use $ClassID (case check)
+        }));
+
+        // Correction for variable casing to match function argument
         $target = array_values(array_filter($fullBuffer, function ($s) use ($ClassID) {
             return ($s['ClassID'] ?? '') === $ClassID;
         }));
@@ -721,7 +764,7 @@ class SensorGroup extends IPSModule
         $newBuffer = array_merge($others, $target);
         $this->WriteAttributeString('SensorListBuffer', json_encode($newBuffer));
 
-        // 5. Refresh the UI to reflect the deletion
+        // 5. Refresh the UI to reflect that the row is gone
         $this->ReloadForm();
     }
     // New Helper: Finds select element by name (Recursive)
