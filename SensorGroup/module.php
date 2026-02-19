@@ -657,9 +657,9 @@ class SensorGroup extends IPSModule
                             "rowCount" => 8,
                             "add" => false,
                             "delete" => true,
-                            // FIX: Escaped dollar signs to ensure variables are resolved by the Console, not PHP
-                            'onEdit' => 'MYALARM_UI_UpdateSensorList($id, "' . $classID . '", json_encode(\$List_' . $safeID . '));',
-                            'onDelete' => 'MYALARM_UI_DeleteSensorListItem($id, "' . $classID . '", \$index);',
+                            // FIX: Removed backslashes. Single quotes prevent PHP evaluation; Console handles substitution.
+                            'onEdit' => 'MYALARM_UI_UpdateSensorList($id, "' . $classID . '", json_encode($List_' . $safeID . '));',
+                            'onDelete' => 'MYALARM_UI_DeleteSensorListItem($id, "' . $classID . '", $index);',
                             "columns" => [
                                 ["caption" => "ID", "name" => "DisplayID", "width" => "70px"],
                                 ["caption" => "Variable", "name" => "VariableID", "width" => "200px", "edit" => ["type" => "SelectVariable"]],
