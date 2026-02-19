@@ -215,9 +215,15 @@ class SensorGroup extends IPSModule
     public function RequestAction($Ident, $Value)
     {
         // 1. DYNAMIC IDENTIFIER HANDLING (Step 2 Folders)
-        if (strpos($Ident, 'UPD_SENS_') === 0 || strpos($Ident, 'DEL_SENS_') === 0) {
-            $isDelete = (strpos($Ident, 'DEL_SENS_') === 0);
-            $safeID = substr($Ident, 9);
+        // Updated check to include the new index-based deletion prefix
+        if (strpos($Ident, 'UPD_SENS_') === 0 || strpos($Ident, 'DEL_SENS_') === 0 || strpos($Ident, 'DELETE_BY_INDEX_') === 0) {
+
+            $isDeleteByID = (strpos($Ident, 'DEL_SENS_') === 0);
+            $isDeleteByIndex = (strpos($Ident, 'DELETE_BY_INDEX_') === 0);
+
+            // Determine SafeID (MD5) based on prefix length
+            if ($isDeleteByIndex) $safeID = substr($Ident, 16);
+            else $safeID = substr($Ident, 9);
 
             // Map MD5 SafeID back to ClassID
             $classList = json_decode($this->ReadPropertyString('ClassList'), true) ?: [];
@@ -234,25 +240,40 @@ class SensorGroup extends IPSModule
 
             $fullBuffer = json_decode($this->ReadAttributeString('SensorListBuffer'), true) ?: [];
 
-            if ($isDelete) {
-                // DELETE LOGIC: $Value is the VariableID (Integer)
+            if ($isDeleteByID) {
+                // DELETE LOGIC A: Deletion via main list button (VariableID)
                 $vidToDelete = (int)$Value;
                 $newBuffer = [];
                 foreach ($fullBuffer as $row) {
-                    // Filter out the specific sensor
                     if (($row['ClassID'] ?? '') === $classID && ($row['VariableID'] ?? 0) === $vidToDelete) {
                         continue;
                     }
                     $newBuffer[] = $row;
                 }
-
-                // Update Buffer AND Property to trigger Apply button
                 $json = json_encode($newBuffer);
                 $this->WriteAttributeString('SensorListBuffer', $json);
                 IPS_SetProperty($this->InstanceID, 'SensorList', $json);
                 $this->ReloadForm();
+            } elseif ($isDeleteByIndex) {
+                // DELETE LOGIC B: Deletion via popup window (Index)
+                $index = (int)$Value;
+                $others = array_values(array_filter($fullBuffer, function ($s) use ($classID) {
+                    return ($s['ClassID'] ?? '') !== $classID;
+                }));
+                $target = array_values(array_filter($fullBuffer, function ($s) use ($classID) {
+                    return ($s['ClassID'] ?? '') === $classID;
+                }));
+
+                if (isset($target[$index])) {
+                    array_splice($target, $index, 1);
+                }
+
+                $json = json_encode(array_merge($others, $target));
+                $this->WriteAttributeString('SensorListBuffer', $json);
+                IPS_SetProperty($this->InstanceID, 'SensorList', $json);
+                $this->ReloadForm();
             } else {
-                // UPDATE LOGIC: $Value is JSON row data
+                // UPDATE LOGIC: Edits within the folder
                 $newValues = json_decode($Value, true);
                 $others = array_values(array_filter($fullBuffer, function ($s) use ($classID) {
                     return ($s['ClassID'] ?? '') !== $classID;
@@ -273,8 +294,6 @@ class SensorGroup extends IPSModule
                         }
                     }
                 }
-
-                // Update Buffer AND Property to trigger Apply button
                 $json = json_encode(array_merge($others, $updatedClass));
                 $this->WriteAttributeString('SensorListBuffer', $json);
                 IPS_SetProperty($this->InstanceID, 'SensorList', $json);
@@ -320,6 +339,9 @@ class SensorGroup extends IPSModule
                 break;
         }
     }
+
+
+
     public function SaveConfiguration()
     {
         // 1. Load data from RAM Buffers
