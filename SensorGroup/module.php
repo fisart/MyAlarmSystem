@@ -450,6 +450,10 @@ class SensorGroup extends IPSModule
         $bedroomList  = json_decode($this->ReadAttributeString('BedroomListBuffer'), true) ?: [];
         $groupMembers = json_decode($this->ReadAttributeString('GroupMembersBuffer'), true) ?: [];
 
+        // DEBUG LOG: Verify buffer contents before committing to disk
+        $this->LogMessage("DEBUG: COMMIT - Classes: " . count($classList) . " | Groups: " . count($groupList), KL_MESSAGE);
+        $this->LogMessage("DEBUG: COMMIT - Sensors: " . count($sensorList) . " | Bedrooms: " . count($bedroomList) . " | Members: " . count($groupMembers), KL_MESSAGE);
+
         // 2. Final Label Healing (Source of Truth)
         $metadata = $this->GetMasterMetadata();
         foreach ($sensorList as &$s) {
