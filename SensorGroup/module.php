@@ -612,7 +612,7 @@ class SensorGroup extends IPSModule
     {
         $form = json_decode(file_get_contents(__DIR__ . '/form.json'), true);
 
-        // Blueprint 2.0: Prioritize RAM Buffer
+        // Blueprint 2.0: Prioritize RAM Buffer over Property
         $sensorList = json_decode($this->ReadAttributeString('SensorListBuffer'), true) ?: json_decode($this->ReadPropertyString('SensorList'), true) ?: [];
         $bedroomList = json_decode($this->ReadAttributeString('BedroomListBuffer'), true) ?: json_decode($this->ReadPropertyString('BedroomList'), true) ?: [];
         $groupMembers = json_decode($this->ReadAttributeString('GroupMembersBuffer'), true) ?: json_decode($this->ReadPropertyString('GroupMembers'), true) ?: [];
@@ -710,9 +710,10 @@ class SensorGroup extends IPSModule
                             // Manual JSON construction to safely pass $index
                             "onEdit" => "IPS_RequestAction(\$id, 'UpdateBedroomProperty', json_encode(['GroupName' => '$gName', 'Values' => \$Bed_" . md5($gName) . "]));",
                             "columns" => [
-                                ["caption" => "Active Var (IPSView)", "name" => "ActiveVariableID", "width" => "250px", "add" => 0, "edit" => ["type" => "SelectVariable"]],
-                                ["caption" => "Door Class (Trigger)", "name" => "BedroomDoorClassID", "width" => "250px", "add" => "", "edit" => ["type" => "Select", "options" => $classOptions]],
-                                ["caption" => "Action", "width" => "80px", "edit" => ["type" => "Button", "caption" => "Del", "onClick" => "IPS_RequestAction(\$id, 'DeleteBedroomListItem', '{\"GroupName\":\"$gName\",\"Index\":' . \$index . '}');"]]
+                                ["caption" => "Active Var (IPSView)", "name" => "ActiveVariableID", "width" => "200px", "add" => 0, "edit" => ["type" => "SelectVariable"]],
+                                ["caption" => "Door Class (Trigger)", "name" => "BedroomDoorClassID", "width" => "200px", "add" => "", "edit" => ["type" => "Select", "options" => $classOptions]],
+                                // FIX: Added "add" => "" to Button column
+                                ["caption" => "Action", "width" => "80px", "add" => "", "edit" => ["type" => "Button", "caption" => "Del", "onClick" => "IPS_RequestAction(\$id, 'DeleteBedroomListItem', '{\"GroupName\":\"$gName\",\"Index\":' . \$index . '}');"]]
                             ],
                             "values" => $bedData
                         ]]
@@ -741,7 +742,8 @@ class SensorGroup extends IPSModule
                             "onEdit" => "IPS_RequestAction(\$id, 'UpdateMemberProperty', json_encode(['GroupName' => '$gName', 'Values' => \$Mem_" . md5($gName) . "]));",
                             "columns" => [
                                 ["caption" => "Assigned Class", "name" => "ClassID", "width" => "400px", "add" => "", "edit" => ["type" => "Select", "options" => $classOptions]],
-                                ["caption" => "Action", "width" => "80px", "edit" => ["type" => "Button", "caption" => "Del", "onClick" => "IPS_RequestAction(\$id, 'DeleteMemberListItem', '{\"GroupName\":\"$gName\",\"Index\":' . \$index . '}');"]]
+                                // FIX: Added "add" => "" to Button column
+                                ["caption" => "Action", "width" => "80px", "add" => "", "edit" => ["type" => "Button", "caption" => "Del", "onClick" => "IPS_RequestAction(\$id, 'DeleteMemberListItem', '{\"GroupName\":\"$gName\",\"Index\":' . \$index . '}');"]]
                             ],
                             "values" => $members
                         ]]
