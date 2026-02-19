@@ -16,7 +16,8 @@ class SensorGroup extends IPSModule
         $this->RegisterPropertyBoolean('MaintenanceMode', false);
 
         // RAM Buffers for Blueprint Strategy 2.0
-        $this->RegisterAttributeString('ClassListBuffer', '[]'); // Added for Class Synchronization
+        $this->RegisterAttributeString('ClassListBuffer', '[]');
+        $this->RegisterAttributeString('GroupListBuffer', '[]'); // Added to resolve registration error
         $this->RegisterAttributeString('SensorListBuffer', '[]');
         $this->RegisterAttributeString('BedroomListBuffer', '[]');
         $this->RegisterAttributeString('GroupMembersBuffer', '[]');
