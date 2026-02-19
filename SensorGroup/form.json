@@ -21,8 +21,8 @@
                     } 
                 },
                 { "caption": "Logic", "name": "LogicMode", "width": "100px", "add": 0, "edit": { "type": "Select", "options": [ { "caption": "OR (Instant)", "value": 0 }, { "caption": "AND (All)", "value": 1 }, { "caption": "COUNT", "value": 2 } ] } },
-                { "caption": "Threshold", "name": "Threshold", "width": "100px", "add": 1, "edit": { "type": "NumberSpinner", "minimum": 1 } },
-                { "caption": "Window", "name": "TimeWindow", "width": "100px", "add": 10, "edit": { "type": "NumberSpinner", "minimum": 1 } }
+                { "caption": "Threshold", "name": "Threshold", "width": "80px", "add": 1, "edit": { "type": "NumberSpinner", "minimum": 1 } },
+                { "caption": "Window", "name": "TimeWindow", "width": "80px", "add": 10, "edit": { "type": "NumberSpinner", "minimum": 1 } }
             ]
         },
         { "type": "Label", "caption": "2. SENSOR INPUTS (Grouped by Class)" },
@@ -33,7 +33,7 @@
             "columns": [
                 { "caption": "ID", "name": "GroupID", "width": "0px", "add": "", "visible": false },
                 { "caption": "Group Name", "name": "GroupName", "width": "200px", "add": "AlarmGroup", "edit": { "type": "ValidationTextBox" } },
-                { "caption": "Alignment Spacer", "name": "Spacer", "width": "200px" },
+                { "caption": "Alignment Spacer", "name": "Spacer", "width": "200px", "add": "" },
                 { "caption": "Logic", "name": "GroupLogic", "width": "200px", "add": 0, "edit": { "type": "Select", "options": [ { "caption": "OR (Any Member)", "value": 0 }, { "caption": "AND (All Members)", "value": 1 } ] } }
             ]
         },
