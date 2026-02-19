@@ -118,13 +118,13 @@ class SensorGroup extends IPSModule
     }
     public function RequestAction($Ident, $Value)
     {
-        // DEBUG LOG: Verify the incoming Ident and Value from the Pro Console
+        // DEBUG LOG: Verify the incoming Ident and the VariableID from the Del button
         $this->LogMessage("DEBUG: RequestAction - Ident: " . $Ident . " - Value: " . $Value, KL_MESSAGE);
 
         // 1. DYNAMIC IDENTIFIER HANDLING (Step 2 Folders)
         if (strpos($Ident, 'UPD_SENS_') === 0 || strpos($Ident, 'DEL_SENS_') === 0) {
             $isDelete = (strpos($Ident, 'DEL_SENS_') === 0);
-            $safeID = $isDelete ? substr($Ident, 9) : substr($Ident, 9);
+            $safeID = substr($Ident, 9);
 
             // Map MD5 SafeID back to ClassID
             $classList = json_decode($this->ReadPropertyString('ClassList'), true) ?: [];
@@ -140,24 +140,26 @@ class SensorGroup extends IPSModule
             if ($classID === '') return;
 
             $fullBuffer = json_decode($this->ReadAttributeString('SensorListBuffer'), true) ?: [];
-            $others = array_values(array_filter($fullBuffer, function ($s) use ($classID) {
-                return ($s['ClassID'] ?? '') !== $classID;
-            }));
 
             if ($isDelete) {
-                // DELETE LOGIC: $Value is the row index
-                $index = (int)$Value;
-                $target = array_values(array_filter($fullBuffer, function ($s) use ($classID) {
-                    return ($s['ClassID'] ?? '') === $classID;
-                }));
-                if (isset($target[$index])) {
-                    array_splice($target, $index, 1);
+                // DELETE LOGIC: $Value is now the VariableID
+                $vidToDelete = (int)$Value;
+                $newBuffer = [];
+                foreach ($fullBuffer as $row) {
+                    // Skip the specific sensor that matches Class and VariableID
+                    if (($row['ClassID'] ?? '') === $classID && ($row['VariableID'] ?? 0) === $vidToDelete) {
+                        continue;
+                    }
+                    $newBuffer[] = $row;
                 }
-                $this->WriteAttributeString('SensorListBuffer', json_encode(array_merge($others, $target)));
+                $this->WriteAttributeString('SensorListBuffer', json_encode($newBuffer));
                 $this->ReloadForm();
             } else {
-                // UPDATE LOGIC: $Value is the JSON array of rows
+                // UPDATE LOGIC: $Value is the JSON array of rows from onEdit
                 $newValues = json_decode($Value, true);
+                $others = array_values(array_filter($fullBuffer, function ($s) use ($classID) {
+                    return ($s['ClassID'] ?? '') !== $classID;
+                }));
                 $metadata = $this->GetMasterMetadata();
                 $updatedClass = [];
                 if (is_array($newValues)) {
@@ -566,17 +568,17 @@ class SensorGroup extends IPSModule
                             "name" => "List_" . $safeID,
                             "rowCount" => 8,
                             "add" => false,
-                            "delete" => true,
-                            // FIX: Use unique Idents with IPS_RequestAction. This is the only format the Pro Console resolves reliably.
+                            "delete" => false, // Disable native trash can (unstable in Pro Console)
                             "onEdit" => "IPS_RequestAction(\$id, 'UPD_SENS_$safeID', \$List_$safeID);",
-                            "onDelete" => "IPS_RequestAction(\$id, 'DEL_SENS_$safeID', \$index);",
                             "columns" => [
                                 ["caption" => "ID", "name" => "DisplayID", "width" => "70px"],
                                 ["caption" => "Variable", "name" => "VariableID", "width" => "200px", "edit" => ["type" => "SelectVariable"]],
                                 ["caption" => "Location (P)", "name" => "ParentName", "width" => "120px"],
                                 ["caption" => "Area (GP)", "name" => "GrandParentName", "width" => "120px"],
                                 ["caption" => "Op", "name" => "Operator", "width" => "70px", "edit" => ["type" => "Select", "options" => [["caption" => "=", "value" => 0], ["caption" => "!=", "value" => 1], ["caption" => ">", "value" => 2], ["caption" => "<", "value" => 3], ["caption" => ">=", "value" => 4], ["caption" => "<=", "value" => 5]]]],
-                                ["caption" => "Value", "name" => "ComparisonValue", "width" => "80px", "edit" => ["type" => "ValidationTextBox"]]
+                                ["caption" => "Value", "name" => "ComparisonValue", "width" => "80px", "edit" => ["type" => "ValidationTextBox"]],
+                                // NEW: Robust Delete Button Column
+                                ["caption" => "Action", "width" => "80px", "edit" => ["type" => "Button", "caption" => "Del", "onClick" => "IPS_RequestAction(\$id, 'DEL_SENS_$safeID', \$VariableID);"]]
                             ],
                             "values" => $classSensors
                         ]]
@@ -594,7 +596,6 @@ class SensorGroup extends IPSModule
 
         return json_encode($form);
     }
-
 
     public function UI_UpdateSensorList(string $ClassID, string $Values)
     {
