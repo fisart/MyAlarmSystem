@@ -30,6 +30,7 @@ class SensorGroup extends IPSModule
 
     public function ApplyChanges()
     {
+        $this->LogMessage("TRACE: ApplyChanges - Entry", KL_MESSAGE);
         parent::ApplyChanges();
 
         // 1. LIFECYCLE: ID GENERATION
@@ -47,6 +48,7 @@ class SensorGroup extends IPSModule
         }
 
         if ($idsChanged) {
+            $this->LogMessage("TRACE: ApplyChanges - Saving new Class IDs", KL_MESSAGE);
             IPS_SetProperty($this->InstanceID, 'ClassList', json_encode($classList));
         }
 
@@ -74,16 +76,18 @@ class SensorGroup extends IPSModule
         $keepIdents = ['Status', 'Sabotage', 'EventData'];
 
         if (is_array($groupList)) {
+            $this->LogMessage("TRACE: ApplyChanges - Entering Group Loop", KL_MESSAGE);
             $pos = 20;
             foreach ($groupList as $group) {
+                $this->LogMessage("TRACE: ApplyChanges - Processing Group: " . ($group['GroupName'] ?? 'Unnamed'), KL_MESSAGE);
                 if (empty($group['GroupName'])) continue;
                 $cleanName = $this->SanitizeIdent($group['GroupName']);
                 $ident = "Status_" . $cleanName;
-                // Line 82: Ensure $pos is used here, NOT $index
                 $this->RegisterVariableBoolean($ident, "Status (" . $group['GroupName'] . ")", "~Alert", $pos++);
                 $keepIdents[] = $ident;
             }
         }
+
         $children = IPS_GetChildrenIDs($this->InstanceID);
         foreach ($children as $child) {
             $obj = IPS_GetObject($child);
@@ -94,8 +98,10 @@ class SensorGroup extends IPSModule
         if ($this->ReadAttributeString('ClassStateAttribute') == '') $this->WriteAttributeString('ClassStateAttribute', '{}');
 
         // 4. RELOAD FORM
+        $this->LogMessage("TRACE: ApplyChanges - Triggering ReloadForm", KL_MESSAGE);
         $this->ReloadForm();
 
+        $this->LogMessage("TRACE: ApplyChanges - Exit", KL_MESSAGE);
         $this->CheckLogic();
     }
     private function GetMasterMetadata()
