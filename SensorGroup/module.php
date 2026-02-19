@@ -16,6 +16,7 @@ class SensorGroup extends IPSModule
         $this->RegisterPropertyBoolean('MaintenanceMode', false);
 
         // RAM Buffers for Blueprint Strategy 2.0
+        $this->RegisterAttributeString('ClassListBuffer', '[]'); // Added for Class Synchronization
         $this->RegisterAttributeString('SensorListBuffer', '[]');
         $this->RegisterAttributeString('BedroomListBuffer', '[]');
         $this->RegisterAttributeString('GroupMembersBuffer', '[]');
@@ -27,6 +28,8 @@ class SensorGroup extends IPSModule
         $this->RegisterVariableString('EventData', 'Event Payload', '', 99);
         IPS_SetHidden($this->GetIDForIdent('EventData'), true);
     }
+
+
     public function ApplyChanges()
     {
         $this->LogMessage("DEBUG: ApplyChanges - START", KL_MESSAGE);
@@ -68,6 +71,9 @@ class SensorGroup extends IPSModule
             $validClassIDs[] = $c['ClassID'];
         }
         unset($c);
+
+        // SYNC: Update the ClassListBuffer so the UI sees the stabilized IDs immediately
+        $this->WriteAttributeString('ClassListBuffer', json_encode($classList));
 
         // Save Map
         $stateData['IDMap'] = $idMap;
@@ -606,7 +612,10 @@ class SensorGroup extends IPSModule
     {
         $form = json_decode(file_get_contents(__DIR__ . '/form.json'), true);
 
-        // Blueprint 2.0: Prioritize RAM Buffer over Property
+        // Blueprint 2.0: Prioritize RAM Buffers
+        // FIX 1: Read Classes from Buffer to ensure UI matches the stabilized IDs from ApplyChanges
+        $definedClasses = json_decode($this->ReadAttributeString('ClassListBuffer'), true) ?: json_decode($this->ReadPropertyString('ClassList'), true) ?: [];
+
         $sensorList = json_decode($this->ReadAttributeString('SensorListBuffer'), true) ?: json_decode($this->ReadPropertyString('SensorList'), true) ?: [];
         $bedroomList = json_decode($this->ReadAttributeString('BedroomListBuffer'), true) ?: json_decode($this->ReadPropertyString('BedroomList'), true) ?: [];
         $groupMembers = json_decode($this->ReadAttributeString('GroupMembersBuffer'), true) ?: json_decode($this->ReadPropertyString('GroupMembers'), true) ?: [];
@@ -623,12 +632,13 @@ class SensorGroup extends IPSModule
         }
         unset($s);
 
-        // Sync to RAM Buffers immediately on form load
+        // Sync to RAM Buffers
+        $this->WriteAttributeString('ClassListBuffer', json_encode($definedClasses));
         $this->WriteAttributeString('SensorListBuffer', json_encode($sensorList));
         $this->WriteAttributeString('BedroomListBuffer', json_encode($bedroomList));
         $this->WriteAttributeString('GroupMembersBuffer', json_encode($groupMembers));
 
-        $definedClasses = json_decode($this->ReadPropertyString('ClassList'), true) ?: [];
+        // Options for dynamic dropdowns
         $classOptions = [];
         foreach ($definedClasses as $c) {
             $val = !empty($c['ClassID']) ? $c['ClassID'] : $c['ClassName'];
@@ -664,7 +674,8 @@ class SensorGroup extends IPSModule
                             "name" => "List_" . $safeID,
                             "rowCount" => 8,
                             "add" => false,
-                            "delete" => false, // Disable native trash can (unstable in Pro Console)
+                            "delete" => false, // FIX 2: Disable native delete (unstable in Pro Console)
+                            // FIX 3: Use direct function with VariableID via Button
                             "onEdit" => "IPS_RequestAction(\$id, 'UPD_SENS_$safeID', \$List_$safeID);",
                             "columns" => [
                                 ["caption" => "ID", "name" => "DisplayID", "width" => "70px"],
@@ -673,7 +684,7 @@ class SensorGroup extends IPSModule
                                 ["caption" => "Area (GP)", "name" => "GrandParentName", "width" => "120px"],
                                 ["caption" => "Op", "name" => "Operator", "width" => "70px", "edit" => ["type" => "Select", "options" => [["caption" => "=", "value" => 0], ["caption" => "!=", "value" => 1], ["caption" => ">", "value" => 2], ["caption" => "<", "value" => 3], ["caption" => ">=", "value" => 4], ["caption" => "<=", "value" => 5]]]],
                                 ["caption" => "Value", "name" => "ComparisonValue", "width" => "80px", "edit" => ["type" => "ValidationTextBox"]],
-                                // NEW: Robust Delete Button Column
+                                // FIX 4: Explicit Delete Button for robust deletion by ID
                                 ["caption" => "Action", "width" => "80px", "edit" => ["type" => "Button", "caption" => "Del", "onClick" => "IPS_RequestAction(\$id, 'DEL_SENS_$safeID', \$VariableID);"]]
                             ],
                             "values" => $classSensors
