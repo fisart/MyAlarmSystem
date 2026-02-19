@@ -44,6 +44,15 @@ class SensorGroup extends IPSModule
         $idMap = $stateData['IDMap'] ?? [];
         $groupIDMap = $stateData['GroupIDMap'] ?? []; // Sticky Group IDs
 
+        // NEW: Load Previous Group State from Buffer for high-reliability recovery
+        $bufferGroups = json_decode($this->ReadAttributeString('GroupListBuffer'), true) ?: [];
+        $recoveryMapGroups = [];
+        foreach ($bufferGroups as $bg) {
+            if (!empty($bg['GroupName']) && !empty($bg['GroupID'])) {
+                $recoveryMapGroups[$bg['GroupName']] = $bg['GroupID'];
+            }
+        }
+
         $idsChanged = false;
         $regenCountClasses = 0;
         $regenCountGroups = 0;
@@ -79,6 +88,9 @@ class SensorGroup extends IPSModule
                 if (!empty($gName) && isset($groupIDMap[$gName])) {
                     $g['GroupID'] = $groupIDMap[$gName];
                     $idsChanged = true;
+                } elseif (!empty($gName) && isset($recoveryMapGroups[$gName])) { // Recover from Buffer
+                    $g['GroupID'] = $recoveryMapGroups[$gName];
+                    $idsChanged = true;
                 } else {
                     $g['GroupID'] = uniqid('grp_');
                     $idsChanged = true;
@@ -91,21 +103,16 @@ class SensorGroup extends IPSModule
         }
         unset($g);
 
-        // SAFETY ABORT: If 100% of data came in without IDs, it is a UI glitch. 
-        // Restore and exit before Garbage Collection can delete data.
+        // UI Glitch Notification
         $totalClasses = count($classList);
         $totalGroups = count($groupList);
         if (($totalClasses > 0 && $regenCountClasses == $totalClasses) || ($totalGroups > 0 && $regenCountGroups == $totalGroups)) {
-            $this->LogMessage("CRITICAL: UI Data Loss detected. Restoring IDs and Aborting Cleanup to protect data.", KL_WARNING);
-            IPS_SetProperty($this->InstanceID, 'ClassList', json_encode($classList));
-            IPS_SetProperty($this->InstanceID, 'GroupList', json_encode($groupList));
-            $this->WriteAttributeString('ClassListBuffer', json_encode($classList));
-            $this->ReloadForm();
-            return;
+            $this->LogMessage("CRITICAL: UI Data Loss detected. Restoring IDs and continuing synchronization.", KL_WARNING);
         }
 
         // Save Maps and Buffers
         $this->WriteAttributeString('ClassListBuffer', json_encode($classList));
+        $this->WriteAttributeString('GroupListBuffer', json_encode($groupList)); // Sync Group Buffer
         $stateData['IDMap'] = $idMap;
         $stateData['GroupIDMap'] = $groupIDMap;
         $this->WriteAttributeString('ClassStateAttribute', json_encode($stateData));
@@ -179,7 +186,7 @@ class SensorGroup extends IPSModule
             }
         }
 
-        // 4. VARIABLES
+        // 4. VARIABLES (Status)
         $keepIdents = ['Status', 'Sabotage', 'EventData'];
         $pos = 20;
         foreach ($groupList as $group) {
