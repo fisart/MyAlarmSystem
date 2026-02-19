@@ -39,31 +39,31 @@ class SensorGroup extends IPSModule
         $classList = json_decode($this->ReadPropertyString('ClassList'), true) ?: [];
         $groupList = json_decode($this->ReadPropertyString('GroupList'), true) ?: [];
 
-        // Load persistent ID Map
         $stateData = json_decode($this->ReadAttributeString('ClassStateAttribute'), true) ?: [];
         $idMap = $stateData['IDMap'] ?? [];
 
         $idsChanged = false;
+        $regenCount = 0; // Track how many IDs we had to touch
+
         $validClassIDs = [];
         $classNameMap = [];
 
         foreach ($classList as &$c) {
             $name = $c['ClassName'] ?? '';
 
-            // If ID is missing (UI glitch), try to restore it from memory
             if (empty($c['ClassID'])) {
+                // Count this as a regeneration/restoration event
+                $regenCount++;
+
                 if (!empty($name) && isset($idMap[$name])) {
                     $c['ClassID'] = $idMap[$name];
-                    $this->LogMessage("DEBUG: Restored ID for Class '$name': " . $c['ClassID'], KL_MESSAGE);
                     $idsChanged = true;
                 } else {
                     $c['ClassID'] = uniqid('cls_');
                     $idsChanged = true;
-                    $this->LogMessage("WARNING: Generated NEW ID for Class '$name': " . $c['ClassID'], KL_WARNING);
                 }
             }
 
-            // Update Map
             if (!empty($name)) {
                 $idMap[$name] = $c['ClassID'];
                 $classNameMap[$name] = $c['ClassID'];
@@ -72,10 +72,29 @@ class SensorGroup extends IPSModule
         }
         unset($c);
 
-        // SYNC: Update the ClassListBuffer so the UI sees the stabilized IDs immediately
-        $this->WriteAttributeString('ClassListBuffer', json_encode($classList));
+        // SAFETY CHECK: If ALL classes came in without IDs, it's a UI transmission error.
+        // We save the restored IDs but ABORT Garbage Collection to protect sensors.
+        $totalClasses = count($classList);
+        if ($totalClasses > 0 && $regenCount == $totalClasses) {
+            $this->LogMessage("CRITICAL: UI Glitch detected (All Class IDs missing). Restoring IDs and aborting GC.", KL_WARNING);
 
-        // Save Map
+            // Save the restored IDs to disk
+            IPS_SetProperty($this->InstanceID, 'ClassList', json_encode($classList));
+
+            // Update the UI Buffer immediately
+            $this->WriteAttributeString('ClassListBuffer', json_encode($classList));
+
+            // Save the ID Map
+            $stateData['IDMap'] = $idMap;
+            $this->WriteAttributeString('ClassStateAttribute', json_encode($stateData));
+
+            // Reload and Exit - DO NOT DELETE SENSORS
+            $this->ReloadForm();
+            return;
+        }
+
+        // Regular Save if we didn't abort
+        $this->WriteAttributeString('ClassListBuffer', json_encode($classList));
         $stateData['IDMap'] = $idMap;
         $this->WriteAttributeString('ClassStateAttribute', json_encode($stateData));
 
@@ -105,9 +124,7 @@ class SensorGroup extends IPSModule
         foreach ($sensorList as $s) {
             $sID = $s['ClassID'] ?? '';
 
-            // REPAIR: If ID matches a known Name, migrate to UUID
             if (!in_array($sID, $validClassIDs) && isset($classNameMap[$sID])) {
-                $this->LogMessage("DEBUG: Migrating Sensor " . ($s['VariableID'] ?? 0) . " from Name '$sID' to UUID", KL_MESSAGE);
                 $s['ClassID'] = $classNameMap[$sID];
                 $sID = $s['ClassID'];
                 $sensorsDirty = true;
