@@ -280,34 +280,43 @@ class SensorGroup extends IPSModule
                 IPS_SetProperty($this->InstanceID, 'SensorList', $json);
                 $this->ReloadForm();
             } else {
-                $newValues = json_decode($Value, true);
-                // Safety check for update data
-                if (!is_array($newValues)) {
-                    $this->LogMessage("DEBUG: Update aborted - Value was not a valid array.", KL_WARNING);
-                    return;
-                }
+                // UPDATE LOGIC: Keyed Merge (Blueprint 2.0 Strategy)
+                $incoming = json_decode($Value, true);
+                if (!$incoming) return;
 
-                $others = array_values(array_filter($fullBuffer, function ($s) use ($classID) {
-                    return ($s['ClassID'] ?? '') !== $classID;
-                }));
+                // Handle both single row (Pro Console) and full list (Web Console)
+                $rowsToProcess = isset($incoming['VariableID']) ? [$incoming] : $incoming;
                 $metadata = $this->GetMasterMetadata();
-                $updatedClass = [];
-                foreach ($newValues as $row) {
-                    if (is_array($row)) {
-                        $row['ClassID'] = $classID;
-                        $vid = $row['VariableID'] ?? 0;
-                        if ($vid > 0 && isset($metadata[$vid])) {
-                            $row['DisplayID'] = $metadata[$vid]['DisplayID'];
-                            $row['ParentName'] = $metadata[$vid]['ParentName'];
-                            $row['GrandParentName'] = $metadata[$vid]['GrandParentName'];
+
+                foreach ($rowsToProcess as $inRow) {
+                    if (!is_array($inRow)) continue;
+                    $inVID = $inRow['VariableID'] ?? 0;
+                    $found = false;
+                    foreach ($fullBuffer as &$exRow) {
+                        // Look for matching sensor in the buffer
+                        if (($exRow['ClassID'] ?? '') === $classID && ($exRow['VariableID'] ?? 0) === $inVID) {
+                            $exRow = array_merge($exRow, $inRow);
+                            $exRow['ClassID'] = $classID;
+                            // Heal labels from Source of Truth
+                            if (isset($metadata[$inVID])) {
+                                $exRow['DisplayID'] = $metadata[$inVID]['DisplayID'];
+                                $exRow['ParentName'] = $metadata[$inVID]['ParentName'];
+                                $exRow['GrandParentName'] = $metadata[$inVID]['GrandParentName'];
+                            }
+                            $found = true;
+                            break;
                         }
-                        $updatedClass[] = $row;
+                    }
+                    // If it's a new sensor for this class, add it
+                    if (!$found && $inVID > 0) {
+                        $inRow['ClassID'] = $classID;
+                        $fullBuffer[] = $inRow;
                     }
                 }
-                $json = json_encode(array_merge($others, $updatedClass));
+
+                $json = json_encode($fullBuffer);
                 $this->WriteAttributeString('SensorListBuffer', $json);
                 IPS_SetProperty($this->InstanceID, 'SensorList', $json);
-                $this->ReloadForm();
             }
             return;
         }
