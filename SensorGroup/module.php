@@ -391,16 +391,17 @@ class SensorGroup extends IPSModule
                 $gName = $data['GroupName'];
                 $matrixValues = (isset($data['Values']['ClassID'])) ? [$data['Values']] : $data['Values'];
                 $master = json_decode($this->ReadAttributeString('GroupMembersBuffer'), true) ?: json_decode($this->ReadPropertyString('GroupMembers'), true) ?: [];
-                $others = array_values(array_filter($master, function ($m) use ($gName) {
-                    return ($m['GroupName'] ?? '') !== $gName;
-                }));
-                $newMemberships = [];
                 foreach ((array)$matrixValues as $row) {
-                    if (is_array($row) && ($row['Assigned'] ?? false)) {
-                        $newMemberships[] = ['GroupName' => $gName, 'ClassID' => $row['ClassID']];
+                    if (!is_array($row)) continue;
+                    $cID = $row['ClassID'];
+                    $master = array_values(array_filter($master, function ($m) use ($gName, $cID) {
+                        return !(($m['GroupName'] ?? '') === $gName && ($m['ClassID'] ?? '') === $cID);
+                    }));
+                    if ($row['Assigned'] ?? false) {
+                        $master[] = ['GroupName' => $gName, 'ClassID' => $cID];
                     }
                 }
-                $this->WriteAttributeString('GroupMembersBuffer', json_encode(array_merge($others, $newMemberships)));
+                $this->WriteAttributeString('GroupMembersBuffer', json_encode($master));
                 break;
 
             case 'DeleteMemberListItem':
