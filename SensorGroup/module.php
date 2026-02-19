@@ -642,7 +642,6 @@ class SensorGroup extends IPSModule
         $form = json_decode(file_get_contents(__DIR__ . '/form.json'), true);
 
         // Blueprint 2.0: Prioritize RAM Buffers
-        // FIX 1: Read Classes from Buffer to ensure UI matches the stabilized IDs from ApplyChanges
         $definedClasses = json_decode($this->ReadAttributeString('ClassListBuffer'), true) ?: json_decode($this->ReadPropertyString('ClassList'), true) ?: [];
 
         $sensorList = json_decode($this->ReadAttributeString('SensorListBuffer'), true) ?: json_decode($this->ReadPropertyString('SensorList'), true) ?: [];
@@ -703,19 +702,15 @@ class SensorGroup extends IPSModule
                             "name" => "List_" . $safeID,
                             "rowCount" => 8,
                             "add" => false,
-                            "delete" => false, // FIX 2: Disable native delete (unstable in Pro Console)
-                            // FIX 3: Use direct function with VariableID via Button
-                            "onEdit" => "IPS_RequestAction(\$id, 'UPD_SENS_$safeID', json_encode(\$List_$safeID));",
-                            "onDelete" => "IPS_RequestAction(\$id, 'DELETE_BY_INDEX_$safeID', \$index);",
+                            "delete" => false,
+                            "onEdit" => "IPS_RequestAction(\$id, 'UPD_SENS_$safeID', \$List_$safeID);",
                             "columns" => [
                                 ["caption" => "ID", "name" => "DisplayID", "width" => "70px"],
                                 ["caption" => "Variable", "name" => "VariableID", "width" => "200px", "edit" => ["type" => "SelectVariable"]],
                                 ["caption" => "Location (P)", "name" => "ParentName", "width" => "120px"],
                                 ["caption" => "Area (GP)", "name" => "GrandParentName", "width" => "120px"],
                                 ["caption" => "Op", "name" => "Operator", "width" => "70px", "edit" => ["type" => "Select", "options" => [["caption" => "=", "value" => 0], ["caption" => "!=", "value" => 1], ["caption" => ">", "value" => 2], ["caption" => "<", "value" => 3], ["caption" => ">=", "value" => 4], ["caption" => "<=", "value" => 5]]]],
-                                ["caption" => "Value", "name" => "ComparisonValue", "width" => "80px", "edit" => ["type" => "ValidationTextBox"]],
-                                // NEW: Robust Delete Button Column
-                                ["caption" => "Action", "width" => "80px", "edit" => ["type" => "Button", "caption" => "Del", "onClick" => "IPS_RequestAction(\$id, 'DEL_SENS_$safeID', \$VariableID);"]]
+                                ["caption" => "Value", "name" => "ComparisonValue", "width" => "80px", "edit" => ["type" => "ValidationTextBox"]]
                             ],
                             "values" => $classSensors
                         ]]
