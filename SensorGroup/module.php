@@ -35,22 +35,13 @@ class SensorGroup extends IPSModule
         $this->LogMessage("DEBUG: ApplyChanges - START", KL_MESSAGE);
         parent::ApplyChanges();
 
-        // 1. LIFECYCLE: ID GENERATION
+        // 1. LIFECYCLE: ID STABILIZATION (Sticky IDs)
         $classList = json_decode($this->ReadPropertyString('ClassList'), true) ?: [];
         $groupList = json_decode($this->ReadPropertyString('GroupList'), true) ?: [];
 
         // Load persistent ID Map
         $stateData = json_decode($this->ReadAttributeString('ClassStateAttribute'), true) ?: [];
         $idMap = $stateData['IDMap'] ?? [];
-
-        // FIX ADDED: Load previous state from Buffer to recover IDs if IDMap fails
-        $bufferClasses = json_decode($this->ReadAttributeString('ClassListBuffer'), true) ?: [];
-        $recoveryMap = [];
-        foreach ($bufferClasses as $bc) {
-            if (!empty($bc['ClassName']) && !empty($bc['ClassID'])) {
-                $recoveryMap[$bc['ClassName']] = $bc['ClassID'];
-            }
-        }
 
         $idsChanged = false;
         $validClassIDs = [];
@@ -59,18 +50,11 @@ class SensorGroup extends IPSModule
         foreach ($classList as &$c) {
             $name = $c['ClassName'] ?? '';
 
-            // If ID is missing (UI glitch), try to restore it
+            // If ID is missing (UI glitch), try to restore it from memory
             if (empty($c['ClassID'])) {
-                // Priority 1: Check ID Map (Disk)
                 if (!empty($name) && isset($idMap[$name])) {
                     $c['ClassID'] = $idMap[$name];
-                    $this->LogMessage("DEBUG: Restored ID for Class '$name' from Map: " . $c['ClassID'], KL_MESSAGE);
-                    $idsChanged = true;
-                }
-                // Priority 2: Check Buffer (RAM) - FIX for Mass Deletion Bug
-                elseif (!empty($name) && isset($recoveryMap[$name])) {
-                    $c['ClassID'] = $recoveryMap[$name];
-                    $this->LogMessage("DEBUG: Restored ID for Class '$name' from Buffer: " . $c['ClassID'], KL_MESSAGE);
+                    $this->LogMessage("DEBUG: Restored ID for Class '$name': " . $c['ClassID'], KL_MESSAGE);
                     $idsChanged = true;
                 } else {
                     $c['ClassID'] = uniqid('cls_');
@@ -88,12 +72,12 @@ class SensorGroup extends IPSModule
         }
         unset($c);
 
-        // Save the ID Map
+        // SYNC: Update the ClassListBuffer so the UI sees the stabilized IDs immediately
+        $this->WriteAttributeString('ClassListBuffer', json_encode($classList));
+
+        // Save Map
         $stateData['IDMap'] = $idMap;
         $this->WriteAttributeString('ClassStateAttribute', json_encode($stateData));
-
-        // Update Buffer immediately
-        $this->WriteAttributeString('ClassListBuffer', json_encode($classList));
 
         $validGroupNames = [];
         foreach ($groupList as &$g) {
@@ -628,7 +612,10 @@ class SensorGroup extends IPSModule
     {
         $form = json_decode(file_get_contents(__DIR__ . '/form.json'), true);
 
-        // Blueprint 2.0: Prioritize RAM Buffer
+        // Blueprint 2.0: Prioritize RAM Buffers
+        // FIX 1: Read Classes from Buffer to ensure UI matches the stabilized IDs from ApplyChanges
+        $definedClasses = json_decode($this->ReadAttributeString('ClassListBuffer'), true) ?: json_decode($this->ReadPropertyString('ClassList'), true) ?: [];
+
         $sensorList = json_decode($this->ReadAttributeString('SensorListBuffer'), true) ?: json_decode($this->ReadPropertyString('SensorList'), true) ?: [];
         $bedroomList = json_decode($this->ReadAttributeString('BedroomListBuffer'), true) ?: json_decode($this->ReadPropertyString('BedroomList'), true) ?: [];
         $groupMembers = json_decode($this->ReadAttributeString('GroupMembersBuffer'), true) ?: json_decode($this->ReadPropertyString('GroupMembers'), true) ?: [];
@@ -646,12 +633,12 @@ class SensorGroup extends IPSModule
         unset($s);
 
         // Sync to RAM Buffers
+        $this->WriteAttributeString('ClassListBuffer', json_encode($definedClasses));
         $this->WriteAttributeString('SensorListBuffer', json_encode($sensorList));
         $this->WriteAttributeString('BedroomListBuffer', json_encode($bedroomList));
         $this->WriteAttributeString('GroupMembersBuffer', json_encode($groupMembers));
 
-        // Options
-        $definedClasses = json_decode($this->ReadPropertyString('ClassList'), true) ?: [];
+        // Options for dynamic dropdowns
         $classOptions = [];
         foreach ($definedClasses as $c) {
             $val = !empty($c['ClassID']) ? $c['ClassID'] : $c['ClassName'];
@@ -670,8 +657,6 @@ class SensorGroup extends IPSModule
         }
 
         foreach ($form['elements'] as &$element) {
-
-            // --- STEP 2: SENSORS ---
             if (isset($element['name']) && $element['name'] === 'DynamicSensorContainer') {
                 foreach ($definedClasses as $class) {
                     $classID = !empty($class['ClassID']) ? $class['ClassID'] : $class['ClassName'];
@@ -689,7 +674,8 @@ class SensorGroup extends IPSModule
                             "name" => "List_" . $safeID,
                             "rowCount" => 8,
                             "add" => false,
-                            "delete" => false,
+                            "delete" => false, // FIX 2: Disable native delete (unstable in Pro Console)
+                            // FIX 3: Use direct function with VariableID via Button
                             "onEdit" => "IPS_RequestAction(\$id, 'UPD_SENS_$safeID', \$List_$safeID);",
                             "columns" => [
                                 ["caption" => "ID", "name" => "DisplayID", "width" => "70px"],
@@ -698,68 +684,10 @@ class SensorGroup extends IPSModule
                                 ["caption" => "Area (GP)", "name" => "GrandParentName", "width" => "120px"],
                                 ["caption" => "Op", "name" => "Operator", "width" => "70px", "edit" => ["type" => "Select", "options" => [["caption" => "=", "value" => 0], ["caption" => "!=", "value" => 1], ["caption" => ">", "value" => 2], ["caption" => "<", "value" => 3], ["caption" => ">=", "value" => 4], ["caption" => "<=", "value" => 5]]]],
                                 ["caption" => "Value", "name" => "ComparisonValue", "width" => "80px", "edit" => ["type" => "ValidationTextBox"]],
+                                // FIX 4: Explicit Delete Button for robust deletion by ID
                                 ["caption" => "Action", "width" => "80px", "edit" => ["type" => "Button", "caption" => "Del", "onClick" => "IPS_RequestAction(\$id, 'DEL_SENS_$safeID', \$VariableID);"]]
                             ],
                             "values" => $classSensors
-                        ]]
-                    ];
-                }
-            }
-
-            // --- STEP 3b: BEDROOMS ---
-            if (isset($element['name']) && $element['name'] === 'DynamicBedroomContainer') {
-                foreach ($definedGroups as $group) {
-                    $gName = $group['GroupName'];
-                    $bedData = array_values(array_filter($bedroomList, function ($b) use ($gName) {
-                        return ($b['GroupName'] ?? '') === $gName;
-                    }));
-
-                    $element['items'][] = [
-                        "type" => "ExpansionPanel",
-                        "caption" => "Group: " . $gName,
-                        "items" => [[
-                            "type" => "List",
-                            "name" => "Bed_" . md5($gName),
-                            "rowCount" => 2,
-                            "add" => true,
-                            "delete" => false,
-                            // Manual JSON construction to safely pass $index
-                            "onEdit" => "IPS_RequestAction(\$id, 'UpdateBedroomProperty', json_encode(['GroupName' => '$gName', 'Values' => \$Bed_" . md5($gName) . "]));",
-                            "columns" => [
-                                ["caption" => "Active Var (IPSView)", "name" => "ActiveVariableID", "width" => "250px", "add" => 0, "edit" => ["type" => "SelectVariable"]],
-                                ["caption" => "Door Class (Trigger)", "name" => "BedroomDoorClassID", "width" => "250px", "add" => "", "edit" => ["type" => "Select", "options" => $classOptions]],
-                                ["caption" => "Action", "width" => "80px", "edit" => ["type" => "Button", "caption" => "Del", "onClick" => "IPS_RequestAction(\$id, 'DeleteBedroomListItem', '{\"GroupName\":\"$gName\",\"Index\":' . \$index . '}');"]]
-                            ],
-                            "values" => $bedData
-                        ]]
-                    ];
-                }
-            }
-
-            // --- STEP B: MEMBERS ---
-            if (isset($element['name']) && $element['name'] === 'DynamicGroupMemberContainer') {
-                foreach ($definedGroups as $group) {
-                    $gName = $group['GroupName'];
-                    $members = array_values(array_filter($groupMembers, function ($m) use ($gName) {
-                        return ($m['GroupName'] ?? '') === $gName;
-                    }));
-
-                    $element['items'][] = [
-                        "type" => "ExpansionPanel",
-                        "caption" => "Members for " . $gName,
-                        "items" => [[
-                            "type" => "List",
-                            "name" => "Mem_" . md5($gName),
-                            "rowCount" => 5,
-                            "add" => true,
-                            "delete" => false,
-                            // Manual JSON construction to safely pass $index
-                            "onEdit" => "IPS_RequestAction(\$id, 'UpdateMemberProperty', json_encode(['GroupName' => '$gName', 'Values' => \$Mem_" . md5($gName) . "]));",
-                            "columns" => [
-                                ["caption" => "Assigned Class", "name" => "ClassID", "width" => "400px", "add" => "", "edit" => ["type" => "Select", "options" => $classOptions]],
-                                ["caption" => "Action", "width" => "80px", "edit" => ["type" => "Button", "caption" => "Del", "onClick" => "IPS_RequestAction(\$id, 'DeleteMemberListItem', '{\"GroupName\":\"$gName\",\"Index\":' . \$index . '}');"]]
-                            ],
-                            "values" => $members
                         ]]
                     ];
                 }
