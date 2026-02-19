@@ -212,20 +212,23 @@ class SensorGroup extends IPSModule
         }
         return $metadata;
     }
+
+
     public function RequestAction($Ident, $Value)
     {
+        // DEBUG LOG: Flight Recorder - Capture every incoming request before processing
+        $logVal = is_array($Value) ? "ARRAY_DATA" : (string)$Value;
+        $this->LogMessage("DEBUG: RequestAction Arrival - Ident: $Ident - Value: $logVal", KL_MESSAGE);
+
         // 1. DYNAMIC IDENTIFIER HANDLING (Step 2 Folders)
-        // Updated check to include the new index-based deletion prefix
         if (strpos($Ident, 'UPD_SENS_') === 0 || strpos($Ident, 'DEL_SENS_') === 0 || strpos($Ident, 'DELETE_BY_INDEX_') === 0) {
 
             $isDeleteByID = (strpos($Ident, 'DEL_SENS_') === 0);
             $isDeleteByIndex = (strpos($Ident, 'DELETE_BY_INDEX_') === 0);
 
-            // Determine SafeID (MD5) based on prefix length
             if ($isDeleteByIndex) $safeID = substr($Ident, 16);
             else $safeID = substr($Ident, 9);
 
-            // Map MD5 SafeID back to ClassID
             $classList = json_decode($this->ReadPropertyString('ClassList'), true) ?: [];
             $classID = '';
             foreach ($classList as $c) {
@@ -241,7 +244,6 @@ class SensorGroup extends IPSModule
             $fullBuffer = json_decode($this->ReadAttributeString('SensorListBuffer'), true) ?: [];
 
             if ($isDeleteByID) {
-                // DELETE LOGIC A: Deletion via main list button (VariableID)
                 $vidToDelete = (int)$Value;
                 $newBuffer = [];
                 foreach ($fullBuffer as $row) {
@@ -255,7 +257,12 @@ class SensorGroup extends IPSModule
                 IPS_SetProperty($this->InstanceID, 'SensorList', $json);
                 $this->ReloadForm();
             } elseif ($isDeleteByIndex) {
-                // DELETE LOGIC B: Deletion via popup window (Index)
+                // SAFETY CHECK: Prevent index-0 fallback if Value is null/invalid
+                if ($Value === null || $Value === "") {
+                    $this->LogMessage("DEBUG: Deletion aborted - Index variable was null or empty.", KL_WARNING);
+                    return;
+                }
+
                 $index = (int)$Value;
                 $others = array_values(array_filter($fullBuffer, function ($s) use ($classID) {
                     return ($s['ClassID'] ?? '') !== $classID;
@@ -273,25 +280,28 @@ class SensorGroup extends IPSModule
                 IPS_SetProperty($this->InstanceID, 'SensorList', $json);
                 $this->ReloadForm();
             } else {
-                // UPDATE LOGIC: Edits within the folder
                 $newValues = json_decode($Value, true);
+                // Safety check for update data
+                if (!is_array($newValues)) {
+                    $this->LogMessage("DEBUG: Update aborted - Value was not a valid array.", KL_WARNING);
+                    return;
+                }
+
                 $others = array_values(array_filter($fullBuffer, function ($s) use ($classID) {
                     return ($s['ClassID'] ?? '') !== $classID;
                 }));
                 $metadata = $this->GetMasterMetadata();
                 $updatedClass = [];
-                if (is_array($newValues)) {
-                    foreach ($newValues as $row) {
-                        if (is_array($row)) {
-                            $row['ClassID'] = $classID;
-                            $vid = $row['VariableID'] ?? 0;
-                            if ($vid > 0 && isset($metadata[$vid])) {
-                                $row['DisplayID'] = $metadata[$vid]['DisplayID'];
-                                $row['ParentName'] = $metadata[$vid]['ParentName'];
-                                $row['GrandParentName'] = $metadata[$vid]['GrandParentName'];
-                            }
-                            $updatedClass[] = $row;
+                foreach ($newValues as $row) {
+                    if (is_array($row)) {
+                        $row['ClassID'] = $classID;
+                        $vid = $row['VariableID'] ?? 0;
+                        if ($vid > 0 && isset($metadata[$vid])) {
+                            $row['DisplayID'] = $metadata[$vid]['DisplayID'];
+                            $row['ParentName'] = $metadata[$vid]['ParentName'];
+                            $row['GrandParentName'] = $metadata[$vid]['GrandParentName'];
                         }
+                        $updatedClass[] = $row;
                     }
                 }
                 $json = json_encode(array_merge($others, $updatedClass));
