@@ -118,9 +118,6 @@ class SensorGroup extends IPSModule
     }
     public function RequestAction($Ident, $Value)
     {
-        // DEBUG LOG: Verify the incoming Ident and the VariableID from the Del button
-        $this->LogMessage("DEBUG: RequestAction - Ident: " . $Ident . " - Value: " . $Value, KL_MESSAGE);
-
         // 1. DYNAMIC IDENTIFIER HANDLING (Step 2 Folders)
         if (strpos($Ident, 'UPD_SENS_') === 0 || strpos($Ident, 'DEL_SENS_') === 0) {
             $isDelete = (strpos($Ident, 'DEL_SENS_') === 0);
@@ -142,20 +139,24 @@ class SensorGroup extends IPSModule
             $fullBuffer = json_decode($this->ReadAttributeString('SensorListBuffer'), true) ?: [];
 
             if ($isDelete) {
-                // DELETE LOGIC: $Value is now the VariableID
+                // DELETE LOGIC: $Value is the VariableID (Integer)
                 $vidToDelete = (int)$Value;
                 $newBuffer = [];
                 foreach ($fullBuffer as $row) {
-                    // Skip the specific sensor that matches Class and VariableID
+                    // Filter out the specific sensor
                     if (($row['ClassID'] ?? '') === $classID && ($row['VariableID'] ?? 0) === $vidToDelete) {
                         continue;
                     }
                     $newBuffer[] = $row;
                 }
-                $this->WriteAttributeString('SensorListBuffer', json_encode($newBuffer));
+
+                // Update Buffer AND Property to trigger Apply button
+                $json = json_encode($newBuffer);
+                $this->WriteAttributeString('SensorListBuffer', $json);
+                IPS_SetProperty($this->InstanceID, 'SensorList', $json);
                 $this->ReloadForm();
             } else {
-                // UPDATE LOGIC: $Value is the JSON array of rows from onEdit
+                // UPDATE LOGIC: $Value is JSON row data
                 $newValues = json_decode($Value, true);
                 $others = array_values(array_filter($fullBuffer, function ($s) use ($classID) {
                     return ($s['ClassID'] ?? '') !== $classID;
@@ -176,7 +177,12 @@ class SensorGroup extends IPSModule
                         }
                     }
                 }
-                $this->WriteAttributeString('SensorListBuffer', json_encode(array_merge($others, $updatedClass)));
+
+                // Update Buffer AND Property to trigger Apply button
+                $json = json_encode(array_merge($others, $updatedClass));
+                $this->WriteAttributeString('SensorListBuffer', $json);
+                IPS_SetProperty($this->InstanceID, 'SensorList', $json);
+                $this->ReloadForm();
             }
             return;
         }
