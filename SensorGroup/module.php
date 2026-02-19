@@ -676,7 +676,8 @@ class SensorGroup extends IPSModule
                             "add" => false,
                             "delete" => false, // FIX 2: Disable native delete (unstable in Pro Console)
                             // FIX 3: Use direct function with VariableID via Button
-                            "onEdit" => "IPS_RequestAction(\$id, 'UPD_SENS_$safeID', \$List_$safeID);",
+                            "onEdit" => "IPS_RequestAction(\$id, 'UPD_SENS_$safeID', json_encode(\$List_$safeID));",
+                            "onDelete" => "IPS_RequestAction(\$id, 'DELETE_BY_INDEX_$safeID', \$index);",
                             "columns" => [
                                 ["caption" => "ID", "name" => "DisplayID", "width" => "70px"],
                                 ["caption" => "Variable", "name" => "VariableID", "width" => "200px", "edit" => ["type" => "SelectVariable"]],
@@ -684,7 +685,7 @@ class SensorGroup extends IPSModule
                                 ["caption" => "Area (GP)", "name" => "GrandParentName", "width" => "120px"],
                                 ["caption" => "Op", "name" => "Operator", "width" => "70px", "edit" => ["type" => "Select", "options" => [["caption" => "=", "value" => 0], ["caption" => "!=", "value" => 1], ["caption" => ">", "value" => 2], ["caption" => "<", "value" => 3], ["caption" => ">=", "value" => 4], ["caption" => "<=", "value" => 5]]]],
                                 ["caption" => "Value", "name" => "ComparisonValue", "width" => "80px", "edit" => ["type" => "ValidationTextBox"]],
-                                // FIX 4: Explicit Delete Button for robust deletion by ID
+                                // NEW: Robust Delete Button Column
                                 ["caption" => "Action", "width" => "80px", "edit" => ["type" => "Button", "caption" => "Del", "onClick" => "IPS_RequestAction(\$id, 'DEL_SENS_$safeID', \$VariableID);"]]
                             ],
                             "values" => $classSensors
