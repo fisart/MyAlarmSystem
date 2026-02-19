@@ -704,6 +704,55 @@ class SensorGroup extends IPSModule
         return json_encode($form);
     }
 
+    public function UI_LoadBackup()
+    {
+        $config = [
+            'ClassList'    => json_decode($this->ReadPropertyString('ClassList'), true) ?: [],
+            'GroupList'    => json_decode($this->ReadPropertyString('GroupList'), true) ?: [],
+            'SensorList'   => json_decode($this->ReadPropertyString('SensorList'), true) ?: [],
+            'BedroomList'  => json_decode($this->ReadPropertyString('BedroomList'), true) ?: [],
+            'GroupMembers' => json_decode($this->ReadPropertyString('GroupMembers'), true) ?: [],
+            'TamperList'   => json_decode($this->ReadPropertyString('TamperList'), true) ?: []
+        ];
+
+        $json = json_encode($config, JSON_PRETTY_PRINT);
+        $this->UpdateFormField('BackupData', 'value', $json);
+    }
+
+    public function UI_RestoreBackup(string $JsonData)
+    {
+        $config = json_decode($JsonData, true);
+        if (!is_array($config)) {
+            echo "Error: Invalid JSON data.";
+            return;
+        }
+
+        $keys = ['ClassList', 'GroupList', 'SensorList', 'BedroomList', 'GroupMembers', 'TamperList'];
+        $restoredCount = 0;
+
+        foreach ($keys as $key) {
+            if (isset($config[$key]) && is_array($config[$key])) {
+                $json = json_encode($config[$key]);
+                IPS_SetProperty($this->InstanceID, $key, $json);
+
+                // Blueprint 2.0: Sync RAM Buffers to ensure dynamic folders show restored data immediately
+                if ($key === 'SensorList') $this->WriteAttributeString('SensorListBuffer', $json);
+                if ($key === 'BedroomList') $this->WriteAttributeString('BedroomListBuffer', $json);
+                if ($key === 'GroupMembers') $this->WriteAttributeString('GroupMembersBuffer', $json);
+
+                $restoredCount++;
+            }
+        }
+
+        if ($restoredCount > 0) {
+            IPS_ApplyChanges($this->InstanceID);
+            echo "Configuration restored successfully.";
+        } else {
+            echo "No valid configuration keys found.";
+        }
+    }
+
+
     public function UI_UpdateSensorList(string $ClassID, string $Values)
     {
         $newValues = json_decode($Values, true);

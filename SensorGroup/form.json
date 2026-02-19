@@ -37,7 +37,7 @@
         {
             "type": "List", "name": "GroupList", "caption": "Step 3a: Create Groups", "rowCount": 3, "add": true, "delete": true,
             "columns": [
-                { "caption": "Group Name", "name": "GroupName", "width": "250px", "add": "AlarmGroup", "edit": { "type": "ValidationTextBox" } },
+                { "caption": "Group Name", "name": "GroupName", "width": "200px", "add": "AlarmGroup", "edit": { "type": "ValidationTextBox" } },
                 { "caption": "Logic", "name": "GroupLogic", "width": "150px", "add": 0, "edit": { "type": "Select", "options": [ { "caption": "OR (Any Member)", "value": 0 }, { "caption": "AND (All Members)", "value": 1 } ] } }
             ]
         },
@@ -95,6 +95,17 @@
                     ]
                 }
             ]
-        }
+        },
+        { "type": "ExpansionPanel", "caption": "CONFIGURATION BACKUP / RESTORE", "items": [
+            { "type": "Label", "caption": "1. Click 'LOAD' to generate JSON. 2. Copy/Paste to file. 3. To Restore: Paste JSON and click 'RESTORE'." },
+            { "type": "TextEdit", "name": "BackupData", "caption": "JSON Data", "rows": 10 },
+            {
+                "type": "RowLayout",
+                "items": [
+                    { "type": "Button", "caption": "LOAD CURRENT CONFIG", "onClick": "MYALARM_UI_LoadBackup($id);" },
+                    { "type": "Button", "caption": "RESTORE FROM JSON", "onClick": "MYALARM_UI_RestoreBackup($id, $BackupData);" }
+                ]
+            }
+        ]}
     ]
 }
