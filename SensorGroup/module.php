@@ -712,9 +712,7 @@ class SensorGroup extends IPSModule
                                 ["caption" => "Location (P)", "name" => "ParentName", "width" => "120px"],
                                 ["caption" => "Area (GP)", "name" => "GrandParentName", "width" => "120px"],
                                 ["caption" => "Op", "name" => "Operator", "width" => "70px", "edit" => ["type" => "Select", "options" => [["caption" => "=", "value" => 0], ["caption" => "!=", "value" => 1], ["caption" => ">", "value" => 2], ["caption" => "<", "value" => 3], ["caption" => ">=", "value" => 4], ["caption" => "<=", "value" => 5]]]],
-                                ["caption" => "Value", "name" => "ComparisonValue", "width" => "80px", "edit" => ["type" => "ValidationTextBox"]],
-                                // NEW: Robust Delete Button Column
-                                ["caption" => "Action", "width" => "80px", "edit" => ["type" => "Button", "caption" => "Del", "onClick" => "IPS_RequestAction(\$id, 'DEL_SENS_$safeID', \$VariableID);"]]
+                                ["caption" => "Value", "name" => "ComparisonValue", "width" => "80px", "edit" => ["type" => "ValidationTextBox"]]
                             ],
                             "values" => $classSensors
                         ]]
