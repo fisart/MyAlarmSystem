@@ -124,22 +124,23 @@ class SensorGroup extends IPSModule
     }
     public function RequestAction($Ident, $Value)
     {
-        // DEBUG LOG: Capture raw incoming request
+        // DEBUG LOG: Verify the new Separator Format (ClassID:Data)
         $this->LogMessage("DEBUG: RequestAction - Ident: " . $Ident . " - Value: " . $Value, KL_MESSAGE);
 
         switch ($Ident) {
             case 'UpdateSensorList':
-                $data = json_decode($Value, true);
-                $classID = $data['ClassID'];
-                $newValues = $data['Values'];
+                // Parse Separator Format (ClassID:JSON_DATA)
+                $parts = explode(':', $Value, 2);
+                if (count($parts) < 2) return;
 
-                // Blueprint 2.0 - Step 3: Keyed Merge (into RAM Buffer)
+                $classID = $parts[0];
+                $newValues = json_decode($parts[1], true);
+
                 $fullBuffer = json_decode($this->ReadAttributeString('SensorListBuffer'), true) ?: [];
                 $others = array_values(array_filter($fullBuffer, function ($s) use ($classID) {
                     return ($s['ClassID'] ?? '') !== $classID;
                 }));
 
-                // Blueprint 2.0 - Step 4: Label Healing
                 $metadata = $this->GetMasterMetadata();
                 $updatedClass = [];
                 if (is_array($newValues)) {
@@ -157,19 +158,17 @@ class SensorGroup extends IPSModule
                     }
                 }
 
-                // Update Buffer (State stays in RAM until manual Save)
                 $this->WriteAttributeString('SensorListBuffer', json_encode(array_merge($others, $updatedClass)));
                 break;
 
             case 'DeleteSensorListItem':
-                $data = json_decode($Value, true);
-                // DEBUG LOG: Capture decoded deletion parameters
-                $this->LogMessage("DEBUG: Deleting Index: " . ($data['Index'] ?? 'NOT SET') . " for Class: " . ($data['ClassID'] ?? 'NOT SET'), KL_MESSAGE);
+                // Parse Separator Format (ClassID:Index)
+                $parts = explode(':', $Value, 2);
+                if (count($parts) < 2) return;
 
-                $classID = $data['ClassID'];
-                $index = $data['Index'];
+                $classID = $parts[0];
+                $index = (int)$parts[1];
 
-                // Blueprint 2.0 - Safe Index-based removal in RAM Buffer
                 $fullBuffer = json_decode($this->ReadAttributeString('SensorListBuffer'), true) ?: [];
                 $others = array_values(array_filter($fullBuffer, function ($s) use ($classID) {
                     return ($s['ClassID'] ?? '') !== $classID;
@@ -598,12 +597,11 @@ class SensorGroup extends IPSModule
     {
         $form = json_decode(file_get_contents(__DIR__ . '/form.json'), true);
 
-        // Blueprint 2.0: Prioritize RAM Buffer over Property for dynamic persistence
+        // Blueprint 2.0: Prioritize RAM Buffer over Property
         $sensorList = json_decode($this->ReadAttributeString('SensorListBuffer'), true) ?: json_decode($this->ReadPropertyString('SensorList'), true) ?: [];
         $bedroomList = json_decode($this->ReadAttributeString('BedroomListBuffer'), true) ?: json_decode($this->ReadPropertyString('BedroomList'), true) ?: [];
         $groupMembers = json_decode($this->ReadAttributeString('GroupMembersBuffer'), true) ?: json_decode($this->ReadPropertyString('GroupMembers'), true) ?: [];
 
-        // Blueprint 2.0 - Step 2: Label Healing using Source of Truth
         $metadata = $this->GetMasterMetadata();
         foreach ($sensorList as &$s) {
             $vid = $s['VariableID'] ?? 0;
@@ -615,12 +613,10 @@ class SensorGroup extends IPSModule
         }
         unset($s);
 
-        // Sync to RAM Buffers immediately on form load
         $this->WriteAttributeString('SensorListBuffer', json_encode($sensorList));
         $this->WriteAttributeString('BedroomListBuffer', json_encode($bedroomList));
         $this->WriteAttributeString('GroupMembersBuffer', json_encode($groupMembers));
 
-        // Options for standard lists
         $definedClasses = json_decode($this->ReadPropertyString('ClassList'), true) ?: [];
         $classOptions = [];
         foreach ($definedClasses as $c) {
@@ -659,9 +655,9 @@ class SensorGroup extends IPSModule
                             "rowCount" => 8,
                             "add" => false,
                             "delete" => true,
-                            // FIX: Use single quotes to prevent server-side evaluation of $id, $List, and $index
-                            'onEdit' => 'IPS_RequestAction($id, "UpdateSensorList", json_encode(["ClassID" => "' . $classID . '", "Values" => $List_' . $safeID . ']));',
-                            'onDelete' => 'IPS_RequestAction($id, "DeleteSensorListItem", json_encode(["ClassID" => "' . $classID . '", "Index" => $index]));',
+                            'onEdit' => 'IPS_RequestAction($id, "UpdateSensorList", "' . $classID . ':" . json_encode($List_' . $safeID . '));',
+                            // STRATEGY CHANGE: Simple string concatenation for deletion
+                            'onDelete' => 'IPS_RequestAction($id, "DeleteSensorListItem", "' . $classID . ':" . $index);',
                             "columns" => [
                                 ["caption" => "ID", "name" => "DisplayID", "width" => "70px"],
                                 ["caption" => "Variable", "name" => "VariableID", "width" => "200px", "edit" => ["type" => "SelectVariable"]],
