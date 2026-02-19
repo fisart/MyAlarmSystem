@@ -744,8 +744,10 @@ class SensorGroup extends IPSModule
     public function UI_Import(string $TargetClassID)
     {
         $candidates = json_decode($this->ReadAttributeString('ScanCache'), true);
-        $currentRules = json_decode($this->ReadPropertyString('SensorList'), true);
-        if (!is_array($currentRules)) $currentRules = [];
+
+        // Blueprint 2.0: Load from Buffer first to preserve existing unsaved edits
+        $currentRules = json_decode($this->ReadAttributeString('SensorListBuffer'), true) ?:
+            json_decode($this->ReadPropertyString('SensorList'), true) ?: [];
 
         $added = false;
         if (is_array($candidates)) {
@@ -763,9 +765,14 @@ class SensorGroup extends IPSModule
         }
 
         if ($added) {
+            // 1. Update Buffer (Source of Truth for Dynamic UI)
+            $this->WriteAttributeString('SensorListBuffer', json_encode($currentRules));
+
+            // 2. Update Property (Marks instance as "Dirty" -> Apply button appears)
             IPS_SetProperty($this->InstanceID, 'SensorList', json_encode($currentRules));
-            IPS_ApplyChanges($this->InstanceID);
-            $this->UpdateFormField('SensorList', 'values', json_encode($currentRules));
+
+            // 3. Refresh Form to show new sensors in folders
+            $this->ReloadForm();
         }
 
         $this->WriteAttributeString('ScanCache', '[]');
