@@ -602,6 +602,7 @@ class SensorGroup extends IPSModule
         $bedroomList = json_decode($this->ReadAttributeString('BedroomListBuffer'), true) ?: json_decode($this->ReadPropertyString('BedroomList'), true) ?: [];
         $groupMembers = json_decode($this->ReadAttributeString('GroupMembersBuffer'), true) ?: json_decode($this->ReadPropertyString('GroupMembers'), true) ?: [];
 
+        // Blueprint 2.0 - Step 2: Label Healing
         $metadata = $this->GetMasterMetadata();
         foreach ($sensorList as &$s) {
             $vid = $s['VariableID'] ?? 0;
@@ -613,10 +614,12 @@ class SensorGroup extends IPSModule
         }
         unset($s);
 
+        // Sync to RAM Buffers immediately on form load
         $this->WriteAttributeString('SensorListBuffer', json_encode($sensorList));
         $this->WriteAttributeString('BedroomListBuffer', json_encode($bedroomList));
         $this->WriteAttributeString('GroupMembersBuffer', json_encode($groupMembers));
 
+        // Options for dynamic dropdowns
         $definedClasses = json_decode($this->ReadPropertyString('ClassList'), true) ?: [];
         $classOptions = [];
         foreach ($definedClasses as $c) {
@@ -634,7 +637,6 @@ class SensorGroup extends IPSModule
                 $groupOptions[] = ['caption' => $g['GroupName'], 'value' => $g['GroupName']];
             }
         }
-        if (count($groupOptions) == 0) $groupOptions[] = ['caption' => '- Save Group First -', 'value' => ''];
 
         foreach ($form['elements'] as &$element) {
             if (isset($element['name']) && $element['name'] === 'DynamicSensorContainer') {
@@ -655,9 +657,9 @@ class SensorGroup extends IPSModule
                             "rowCount" => 8,
                             "add" => false,
                             "delete" => true,
-                            'onEdit' => 'IPS_RequestAction($id, "UpdateSensorList", "' . $classID . ':" . json_encode($List_' . $safeID . '));',
-                            // STRATEGY CHANGE: Simple string concatenation for deletion
-                            'onDelete' => 'IPS_RequestAction($id, "DeleteSensorListItem", "' . $classID . ':" . $index);',
+                            // STRATEGY CHANGE: Use direct public functions for maximum Pro Console stability
+                            'onEdit' => 'MYALARM_UI_UpdateSensorList($id, "' . $classID . '", json_encode($List_' . $safeID . '));',
+                            'onDelete' => 'MYALARM_UI_DeleteSensorListItem($id, "' . $classID . '", $index);',
                             "columns" => [
                                 ["caption" => "ID", "name" => "DisplayID", "width" => "70px"],
                                 ["caption" => "Variable", "name" => "VariableID", "width" => "200px", "edit" => ["type" => "SelectVariable"]],
@@ -697,7 +699,31 @@ class SensorGroup extends IPSModule
         }
         return false;
     }
+    public function UI_DeleteSensorListItem(string $ClassID, int $Index)
+    {
+        // 1. Load the full RAM Buffer (Blueprint Strategy 2.0)
+        $fullBuffer = json_decode($this->ReadAttributeString('SensorListBuffer'), true) ?: [];
 
+        // 2. Separate sensors for this class and all others
+        $others = array_values(array_filter($fullBuffer, function ($s) use ($ClassID) {
+            return ($s['ClassID'] ?? '') !== $ClassID;
+        }));
+        $target = array_values(array_filter($fullBuffer, function ($s) use ($ClassID) {
+            return ($s['ClassID'] ?? '') === $ClassID;
+        }));
+
+        // 3. Remove only the specific index from the target class
+        if (isset($target[$Index])) {
+            array_splice($target, $Index, 1);
+        }
+
+        // 4. Merge back and update the RAM Buffer
+        $newBuffer = array_merge($others, $target);
+        $this->WriteAttributeString('SensorListBuffer', json_encode($newBuffer));
+
+        // 5. Refresh the UI to reflect the deletion
+        $this->ReloadForm();
+    }
     // New Helper: Finds select element by name (Recursive)
     private function UpdateFormOption(&$elements, $name, $options)
     {
