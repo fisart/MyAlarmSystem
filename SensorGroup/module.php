@@ -93,7 +93,13 @@ class SensorGroup extends IPSModule
 
         $validGroupNames = [];
         foreach ($groupList as &$g) {
-            $gName = $g['GroupName'] ?? '';
+            $gName = trim((string)($g['GroupName'] ?? ''));
+            if ($gName === '') {
+                // Drop empty placeholder groups so they never become persistent
+                continue;
+            }
+            $g['GroupName'] = $gName;
+
             if (empty($g['GroupID'])) {
                 $regenCountGroups++;
                 if (!empty($gName) && isset($groupIDMap[$gName])) {
@@ -376,25 +382,45 @@ class SensorGroup extends IPSModule
                 $incoming = json_decode($Value, true);
                 if (!is_array($incoming)) return;
                 $rowsToProcess = isset($incoming['GroupName']) ? [$incoming] : $incoming;
-                $master = json_decode($this->ReadAttributeString('GroupListBuffer'), true) ?: json_decode($this->ReadPropertyString('GroupList'), true) ?: [];
+
+                $master = json_decode($this->ReadAttributeString('GroupListBuffer'), true)
+                    ?: json_decode($this->ReadPropertyString('GroupList'), true)
+                    ?: [];
+
                 foreach ($rowsToProcess as $inRow) {
                     if (!is_array($inRow)) continue;
+
                     unset($inRow['Spacer']);
+
+                    $gName = trim((string)($inRow['GroupName'] ?? ''));
+                    if ($gName === '') {
+                        // Ignore placeholder/empty rows so COMMIT doesn't create phantom groups
+                        continue;
+                    }
+                    $inRow['GroupName'] = $gName;
+
                     $found = false;
                     foreach ($master as &$exRow) {
-                        if (($exRow['GroupID'] ?? 'A') === ($inRow['GroupID'] ?? 'B')) {
+                        if (($exRow['GroupID'] ?? '') !== '' && ($exRow['GroupID'] ?? '') === ($inRow['GroupID'] ?? '')) {
                             $exRow = array_merge($exRow, $inRow);
                             $found = true;
                             break;
                         }
                     }
-                    if (!$found) $master[] = $inRow;
+                    unset($exRow);
+
+                    if (!$found) {
+                        $master[] = $inRow;
+                    }
                 }
+
                 $json = json_encode($master);
                 $this->WriteAttributeString('GroupListBuffer', $json);
                 IPS_SetProperty($this->InstanceID, 'GroupList', $json);
                 $this->ReloadForm();
                 break;
+
+
 
             case 'DeleteGroupListItem':
                 $index = (int)$Value;
