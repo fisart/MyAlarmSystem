@@ -24,7 +24,12 @@
         { "type": "CheckBox", "name": "MaintenanceMode", "caption": "Maintenance Mode" }
     ],
     "actions": [
-        { "type": "Button", "caption": "COMMIT ALL CHANGES TO DISK", "onClick": "MYALARM_SaveConfiguration($id);" },
+        {
+  "type": "Button",
+  "caption": "COMMIT ALL CHANGES TO DISK",
+  "onClick": "IPS_RequestAction($id, 'UpdateGroupList', json_encode($List_Groups)); MYALARM_SaveConfiguration($id);"
+}
+,
         { "type": "Label", "caption": "3. GROUP MANAGEMENT (Stateless)" },
         { "type": "ExpansionPanel", "name": "DynamicGroupContainer", "caption": "Step 3a: Create and Edit Groups", "items": [] },
         { "type": "ExpansionPanel", "name": "DynamicBedroomContainer", "caption": "Step 3b: Bedroom Behavioral Settings", "items": [] },
