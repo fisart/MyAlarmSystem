@@ -433,7 +433,6 @@ class SensorGroup extends IPSModule
                 if (!is_array($incoming)) {
                     return;
                 }
-
                 $rowsToProcess = isset($incoming['GroupName']) ? [$incoming] : $incoming;
 
                 $master = json_decode($this->ReadAttributeString('GroupListBuffer'), true)
@@ -445,25 +444,28 @@ class SensorGroup extends IPSModule
                         continue;
                     }
 
-                    // UI-only helper column
                     unset($inRow['Spacer']);
 
                     $gName = trim((string)($inRow['GroupName'] ?? ''));
                     if ($gName === '') {
-                        // Ignore placeholder/empty rows so COMMIT doesn't create phantom groups
                         continue;
                     }
                     $inRow['GroupName'] = $gName;
 
-                    $inID = (string)($inRow['GroupID'] ?? '');
+                    if (!isset($inRow['GroupLogic'])) {
+                        $inRow['GroupLogic'] = 0;
+                    }
+
+                    // Create stable identity immediately
+                    if (empty($inRow['GroupID'])) {
+                        $inRow['GroupID'] = uniqid('grp_');
+                    }
 
                     $found = false;
-                    foreach ($master as &$exRow) {
-                        $exID   = (string)($exRow['GroupID'] ?? '');
-                        $exName = trim((string)($exRow['GroupName'] ?? ''));
 
-                        // match by ID if available, otherwise by name
-                        if (($inID !== '' && $exID === $inID) || ($inID === '' && $exName === $gName)) {
+                    // 1) Match by GroupID (preferred)
+                    foreach ($master as &$exRow) {
+                        if (!empty($exRow['GroupID']) && $exRow['GroupID'] === $inRow['GroupID']) {
                             $exRow = array_merge($exRow, $inRow);
                             $found = true;
                             break;
@@ -471,15 +473,26 @@ class SensorGroup extends IPSModule
                     }
                     unset($exRow);
 
+                    // 2) Legacy fallback: match by name ONLY if the existing row has NO GroupID yet
+                    // (prevents "NewGroup" + "NewGroup" collisions from overwriting)
+                    if (!$found) {
+                        foreach ($master as &$exRow) {
+                            $exName = trim((string)($exRow['GroupName'] ?? ''));
+                            if ($exName !== '' && strcasecmp($exName, $gName) === 0 && empty($exRow['GroupID'])) {
+                                $exRow = array_merge($exRow, $inRow);
+                                $found = true;
+                                break;
+                            }
+                        }
+                        unset($exRow);
+                    }
+
                     if (!$found) {
                         $master[] = $inRow;
                     }
                 }
 
-                // normalize: remove any remaining empty-name rows (safety)
-                $master = array_values(array_filter($master, function ($g) {
-                    return trim((string)($g['GroupName'] ?? '')) !== '';
-                }));
+                $master = array_values($master);
 
                 $json = json_encode($master);
                 $this->WriteAttributeString('GroupListBuffer', $json);
@@ -487,7 +500,6 @@ class SensorGroup extends IPSModule
 
                 $this->ReloadForm();
                 break;
-
             case 'DeleteGroupListItem':
                 $index = (int)$Value;
 
@@ -1102,7 +1114,7 @@ class SensorGroup extends IPSModule
 
                 // --- STEP 3a: DYNAMIC GROUP DEFINITIONS (Stateless) ---
                 if (isset($element['name']) && $element['name'] === 'DynamicGroupContainer') {
-                    $element['items'][] = ["type" => "List", "name" => "List_Groups", "rowCount" => 5, "add" => true, "delete" => true, "onEdit" => "IPS_RequestAction(\$id, 'UpdateGroupList', json_encode(\$List_Groups));", "onDelete" => "IPS_RequestAction(\$id, 'DeleteGroupListItem', \$index);", "columns" => [["caption" => "ID", "name" => "GroupID", "width" => "0px", "add" => "", "visible" => false], ["caption" => "Group Name", "name" => "GroupName", "width" => "200px", "add" => "NewGroup", "edit" => ["type" => "ValidationTextBox"]], ["caption" => "Alignment Spacer", "name" => "Spacer", "width" => "200px", "add" => ""], ["caption" => "Logic", "name" => "GroupLogic", "width" => "200px", "add" => 0, "edit" => ["type" => "Select", "options" => [["caption" => "OR (Any Member)", "value" => 0], ["caption" => "AND (All Members)", "value" => 1]]]]], "values" => $definedGroups];
+                    $element['items'][] = ["type" => "List", "name" => "List_Groups", "rowCount" => 5, "add" => true, "delete" => true, "onEdit" => "IPS_RequestAction(\$id, 'UpdateGroupList', json_encode(\$List_Groups));", "onDelete" => "IPS_RequestAction(\$id, 'DeleteGroupListItem', \$index);", "columns" => [["caption" => "ID", "name" => "GroupID", "width" => "0px", "add" => "", "visible" => false], ["caption" => "Group Name", "name" => "GroupName", "width" => "200px", "add" => "", "edit" => ["type" => "ValidationTextBox"]], ["caption" => "Alignment Spacer", "name" => "Spacer", "width" => "200px", "add" => ""], ["caption" => "Logic", "name" => "GroupLogic", "width" => "200px", "add" => 0, "edit" => ["type" => "Select", "options" => [["caption" => "OR (Any Member)", "value" => 0], ["caption" => "AND (All Members)", "value" => 1]]]]], "values" => $definedGroups];
                 }
 
                 // --- STEP 3b: DYNAMIC BEDROOMS ---
