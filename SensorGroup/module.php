@@ -186,11 +186,29 @@ class SensorGroup extends IPSModule
 
         $groupMembers = json_decode($this->ReadAttributeString('GroupMembersBuffer'), true) ?: json_decode($this->ReadPropertyString('GroupMembers'), true) ?: [];
         $cleanMembers = [];
+
         foreach ($groupMembers as $m) {
-            if (in_array(($m['GroupName'] ?? ''), $validGroupNames)) {
+            $gName = $m['GroupName'] ?? '';
+            $cID   = $m['ClassID'] ?? '';
+
+            // Group must exist
+            if (!in_array($gName, $validGroupNames, true)) {
+                continue;
+            }
+
+            // --- HEAL: if membership references ClassName (pre-ID), map it to the current ClassID ---
+            if (!in_array($cID, $validClassIDs, true) && is_string($cID) && isset($classNameMap[$cID])) {
+                $cID = $classNameMap[$cID];
+                $m['ClassID'] = $cID;
+                $idsChanged = true;
+            }
+
+            // Keep only if class now exists
+            if (in_array($cID, $validClassIDs, true)) {
                 $cleanMembers[] = $m;
             }
         }
+
         $jsonMem = json_encode($cleanMembers);
         IPS_SetProperty($this->InstanceID, 'GroupMembers', $jsonMem);
         $this->WriteAttributeString('GroupMembersBuffer', $jsonMem);
