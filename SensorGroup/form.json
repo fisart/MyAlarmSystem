@@ -27,7 +27,7 @@
         {
   "type": "Button",
   "caption": "COMMIT ALL CHANGES TO DISK",
-  "onClick": "IPS_RequestAction($id, 'UpdateGroupList', json_encode($List_Groups)); MYALARM_SaveConfiguration($id);"
+  "onClick": "IPS_ApplyChanges($id);"
 }
 ,
         { "type": "Label", "caption": "3. GROUP MANAGEMENT (Stateless)" },
