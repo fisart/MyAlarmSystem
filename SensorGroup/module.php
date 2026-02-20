@@ -331,14 +331,28 @@ class SensorGroup extends IPSModule
         }
 
         switch ($Ident) {
-            case 'UpdateGroupList': // NEW: Handle Step 3a (Stateless)
-                $newValues = json_decode($Value, true);
-                if (!is_array($newValues)) return;
-                foreach ($newValues as &$row) {
-                    if (is_array($row)) unset($row['Spacer']);
+            case 'UpdateGroupList':
+                $incoming = json_decode($Value, true);
+                if (!is_array($incoming)) return;
+                $rowsToProcess = isset($incoming['GroupName']) ? [$incoming] : $incoming;
+                $master = json_decode($this->ReadAttributeString('GroupListBuffer'), true) ?: json_decode($this->ReadPropertyString('GroupList'), true) ?: [];
+                foreach ($rowsToProcess as $inRow) {
+                    if (!is_array($inRow)) continue;
+                    unset($inRow['Spacer']);
+                    $found = false;
+                    foreach ($master as &$exRow) {
+                        if (($exRow['GroupID'] ?? 'A') === ($inRow['GroupID'] ?? 'B')) {
+                            $exRow = array_merge($exRow, $inRow);
+                            $found = true;
+                            break;
+                        }
+                    }
+                    if (!$found) $master[] = $inRow;
                 }
-                $this->WriteAttributeString('GroupListBuffer', json_encode($newValues));
-                $this->ReloadForm(); // Refresh 3b/B dependent folders
+                $json = json_encode($master);
+                $this->WriteAttributeString('GroupListBuffer', $json);
+                IPS_SetProperty($this->InstanceID, 'GroupList', $json);
+                $this->ReloadForm();
                 break;
 
             case 'DeleteGroupListItem':
@@ -347,14 +361,16 @@ class SensorGroup extends IPSModule
                 if (isset($master[$index])) {
                     array_splice($master, $index, 1);
                 }
-                $this->WriteAttributeString('GroupListBuffer', json_encode($master));
+                $json = json_encode($master);
+                $this->WriteAttributeString('GroupListBuffer', $json);
+                IPS_SetProperty($this->InstanceID, 'GroupList', $json);
                 $this->ReloadForm();
                 break;
 
             case 'UpdateBedroomProperty':
                 $data = json_decode($Value, true);
                 $gName = $data['GroupName'];
-                $newValues = is_array($data['Values']) ? $data['Values'] : [];
+                $newValues = (isset($data['Values']['ActiveVariableID'])) ? [$data['Values']] : $data['Values'];
                 $master = json_decode($this->ReadAttributeString('BedroomListBuffer'), true) ?: json_decode($this->ReadPropertyString('BedroomList'), true) ?: [];
                 $others = array_values(array_filter($master, function ($b) use ($gName) {
                     return ($b['GroupName'] ?? '') !== $gName;
@@ -362,8 +378,9 @@ class SensorGroup extends IPSModule
                 foreach ($newValues as &$row) {
                     if (is_array($row)) $row['GroupName'] = $gName;
                 }
-                $json = json_encode(array_merge($others, $newValues));
+                $json = json_encode(array_merge($others, (array)$newValues));
                 $this->WriteAttributeString('BedroomListBuffer', $json);
+                IPS_SetProperty($this->InstanceID, 'BedroomList', $json);
                 break;
 
             case 'DeleteBedroomListItem':
@@ -382,24 +399,28 @@ class SensorGroup extends IPSModule
                 }
                 $json = json_encode(array_merge($others, $target));
                 $this->WriteAttributeString('BedroomListBuffer', $json);
+                IPS_SetProperty($this->InstanceID, 'BedroomList', $json);
                 $this->ReloadForm();
                 break;
 
             case 'UpdateMemberProperty':
                 $data = json_decode($Value, true);
                 $gName = $data['GroupName'];
-                $matrixValues = is_array($data['Values']) ? $data['Values'] : [];
+                $matrixValues = (isset($data['Values']['ClassID'])) ? [$data['Values']] : $data['Values'];
                 $master = json_decode($this->ReadAttributeString('GroupMembersBuffer'), true) ?: json_decode($this->ReadPropertyString('GroupMembers'), true) ?: [];
-                $others = array_values(array_filter($master, function ($m) use ($gName) {
-                    return ($m['GroupName'] ?? '') !== $gName;
-                }));
-                $newMemberships = [];
-                foreach ($matrixValues as $row) {
-                    if (is_array($row) && ($row['Assigned'] ?? false)) {
-                        $newMemberships[] = ['GroupName' => $gName, 'ClassID' => $row['ClassID']];
+                foreach ((array)$matrixValues as $row) {
+                    if (!is_array($row)) continue;
+                    $cID = $row['ClassID'];
+                    $master = array_values(array_filter($master, function ($m) use ($gName, $cID) {
+                        return !(($m['GroupName'] ?? '') === $gName && ($m['ClassID'] ?? '') === $cID);
+                    }));
+                    if ($row['Assigned'] ?? false) {
+                        $master[] = ['GroupName' => $gName, 'ClassID' => $cID];
                     }
                 }
-                $this->WriteAttributeString('GroupMembersBuffer', json_encode(array_merge($others, $newMemberships)));
+                $json = json_encode($master);
+                $this->WriteAttributeString('GroupMembersBuffer', $json);
+                IPS_SetProperty($this->InstanceID, 'GroupMembers', $json);
                 break;
 
             case 'DeleteMemberListItem':
@@ -418,6 +439,7 @@ class SensorGroup extends IPSModule
                 }
                 $json = json_encode(array_merge($others, $target));
                 $this->WriteAttributeString('GroupMembersBuffer', $json);
+                IPS_SetProperty($this->InstanceID, 'GroupMembers', $json);
                 $this->ReloadForm();
                 break;
 
@@ -457,7 +479,6 @@ class SensorGroup extends IPSModule
                 break;
         }
     }
-
 
 
     public function SaveConfiguration()
