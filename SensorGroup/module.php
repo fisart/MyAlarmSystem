@@ -332,9 +332,8 @@ class SensorGroup extends IPSModule
 
         switch ($Ident) {
             case 'UpdateGroupList': // NEW: Handle Step 3a (Stateless)
-                $incoming = json_decode($Value, true);
-                if (!is_array($incoming)) return;
-                $newValues = (isset($incoming['GroupName'])) ? [$incoming] : $incoming;
+                $newValues = json_decode($Value, true);
+                if (!is_array($newValues)) return;
                 foreach ($newValues as &$row) {
                     if (is_array($row)) unset($row['Spacer']);
                 }
@@ -355,7 +354,7 @@ class SensorGroup extends IPSModule
             case 'UpdateBedroomProperty':
                 $data = json_decode($Value, true);
                 $gName = $data['GroupName'];
-                $newValues = (isset($data['Values']['ActiveVariableID'])) ? [$data['Values']] : $data['Values'];
+                $newValues = is_array($data['Values']) ? $data['Values'] : [];
                 $master = json_decode($this->ReadAttributeString('BedroomListBuffer'), true) ?: json_decode($this->ReadPropertyString('BedroomList'), true) ?: [];
                 $others = array_values(array_filter($master, function ($b) use ($gName) {
                     return ($b['GroupName'] ?? '') !== $gName;
@@ -363,7 +362,7 @@ class SensorGroup extends IPSModule
                 foreach ($newValues as &$row) {
                     if (is_array($row)) $row['GroupName'] = $gName;
                 }
-                $json = json_encode(array_merge($others, (array)$newValues));
+                $json = json_encode(array_merge($others, $newValues));
                 $this->WriteAttributeString('BedroomListBuffer', $json);
                 break;
 
@@ -389,13 +388,13 @@ class SensorGroup extends IPSModule
             case 'UpdateMemberProperty':
                 $data = json_decode($Value, true);
                 $gName = $data['GroupName'];
-                $matrixValues = (isset($data['Values']['ClassID'])) ? [$data['Values']] : $data['Values'];
+                $matrixValues = is_array($data['Values']) ? $data['Values'] : [];
                 $master = json_decode($this->ReadAttributeString('GroupMembersBuffer'), true) ?: json_decode($this->ReadPropertyString('GroupMembers'), true) ?: [];
                 $others = array_values(array_filter($master, function ($m) use ($gName) {
                     return ($m['GroupName'] ?? '') !== $gName;
                 }));
                 $newMemberships = [];
-                foreach ((array)$matrixValues as $row) {
+                foreach ($matrixValues as $row) {
                     if (is_array($row) && ($row['Assigned'] ?? false)) {
                         $newMemberships[] = ['GroupName' => $gName, 'ClassID' => $row['ClassID']];
                     }
