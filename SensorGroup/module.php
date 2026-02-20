@@ -331,15 +331,28 @@ class SensorGroup extends IPSModule
         }
 
         switch ($Ident) {
-            case 'UpdateGroupList': // NEW: Handle Step 3a (Stateless)
+            case 'UpdateGroupList':
                 $incoming = json_decode($Value, true);
                 if (!is_array($incoming)) return;
-                $newValues = (isset($incoming['GroupName'])) ? [$incoming] : $incoming;
-                foreach ($newValues as &$row) {
-                    if (is_array($row)) unset($row['Spacer']);
+                $rowsToProcess = isset($incoming['GroupName']) ? [$incoming] : $incoming;
+                $master = json_decode($this->ReadAttributeString('GroupListBuffer'), true) ?: json_decode($this->ReadPropertyString('GroupList'), true) ?: [];
+                foreach ($rowsToProcess as $inRow) {
+                    if (!is_array($inRow)) continue;
+                    unset($inRow['Spacer']);
+                    $found = false;
+                    foreach ($master as &$exRow) {
+                        if (($exRow['GroupID'] ?? 'A') === ($inRow['GroupID'] ?? 'B')) {
+                            $exRow = array_merge($exRow, $inRow);
+                            $found = true;
+                            break;
+                        }
+                    }
+                    if (!$found) $master[] = $inRow;
                 }
-                $this->WriteAttributeString('GroupListBuffer', json_encode($newValues));
-                $this->ReloadForm(); // Refresh 3b/B dependent folders
+                $json = json_encode($master);
+                $this->WriteAttributeString('GroupListBuffer', $json);
+                IPS_SetProperty($this->InstanceID, 'GroupList', $json);
+                $this->ReloadForm();
                 break;
 
             case 'DeleteGroupListItem':
@@ -348,7 +361,9 @@ class SensorGroup extends IPSModule
                 if (isset($master[$index])) {
                     array_splice($master, $index, 1);
                 }
-                $this->WriteAttributeString('GroupListBuffer', json_encode($master));
+                $json = json_encode($master);
+                $this->WriteAttributeString('GroupListBuffer', $json);
+                IPS_SetProperty($this->InstanceID, 'GroupList', $json);
                 $this->ReloadForm();
                 break;
 
@@ -365,6 +380,7 @@ class SensorGroup extends IPSModule
                 }
                 $json = json_encode(array_merge($others, (array)$newValues));
                 $this->WriteAttributeString('BedroomListBuffer', $json);
+                IPS_SetProperty($this->InstanceID, 'BedroomList', $json);
                 break;
 
             case 'DeleteBedroomListItem':
@@ -383,6 +399,7 @@ class SensorGroup extends IPSModule
                 }
                 $json = json_encode(array_merge($others, $target));
                 $this->WriteAttributeString('BedroomListBuffer', $json);
+                IPS_SetProperty($this->InstanceID, 'BedroomList', $json);
                 $this->ReloadForm();
                 break;
 
@@ -401,7 +418,9 @@ class SensorGroup extends IPSModule
                         $master[] = ['GroupName' => $gName, 'ClassID' => $cID];
                     }
                 }
-                $this->WriteAttributeString('GroupMembersBuffer', json_encode($master));
+                $json = json_encode($master);
+                $this->WriteAttributeString('GroupMembersBuffer', $json);
+                IPS_SetProperty($this->InstanceID, 'GroupMembers', $json);
                 break;
 
             case 'DeleteMemberListItem':
@@ -420,6 +439,7 @@ class SensorGroup extends IPSModule
                 }
                 $json = json_encode(array_merge($others, $target));
                 $this->WriteAttributeString('GroupMembersBuffer', $json);
+                IPS_SetProperty($this->InstanceID, 'GroupMembers', $json);
                 $this->ReloadForm();
                 break;
 
@@ -459,7 +479,6 @@ class SensorGroup extends IPSModule
                 break;
         }
     }
-
 
 
     public function SaveConfiguration()
