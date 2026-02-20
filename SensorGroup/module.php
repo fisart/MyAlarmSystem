@@ -81,6 +81,15 @@ class SensorGroup extends IPSModule
             $validClassIDs[] = $c['ClassID'];
         }
         unset($c);
+        // --- FIX: Purge sticky ClassName→ClassID mappings for deleted classes ---
+        // If a class name no longer exists in the current ClassList, remove it from the IDMap.
+        // This prevents recreating a class with the same name from reusing the old ClassID (and re-attaching old sensors).
+        foreach (array_keys($idMap) as $mappedName) {
+            if (!isset($classNameMap[$mappedName])) {
+                unset($idMap[$mappedName]);
+                $idsChanged = true;
+            }
+        }
 
         $validGroupNames = [];
         foreach ($groupList as &$g) {
@@ -115,6 +124,18 @@ class SensorGroup extends IPSModule
         // Save Maps and Buffers
         $this->WriteAttributeString('ClassListBuffer', json_encode($classList));
         $this->WriteAttributeString('GroupListBuffer', json_encode($groupList)); // Sync Group Buffer
+        // --- FIX 2: Purge state entries for deleted classes (COUNT buffers etc.) ---
+        // Keep only runtime state keys that are still valid ClassIDs.
+        // Do NOT touch the mapping keys.
+        foreach (array_keys($stateData) as $k) {
+            if ($k === 'IDMap' || $k === 'GroupIDMap') {
+                continue;
+            }
+            if (!in_array($k, $validClassIDs, true)) {
+                unset($stateData[$k]);
+                $idsChanged = true;
+            }
+        }
         $stateData['IDMap'] = $idMap;
         $stateData['GroupIDMap'] = $groupIDMap;
         $this->WriteAttributeString('ClassStateAttribute', json_encode($stateData));
@@ -134,11 +155,13 @@ class SensorGroup extends IPSModule
 
         foreach ($sensorList as $s) {
             $sID = $s['ClassID'] ?? '';
-            if (!in_array($sID, $validClassIDs) && isset($classNameMap[$sID])) {
+            // Legacy support: in very old configs ClassID was stored as ClassName
+            if (!in_array($sID, $validClassIDs, true) && is_string($sID) && isset($classNameMap[$sID])) {
                 $s['ClassID'] = $classNameMap[$sID];
                 $sID = $s['ClassID'];
                 $sensorsDirty = true;
             }
+
             if (in_array($sID, $validClassIDs)) {
                 $cleanSensors[] = $s;
             } else {
