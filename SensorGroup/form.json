@@ -27,7 +27,7 @@
         {
   "type": "Button",
   "caption": "COMMIT ALL CHANGES TO DISK",
-  "onClick": "IPS_ApplyChanges($id);"
+  "onClick": "MYALARM_SaveConfiguration($id);"
 }
 ,
         { "type": "Label", "caption": "3. GROUP MANAGEMENT (Stateless)" },
