@@ -311,6 +311,7 @@ class SensorGroup extends IPSModule
         $pos = 20;
         foreach ($groupList as $group) {
             if (empty($group['GroupName'])) continue;
+            IPS_LogMessage('SensorGroup', 'DEBUG: ApplyChanges groupList sample=' . json_encode($groupList));
             $cleanName = $this->SanitizeIdent($group['GroupName']);
             $ident = "Status_" . $cleanName;
             $this->RegisterVariableBoolean($ident, "Status (" . $group['GroupName'] . ")", "~Alert", $pos++);
@@ -1000,10 +1001,10 @@ class SensorGroup extends IPSModule
         }
     }
 
-    private function SanitizeIdent($string)
+    private function SanitizeIdent($name)
     {
-        $string = preg_replace('/[^a-zA-Z0-9]/', '', $string);
-        return $string ?: 'Group';
+        $name = (string)$name; // <-- add this line
+        return preg_replace('/[^a-zA-Z0-9]/', '', $name);
     }
 
     public function MessageSink($TimeStamp, $SenderID, $Message, $Data)
@@ -1173,7 +1174,7 @@ class SensorGroup extends IPSModule
                 if ($gLogic == 0) $groupActive = ($activeClassCount > 0);
                 elseif ($gLogic == 1) $groupActive = ($activeClassCount == $targetClassCount);
             }
-
+            IPS_LogMessage('SensorGroup', 'DEBUG: CheckLogic SanitizeIdent input type=' . gettype($x) . ' value=' . json_encode($x));
             $ident = "Status_" . $this->SanitizeIdent($gName);
             if (@$this->GetIDForIdent($ident)) $this->SetValue($ident, $groupActive);
 
