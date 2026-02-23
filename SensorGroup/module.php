@@ -802,6 +802,10 @@ class SensorGroup extends IPSModule
                     $json = json_encode(array_merge($others, (array)$newValues));
                     $this->WriteAttributeString('BedroomListBuffer', $json);
                     IPS_SetProperty($this->InstanceID, 'BedroomList', $json);
+
+                    // NEW (agreed): trigger Symcon "dirty" flag via the hidden elements field
+                    $this->UpdateFormField('BedroomList', 'values', json_decode($json, true));
+
                     break;
                 }
             case 'DeleteBedroomListItemByVarID': {
@@ -1294,6 +1298,32 @@ class SensorGroup extends IPSModule
 
         $sensorList   = json_decode($this->ReadAttributeString('SensorListBuffer'), true) ?: json_decode($this->ReadPropertyString('SensorList'), true) ?: [];
         $bedroomList  = json_decode($this->ReadAttributeString('BedroomListBuffer'), true) ?: json_decode($this->ReadPropertyString('BedroomList'), true) ?: [];
+        // === FIX: Ensure a property-bound (hidden) BedroomList field exists in "elements"
+        // This is required so Symcon can show the orange "Apply changes" button when bedrooms change.
+        $hasBedroomField = false;
+        foreach ($form['elements'] as $e) {
+            if (isset($e['name']) && $e['name'] === 'BedroomList') {
+                $hasBedroomField = true;
+                break;
+            }
+        }
+
+        if (!$hasBedroomField) {
+            $form['elements'][] = [
+                "type"     => "List",
+                "name"     => "BedroomList",
+                "visible"  => false,
+                "rowCount" => 1,
+                "add"      => false,
+                "delete"   => false,
+                "columns"  => [
+                    ["caption" => "GroupName",          "name" => "GroupName",          "width" => "150px"],
+                    ["caption" => "ActiveVariableID",   "name" => "ActiveVariableID",   "width" => "120px"],
+                    ["caption" => "BedroomDoorClassID", "name" => "BedroomDoorClassID", "width" => "150px"]
+                ],
+                "values" => []
+            ];
+        }
         $groupMembers = json_decode($this->ReadAttributeString('GroupMembersBuffer'), true) ?: json_decode($this->ReadPropertyString('GroupMembers'), true) ?: [];
 
         // === DEBUG: other list counts ===
@@ -1523,7 +1553,14 @@ class SensorGroup extends IPSModule
 
         // === DEBUG: exit GetConfigurationForm ===
         IPS_LogMessage('SensorGroup', 'DEBUG: GetConfigurationForm EXIT returning json');
-
+        // === FIX: Push current bedroomList into the hidden property-bound field
+        foreach ($form['elements'] as &$e) {
+            if (isset($e['name']) && $e['name'] === 'BedroomList') {
+                $e['values'] = $bedroomList;
+                break;
+            }
+        }
+        unset($e);
         return json_encode($form);
     }
 
