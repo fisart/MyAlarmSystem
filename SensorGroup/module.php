@@ -1650,7 +1650,7 @@ class SensorGroup extends IPSModule
         // Blueprint 2.0: Backup from RAM Buffer (Source of Truth) to ensure export matches visual UI state
         $config = [
             'ClassList'    => json_decode($this->ReadAttributeString('ClassListBuffer'), true) ?: json_decode($this->ReadPropertyString('ClassList'), true) ?: [],
-            'GroupList'    => json_decode($this->ReadPropertyString('GroupList'), true) ?: [],
+            'GroupList'    => json_decode($this->ReadAttributeString('GroupListBuffer'), true) ?: json_decode($this->ReadPropertyString('GroupList'), true) ?: [],
             'SensorList'   => json_decode($this->ReadAttributeString('SensorListBuffer'), true) ?: json_decode($this->ReadPropertyString('SensorList'), true) ?: [],
             'BedroomList'  => json_decode($this->ReadAttributeString('BedroomListBuffer'), true) ?: json_decode($this->ReadPropertyString('BedroomList'), true) ?: [],
             'GroupMembers' => json_decode($this->ReadAttributeString('GroupMembersBuffer'), true) ?: json_decode($this->ReadPropertyString('GroupMembers'), true) ?: [],
