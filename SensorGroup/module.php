@@ -766,7 +766,7 @@ class SensorGroup extends IPSModule
                         "DEBUG: DeleteGroupListItemByName END GroupListBufferLen=" . strlen($this->ReadAttributeString('GroupListBuffer')) .
                             " GroupListPropertyLen=" . strlen($this->ReadPropertyString('GroupList'))
                     );
-
+                    IPS_ApplyChanges($this->InstanceID);
                     $this->ReloadForm();
                     break;
                 }
