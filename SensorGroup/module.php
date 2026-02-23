@@ -773,6 +773,68 @@ class SensorGroup extends IPSModule
                 // =========================
                 // BEDROOMS
                 // =========================
+            case 'BedroomAdd': {
+                    IPS_LogMessage('SensorGroup', "DEBUG: BedroomAdd START raw=" . (is_string($Value) ? $Value : json_encode($Value)));
+
+                    $data = json_decode($Value, true);
+                    if (!is_array($data)) {
+                        IPS_LogMessage('SensorGroup', "DEBUG: BedroomAdd ABORT - payload not decodable");
+                        return;
+                    }
+
+                    $gName = trim((string)($data['GroupName'] ?? ''));
+                    $vid   = (int)($data['ActiveVariableID'] ?? 0);
+                    $door  = (string)($data['BedroomDoorClassID'] ?? '');
+
+                    if ($gName === '' || $vid <= 0) {
+                        IPS_LogMessage('SensorGroup', "DEBUG: BedroomAdd ABORT - missing GroupName or ActiveVariableID (gName='{$gName}', vid={$vid})");
+                        return;
+                    }
+
+                    // Load master from buffer (source of truth), fallback to property
+                    $master = json_decode($this->ReadAttributeString('BedroomListBuffer'), true)
+                        ?: json_decode($this->ReadPropertyString('BedroomList'), true)
+                        ?: [];
+                    if (!is_array($master)) {
+                        $master = [];
+                    }
+
+                    // De-dup: if same GroupName + ActiveVariableID exists, update it; else append
+                    $updated = false;
+                    foreach ($master as &$row) {
+                        if (!is_array($row)) {
+                            continue;
+                        }
+                        if (($row['GroupName'] ?? '') === $gName && (int)($row['ActiveVariableID'] ?? 0) === $vid) {
+                            $row['BedroomDoorClassID'] = $door;
+                            $updated = true;
+                            break;
+                        }
+                    }
+                    unset($row);
+
+                    if (!$updated) {
+                        $master[] = [
+                            'GroupName'          => $gName,
+                            'ActiveVariableID'   => $vid,
+                            'BedroomDoorClassID' => $door
+                        ];
+                    }
+
+                    $json = json_encode(array_values($master));
+
+                    $this->WriteAttributeString('BedroomListBuffer', $json);
+                    IPS_SetProperty($this->InstanceID, 'BedroomList', $json);
+
+                    // Trigger Symcon "dirty" flag via hidden property-bound field (MUST be JSON string)
+                    $this->UpdateFormField('BedroomList', 'values', json_encode(json_decode($json, true) ?: []));
+
+                    IPS_LogMessage('SensorGroup', "DEBUG: BedroomAdd END count=" . count($master) . " jsonLen=" . strlen($json));
+
+                    // Optional: refresh UI immediately (doesn't persist by itself; persistence is via Apply)
+                    $this->ReloadForm();
+                    break;
+                }
             case 'UpdateBedroomProperty': {
                     $data  = json_decode($Value, true);
                     $gName = $data['GroupName'] ?? '';
@@ -804,8 +866,8 @@ class SensorGroup extends IPSModule
                     IPS_SetProperty($this->InstanceID, 'BedroomList', $json);
 
                     // Trigger Symcon "dirty" flag via hidden property-bound field
-                    $this->UpdateFormField('BedroomList', 'values', $json);
-
+                    $this->UpdateFormField('BedroomList', 'values', json_encode(json_decode($json, true) ?: []));
+                    $this->ReloadForm();
                     break;
                 }
             case 'DeleteBedroomListItemByVarID': {
@@ -831,6 +893,7 @@ class SensorGroup extends IPSModule
                     $json = json_encode($newMaster);
                     $this->WriteAttributeString('BedroomListBuffer', $json);
                     IPS_SetProperty($this->InstanceID, 'BedroomList', $json);
+                    $this->UpdateFormField('BedroomList', 'values', json_encode(json_decode($json, true) ?: []));
                     $this->ReloadForm();
                     break;
                 }
@@ -1467,6 +1530,7 @@ class SensorGroup extends IPSModule
 
                     foreach ($definedGroups as $group) {
                         $gName = $group['GroupName'];
+
                         $bedData = array_values(array_filter($bedroomList, function ($b) use ($gName) {
                             return ($b['GroupName'] ?? '') === $gName;
                         }));
@@ -1474,27 +1538,43 @@ class SensorGroup extends IPSModule
                         // === DEBUG: per-group bedroom rows ===
                         IPS_LogMessage('SensorGroup', 'DEBUG: GetConfigurationForm build bedrooms panel group=' . $gName . ' rows=' . count($bedData));
 
+                        $safe = md5($gName);
+
                         $element['items'][] = [
                             "type"    => "ExpansionPanel",
                             "caption" => "Group: " . $gName,
-                            "items"   => [[
-                                "type"     => "List",
-                                "name"     => "Bed_" . md5($gName),
-                                "rowCount" => 3,
-                                "add"      => true,
-                                "delete"   => false,
-                                "onEdit"   => "IPS_RequestAction(\$id, 'UpdateBedroomProperty', json_encode(['GroupName' => '$gName', 'Values' => \$Bed_" . md5($gName) . "]));",
-                                "columns"  => [
-                                    ["caption" => "Active Var (IPSView)", "name" => "ActiveVariableID", "width" => "200px", "add" => 0, "edit" => ["type" => "SelectVariable"]],
-                                    ["caption" => "Door Class (Trigger)", "name" => "BedroomDoorClassID", "width" => "200px", "add" => "", "edit" => ["type" => "Select", "options" => $classOptions]],
-                                    ["caption" => "Action", "name" => "Action", "width" => "80px", "add" => "", "edit" => ["type" => "Button", "caption" => "Delete", "onClick" => "IPS_RequestAction(\$id, 'DeleteBedroomListItemByVarID', '$gName||\$ActiveVariableID');"]]
+                            "items"   => [
+                                [
+                                    // NEW: Add via RequestAction (reliable) instead of List add-popup
+                                    "type"    => "PopupButton",
+                                    "caption" => "Add Bedroom Rule",
+                                    "popup"   => [
+                                        "caption" => "Add Bedroom Rule for Group: " . $gName,
+                                        "items"   => [
+                                            ["type" => "SelectVariable", "name" => "ActiveVariableID", "caption" => "Active Var (IPSView)"],
+                                            ["type" => "Select", "name" => "BedroomDoorClassID", "caption" => "Door Class (Trigger)", "options" => $classOptions]
+                                        ]
+                                    ],
+                                    "onClick" => "IPS_RequestAction(\$id, 'BedroomAdd', json_encode(['GroupName' => '$gName', 'ActiveVariableID' => \$ActiveVariableID, 'BedroomDoorClassID' => \$BedroomDoorClassID]));"
                                 ],
-                                "values"   => $bedData
-                            ]]
+                                [
+                                    "type"     => "List",
+                                    "name"     => "Bed_" . $safe,
+                                    "rowCount" => 3,
+                                    "add"      => false,   // CHANGED: disable Symcon add-popup (doesn't reliably fire onEdit)
+                                    "delete"   => false,
+                                    "onEdit"   => "IPS_RequestAction(\$id, 'UpdateBedroomProperty', json_encode(['GroupName' => '$gName', 'Values' => \$Bed_" . $safe . "]));",
+                                    "columns"  => [
+                                        ["caption" => "Active Var (IPSView)", "name" => "ActiveVariableID", "width" => "200px", "edit" => ["type" => "SelectVariable"]],
+                                        ["caption" => "Door Class (Trigger)", "name" => "BedroomDoorClassID", "width" => "200px", "edit" => ["type" => "Select", "options" => $classOptions]],
+                                        ["caption" => "Action", "name" => "Action", "width" => "80px", "edit" => ["type" => "Button", "caption" => "Delete", "onClick" => "IPS_RequestAction(\$id, 'DeleteBedroomListItemByVarID', '$gName||\$ActiveVariableID');"]]
+                                    ],
+                                    "values"   => $bedData
+                                ]
+                            ]
                         ];
                     }
                 }
-
                 // --- STEP B: DYNAMIC GROUP MEMBERS (Checkbox Matrix Strategy) ---
                 if (isset($element['name']) && $element['name'] === 'DynamicGroupMemberContainer') {
 
