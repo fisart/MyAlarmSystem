@@ -1394,12 +1394,12 @@ class SensorGroup extends IPSModule
                     );
                     IPS_LogMessage(
                         'SensorGroup',
-                        "DEBUG: GetConfigurationForm Step3 List_Groups onEdit=" . "IPS_RequestAction(\$id, 'UpdateGroupList', json_encode(\$List_Groups));"
+                        "DEBUG: GetConfigurationForm Step3 List_Groups onEdit=" . "IPS_RequestAction(\$id, 'UpdateGroupList', json_encode(\$GroupList));"
                     );
 
                     $element['items'][] = [
                         "type"     => "List",
-                        "name"     => "List_Groups",
+                        "name"     => "GroupList",
                         "rowCount" => 5,
                         "add"      => true,
                         "delete"   => false,
