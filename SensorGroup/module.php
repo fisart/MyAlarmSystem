@@ -35,6 +35,12 @@ class SensorGroup extends IPSModule
     {
         $this->LogMessage("DEBUG: ApplyChanges - START", KL_MESSAGE);
         parent::ApplyChanges();
+        // DEBUG: What does ApplyChanges see right after parent lifecycle?
+        $gProp = json_decode($this->ReadPropertyString('GroupList'), true) ?: [];
+        $gBuf  = json_decode($this->ReadAttributeString('GroupListBuffer'), true) ?: [];
+        $this->LogMessage("DEBUG: ApplyChanges - GroupListProperty=" . count($gProp) . " | GroupListBuffer=" . count($gBuf), KL_MESSAGE);
+        if (count($gProp) > 0) $this->LogMessage("DEBUG: ApplyChanges - LastPropGroup=" . json_encode(end($gProp)), KL_MESSAGE);
+        if (count($gBuf) > 0)  $this->LogMessage("DEBUG: ApplyChanges - LastBufGroup=" . json_encode(end($gBuf)), KL_MESSAGE);
 
         // 1. LIFECYCLE: ID STABILIZATION (Sticky IDs)
         $classList = json_decode($this->ReadAttributeString('ClassListBuffer'), true)
@@ -512,6 +518,12 @@ class SensorGroup extends IPSModule
 
                     $stateData['GroupIDMap'] = $groupIDMap;
                     $this->WriteAttributeString('ClassStateAttribute', json_encode($stateData));
+                    // DEBUG: Verify what we are about to persist from UpdateGroupList
+                    $this->LogMessage("DEBUG: UpdateGroupList - IncomingType=" . (isset($incoming['GroupName']) ? "SINGLE_ROW" : "ARRAY"), KL_MESSAGE);
+                    $this->LogMessage("DEBUG: UpdateGroupList - MasterCountBeforeWrite=" . count($master), KL_MESSAGE);
+                    if (count($master) > 0) {
+                        $this->LogMessage("DEBUG: UpdateGroupList - LastMasterRow=" . json_encode(end($master)), KL_MESSAGE);
+                    }
 
                     $json = json_encode($master);
                     $this->WriteAttributeString('GroupListBuffer', $json);
@@ -717,6 +729,20 @@ class SensorGroup extends IPSModule
         $sensorList   = json_decode($this->ReadAttributeString('SensorListBuffer'), true) ?: [];
         $bedroomList  = json_decode($this->ReadAttributeString('BedroomListBuffer'), true) ?: [];
         $groupMembers = json_decode($this->ReadAttributeString('GroupMembersBuffer'), true) ?: [];
+        // DEBUG: Compare buffer vs property just before COMMIT writes anything
+        $propGroupList = json_decode($this->ReadPropertyString('GroupList'), true) ?: [];
+        $this->LogMessage(
+            "DEBUG: COMMIT PRECHECK - GroupListBuffer=" . count($groupList) . " | GroupListProperty=" . count($propGroupList),
+            KL_MESSAGE
+        );
+        if (count($groupList) > 0) {
+            $last = end($groupList);
+            $this->LogMessage("DEBUG: COMMIT PRECHECK - LastBufferGroup=" . json_encode($last), KL_MESSAGE);
+        }
+        if (count($propGroupList) > 0) {
+            $lastP = end($propGroupList);
+            $this->LogMessage("DEBUG: COMMIT PRECHECK - LastPropertyGroup=" . json_encode($lastP), KL_MESSAGE);
+        }
 
         // DEBUG LOG: Verify buffer contents before committing to disk
         $this->LogMessage("DEBUG: COMMIT - Classes: " . count($classList) . " | Groups: " . count($groupList), KL_MESSAGE);
