@@ -774,7 +774,7 @@ class SensorGroup extends IPSModule
                 // BEDROOMS
                 // =========================
             case 'UpdateBedroomProperty': {
-                    $data = json_decode($Value, true);
+                    $data  = json_decode($Value, true);
                     $gName = $data['GroupName'] ?? '';
 
                     $newValues = $data['Values'] ?? [];
@@ -803,7 +803,7 @@ class SensorGroup extends IPSModule
                     $this->WriteAttributeString('BedroomListBuffer', $json);
                     IPS_SetProperty($this->InstanceID, 'BedroomList', $json);
 
-                    // NEW (agreed): trigger Symcon "dirty" flag via the hidden elements field
+                    // Trigger Symcon "dirty" flag via hidden property-bound field
                     $this->UpdateFormField('BedroomList', 'values', json_decode($json, true));
 
                     break;

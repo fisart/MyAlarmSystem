@@ -28,19 +28,18 @@
         { "type": "ExpansionPanel", "name": "DynamicGroupMemberContainer", "caption": "Step B: Assign Classes to Groups", "items": [] },
 
         { "type": "CheckBox", "name": "MaintenanceMode", "caption": "Maintenance Mode" },
-        {
+       {
   "type": "List",
   "name": "BedroomList",
   "visible": false,
-  "rowCount": 1,
+  "rowCount": 0,
   "add": false,
   "delete": false,
   "columns": [
     { "caption": "GroupName", "name": "GroupName", "width": "150px" },
     { "caption": "ActiveVariableID", "name": "ActiveVariableID", "width": "120px" },
     { "caption": "BedroomDoorClassID", "name": "BedroomDoorClassID", "width": "150px" }
-  ],
-  "values": []
+  ]
 }
     ],
     "actions": [
