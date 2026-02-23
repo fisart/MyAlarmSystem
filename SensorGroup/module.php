@@ -1263,13 +1263,13 @@ class SensorGroup extends IPSModule
         );
 
         // Blueprint 2.0: Prioritize RAM Buffers (Source of Truth)
-        $definedClasses = json_decode($this->ReadPropertyString('ClassList'), true)
-            ?: json_decode($this->ReadAttributeString('ClassListBuffer'), true)
+        $definedClasses = json_decode($this->ReadAttributeString('ClassListBuffer'), true)
+            ?: json_decode($this->ReadPropertyString('ClassList'), true)
             ?: [];
 
-        $definedGroups  = json_decode($this->ReadPropertyString('GroupList'), true)
-            ?: json_decode($this->ReadAttributeString('GroupListBuffer'), true)
-            ?: [];        // DEBUG: show raw sources (buffer vs property)
+        $definedGroups  = json_decode($this->ReadAttributeString('GroupListBuffer'), true)
+            ?: json_decode($this->ReadPropertyString('GroupList'), true)
+            ?: [];
         IPS_LogMessage('SensorGroup', 'DEBUG: ClassListBuffer RAW=' . $this->ReadAttributeString('ClassListBuffer'));
         IPS_LogMessage('SensorGroup', 'DEBUG: ClassListProperty RAW=' . $this->ReadPropertyString('ClassList'));
         // === DEBUG: initial source-of-truth counts ===
