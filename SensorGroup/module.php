@@ -1174,7 +1174,7 @@ class SensorGroup extends IPSModule
                 if ($gLogic == 0) $groupActive = ($activeClassCount > 0);
                 elseif ($gLogic == 1) $groupActive = ($activeClassCount == $targetClassCount);
             }
-            IPS_LogMessage('SensorGroup', 'DEBUG: CheckLogic SanitizeIdent input type=' . gettype($x) . ' value=' . json_encode($x));
+            IPS_LogMessage('SensorGroup', 'DEBUG: CheckLogic SanitizeIdent input type=' . gettype($gName) . ' value=' . json_encode($gName));
             $ident = "Status_" . $this->SanitizeIdent($gName);
             if (@$this->GetIDForIdent($ident)) $this->SetValue($ident, $groupActive);
 
