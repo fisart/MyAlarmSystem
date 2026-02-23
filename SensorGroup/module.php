@@ -316,6 +316,18 @@ class SensorGroup extends IPSModule
                 " Value=" . (is_string($Value) ? $Value : json_encode($Value))
         );
 
+        // === DEBUG: Snapshot of relevant buffers/properties at entry (quick state check) ===
+        IPS_LogMessage(
+            'SensorGroup',
+            "DEBUG: STATE@ENTER " .
+                "ClassListBufferLen=" . strlen($this->ReadAttributeString('ClassListBuffer')) .
+                " ClassListPropLen=" . strlen($this->ReadPropertyString('ClassList')) .
+                " GroupListBufferLen=" . strlen($this->ReadAttributeString('GroupListBuffer')) .
+                " GroupListPropLen=" . strlen($this->ReadPropertyString('GroupList')) .
+                " SensorListBufferLen=" . strlen($this->ReadAttributeString('SensorListBuffer')) .
+                " SensorListPropLen=" . strlen($this->ReadPropertyString('SensorList'))
+        );
+
         // 1) DYNAMIC IDENTIFIER HANDLING (Step 2 Folders: Sensors)
         if (strpos($Ident, 'UPD_SENS_') === 0 || strpos($Ident, 'DEL_SENS_') === 0 || strpos($Ident, 'DELETE_BY_INDEX_') === 0) {
 
@@ -324,9 +336,19 @@ class SensorGroup extends IPSModule
 
             $safeID = $isDeleteByIndex ? substr($Ident, 16) : substr($Ident, 9);
 
+            // === DEBUG: Identify sensor action type and safeID ===
+            IPS_LogMessage(
+                'SensorGroup',
+                "DEBUG: SENSOR_ACTION Ident={$Ident} isDeleteByID=" . (int)$isDeleteByID .
+                    " isDeleteByIndex=" . (int)$isDeleteByIndex . " safeID={$safeID}"
+            );
+
             $classList = json_decode($this->ReadAttributeString('ClassListBuffer'), true)
                 ?: json_decode($this->ReadPropertyString('ClassList'), true)
                 ?: [];
+
+            // === DEBUG: ClassList loaded size ===
+            IPS_LogMessage('SensorGroup', "DEBUG: SENSOR_ACTION ClassListCount=" . (is_array($classList) ? count($classList) : -1));
 
             $classID = '';
             foreach ($classList as $c) {
@@ -336,25 +358,49 @@ class SensorGroup extends IPSModule
                     break;
                 }
             }
+
+            // === DEBUG: Resolved classID ===
+            IPS_LogMessage('SensorGroup', "DEBUG: SENSOR_ACTION ResolvedClassID=" . ($classID !== '' ? $classID : 'NONE'));
+
             if ($classID === '') {
+                IPS_LogMessage('SensorGroup', "DEBUG: SENSOR_ACTION ABORT - classID not found for safeID={$safeID}");
                 return;
             }
 
             $fullBuffer = json_decode($this->ReadAttributeString('SensorListBuffer'), true) ?: [];
 
+            // === DEBUG: Sensor buffer size before operation ===
+            IPS_LogMessage('SensorGroup', "DEBUG: SENSOR_ACTION SensorListBufferCountBefore=" . (is_array($fullBuffer) ? count($fullBuffer) : -1));
+
             // Delete by VariableID
             if ($isDeleteByID) {
                 $vidToDelete = (int)$Value;
+
+                IPS_LogMessage('SensorGroup', "DEBUG: SENSOR_ACTION DeleteByID vidToDelete={$vidToDelete}");
+
                 $newBuffer = [];
+                $removed = 0;
                 foreach ($fullBuffer as $row) {
                     if (($row['ClassID'] ?? '') === $classID && (int)($row['VariableID'] ?? 0) === $vidToDelete) {
+                        $removed++;
                         continue;
                     }
                     $newBuffer[] = $row;
                 }
+
+                IPS_LogMessage('SensorGroup', "DEBUG: SENSOR_ACTION DeleteByID removed={$removed} newCount=" . count($newBuffer));
+
                 $json = json_encode($newBuffer);
                 $this->WriteAttributeString('SensorListBuffer', $json);
                 IPS_SetProperty($this->InstanceID, 'SensorList', $json);
+
+                // === DEBUG: After write ===
+                IPS_LogMessage(
+                    'SensorGroup',
+                    "DEBUG: SENSOR_ACTION AfterWrite SensorListBufferLen=" . strlen($this->ReadAttributeString('SensorListBuffer')) .
+                        " SensorListPropLen=" . strlen($this->ReadPropertyString('SensorList'))
+                );
+
                 $this->ReloadForm();
                 return;
             }
@@ -367,6 +413,9 @@ class SensorGroup extends IPSModule
                 }
 
                 $index  = (int)$Value;
+
+                IPS_LogMessage('SensorGroup', "DEBUG: SENSOR_ACTION DeleteByIndex index={$index}");
+
                 $others = array_values(array_filter($fullBuffer, function ($s) use ($classID) {
                     return ($s['ClassID'] ?? '') !== $classID;
                 }));
@@ -374,25 +423,53 @@ class SensorGroup extends IPSModule
                     return ($s['ClassID'] ?? '') === $classID;
                 }));
 
+                IPS_LogMessage('SensorGroup', "DEBUG: SENSOR_ACTION DeleteByIndex targetCountBefore=" . count($target) . " othersCount=" . count($others));
+
+                $didRemove = 0;
                 if (isset($target[$index])) {
                     array_splice($target, $index, 1);
+                    $didRemove = 1;
                 }
+
+                IPS_LogMessage('SensorGroup', "DEBUG: SENSOR_ACTION DeleteByIndex didRemove={$didRemove} targetCountAfter=" . count($target));
 
                 $json = json_encode(array_merge($others, $target));
                 $this->WriteAttributeString('SensorListBuffer', $json);
                 IPS_SetProperty($this->InstanceID, 'SensorList', $json);
+
+                // === DEBUG: After write ===
+                IPS_LogMessage(
+                    'SensorGroup',
+                    "DEBUG: SENSOR_ACTION AfterWrite SensorListBufferLen=" . strlen($this->ReadAttributeString('SensorListBuffer')) .
+                        " SensorListPropLen=" . strlen($this->ReadPropertyString('SensorList'))
+                );
+
                 $this->ReloadForm();
                 return;
             }
 
             // UPDATE LOGIC: Keyed Merge - Only update if the VariableID exists in the buffer
             $incoming = json_decode($Value, true);
+
+            // === DEBUG: Decode result ===
+            IPS_LogMessage(
+                'SensorGroup',
+                "DEBUG: SENSOR_ACTION Update DecodeOk=" . (is_array($incoming) ? 1 : 0) .
+                    " decodedType=" . gettype($incoming)
+            );
+
             if (!$incoming) {
+                IPS_LogMessage('SensorGroup', "DEBUG: SENSOR_ACTION Update ABORT - incoming not decodable");
                 return;
             }
+
             $rowsToProcess = isset($incoming['VariableID']) ? [$incoming] : $incoming;
+
+            IPS_LogMessage('SensorGroup', "DEBUG: SENSOR_ACTION Update rowsToProcessCount=" . (is_array($rowsToProcess) ? count($rowsToProcess) : -1));
+
             $metadata = $this->GetMasterMetadata();
 
+            $updated = 0;
             foreach ($rowsToProcess as $inRow) {
                 if (!is_array($inRow)) {
                     continue;
@@ -407,15 +484,26 @@ class SensorGroup extends IPSModule
                             $exRow['ParentName']      = $metadata[$inVID]['ParentName'];
                             $exRow['GrandParentName'] = $metadata[$inVID]['GrandParentName'];
                         }
+                        $updated++;
                         break;
                     }
                 }
                 unset($exRow);
             }
 
+            IPS_LogMessage('SensorGroup', "DEBUG: SENSOR_ACTION Update updatedRows={$updated}");
+
             $json = json_encode($fullBuffer);
             $this->WriteAttributeString('SensorListBuffer', $json);
             IPS_SetProperty($this->InstanceID, 'SensorList', $json);
+
+            // === DEBUG: After write ===
+            IPS_LogMessage(
+                'SensorGroup',
+                "DEBUG: SENSOR_ACTION AfterWrite SensorListBufferLen=" . strlen($this->ReadAttributeString('SensorListBuffer')) .
+                    " SensorListPropLen=" . strlen($this->ReadPropertyString('SensorList'))
+            );
+
             return;
         }
 
@@ -434,6 +522,15 @@ class SensorGroup extends IPSModule
                             " decoded_count=" . (is_array($incoming) ? count($incoming) : -1)
                     );
 
+                    // === DEBUG: Show first item if it's an array of rows ===
+                    if (is_array($incoming) && !isset($incoming['GroupName']) && count($incoming) > 0) {
+                        IPS_LogMessage('SensorGroup', "DEBUG: UpdateGroupList firstRow=" . json_encode($incoming[0]));
+                    }
+                    // === DEBUG: Show single row if it's a single object ===
+                    if (is_array($incoming) && isset($incoming['GroupName'])) {
+                        IPS_LogMessage('SensorGroup', "DEBUG: UpdateGroupList singleRow=" . json_encode($incoming));
+                    }
+
                     if (!is_array($incoming)) {
                         IPS_LogMessage('SensorGroup', "DEBUG: UpdateGroupList ABORT - incoming not array");
                         return;
@@ -448,12 +545,25 @@ class SensorGroup extends IPSModule
                         $master = [];
                     }
 
+                    // === DEBUG: Master before merge ===
+                    IPS_LogMessage(
+                        'SensorGroup',
+                        "DEBUG: UpdateGroupList master_before count=" . count($master) .
+                            " buffer_len=" . strlen($this->ReadAttributeString('GroupListBuffer')) .
+                            " prop_len=" . strlen($this->ReadPropertyString('GroupList'))
+                    );
+                    if (count($master) > 0) {
+                        IPS_LogMessage('SensorGroup', "DEBUG: UpdateGroupList master_before lastRow=" . json_encode(end($master)));
+                    }
+
                     // Load GroupIDMap to survive "readOnly/invisible column sends empty"
                     $stateData  = json_decode($this->ReadAttributeString('ClassStateAttribute'), true) ?: [];
                     $groupIDMap = $stateData['GroupIDMap'] ?? [];
                     if (!is_array($groupIDMap)) {
                         $groupIDMap = [];
                     }
+
+                    IPS_LogMessage('SensorGroup', "DEBUG: UpdateGroupList groupIDMap_count=" . count($groupIDMap));
 
                     // Build quick indexes for master
                     $idxById   = [];
@@ -469,10 +579,16 @@ class SensorGroup extends IPSModule
                         }
                     }
 
+                    $mergedExisting = 0;
+                    $addedNew = 0;
+
                     foreach ($rowsToProcess as $inRow) {
                         if (!is_array($inRow)) {
                             continue;
                         }
+
+                        // === DEBUG: log each incoming row ===
+                        IPS_LogMessage('SensorGroup', "DEBUG: UpdateGroupList inRow=" . json_encode($inRow));
 
                         // UI spacer is not persisted
                         unset($inRow['Spacer']);
@@ -482,6 +598,7 @@ class SensorGroup extends IPSModule
 
                         // Ignore empty placeholder rows
                         if ($gName === '') {
+                            IPS_LogMessage('SensorGroup', "DEBUG: UpdateGroupList skip empty GroupName row");
                             continue;
                         }
                         $inRow['GroupName'] = $gName;
@@ -490,13 +607,16 @@ class SensorGroup extends IPSModule
                         if ($gId === '') {
                             if (isset($groupIDMap[$gName]) && $groupIDMap[$gName] !== '') {
                                 $gId = (string)$groupIDMap[$gName];
+                                IPS_LogMessage('SensorGroup', "DEBUG: UpdateGroupList recovered GroupID={$gId} for GroupName={$gName}");
                             } else {
                                 $gId = uniqid('grp_');
                                 $groupIDMap[$gName] = $gId;
+                                IPS_LogMessage('SensorGroup', "DEBUG: UpdateGroupList assigned NEW GroupID={$gId} for GroupName={$gName}");
                             }
                             $inRow['GroupID'] = $gId;
                         } else {
                             $groupIDMap[$gName] = $gId;
+                            IPS_LogMessage('SensorGroup', "DEBUG: UpdateGroupList incoming GroupID={$gId} for GroupName={$gName}");
                         }
 
                         // Keyed merge: prefer GroupID, fallback to GroupName
@@ -504,6 +624,7 @@ class SensorGroup extends IPSModule
                             $pos = $idxById[$gId];
                             $master[$pos] = array_merge($master[$pos], $inRow);
                             $idxByName[$gName] = $pos;
+                            $mergedExisting++;
                             continue;
                         }
 
@@ -513,6 +634,7 @@ class SensorGroup extends IPSModule
                             if ($gId !== '') {
                                 $idxById[$gId] = $pos;
                             }
+                            $mergedExisting++;
                             continue;
                         }
 
@@ -523,7 +645,10 @@ class SensorGroup extends IPSModule
                         if ($gId !== '') {
                             $idxById[$gId] = $newPos;
                         }
+                        $addedNew++;
                     }
+
+                    IPS_LogMessage('SensorGroup', "DEBUG: UpdateGroupList merge_result mergedExisting={$mergedExisting} addedNew={$addedNew}");
 
                     // Persist back to buffer + property, and update GroupIDMap
                     $master = array_values($master);
@@ -544,7 +669,8 @@ class SensorGroup extends IPSModule
                     IPS_LogMessage(
                         'SensorGroup',
                         "DEBUG: UpdateGroupList END GroupListBufferLen=" . strlen($this->ReadAttributeString('GroupListBuffer')) .
-                            " GroupListPropertyLen=" . strlen($this->ReadPropertyString('GroupList'))
+                            " GroupListPropertyLen=" . strlen($this->ReadPropertyString('GroupList')) .
+                            " master_count=" . count($master)
                     );
 
                     $this->ReloadForm();
@@ -552,17 +678,26 @@ class SensorGroup extends IPSModule
                 }
 
             case 'DeleteGroupListItemByName': {
+                    IPS_LogMessage('SensorGroup', "DEBUG: DeleteGroupListItemByName START raw=" . (is_string($Value) ? $Value : json_encode($Value)));
+
                     $gNameToDelete = (string)$Value;
                     $master = json_decode($this->ReadAttributeString('GroupListBuffer'), true)
                         ?: json_decode($this->ReadPropertyString('GroupList'), true)
                         ?: [];
 
+                    IPS_LogMessage('SensorGroup', "DEBUG: DeleteGroupListItemByName master_before=" . (is_array($master) ? count($master) : -1));
+
                     $newMaster = [];
+                    $removed = 0;
                     foreach ($master as $row) {
                         if (($row['GroupName'] ?? '') !== $gNameToDelete) {
                             $newMaster[] = $row;
+                        } else {
+                            $removed++;
                         }
                     }
+
+                    IPS_LogMessage('SensorGroup', "DEBUG: DeleteGroupListItemByName removed={$removed} remaining=" . count($newMaster));
 
                     if ($gNameToDelete !== '') {
                         $stateData  = json_decode($this->ReadAttributeString('ClassStateAttribute'), true) ?: [];
@@ -571,12 +706,20 @@ class SensorGroup extends IPSModule
                             unset($groupIDMap[$gNameToDelete]);
                             $stateData['GroupIDMap'] = $groupIDMap;
                             $this->WriteAttributeString('ClassStateAttribute', json_encode($stateData));
+                            IPS_LogMessage('SensorGroup', "DEBUG: DeleteGroupListItemByName removed from GroupIDMap name={$gNameToDelete}");
                         }
                     }
 
                     $json = json_encode($newMaster);
                     $this->WriteAttributeString('GroupListBuffer', $json);
                     IPS_SetProperty($this->InstanceID, 'GroupList', $json);
+
+                    IPS_LogMessage(
+                        'SensorGroup',
+                        "DEBUG: DeleteGroupListItemByName END GroupListBufferLen=" . strlen($this->ReadAttributeString('GroupListBuffer')) .
+                            " GroupListPropertyLen=" . strlen($this->ReadPropertyString('GroupList'))
+                    );
+
                     $this->ReloadForm();
                     break;
                 }
@@ -731,8 +874,15 @@ class SensorGroup extends IPSModule
                     $this->UpdateFormField('ImportCandidates', 'values', json_encode($filtered));
                     break;
                 }
+
+            default: {
+                    // === DEBUG: catch unhandled idents ===
+                    IPS_LogMessage('SensorGroup', "DEBUG: RequestAction DEFAULT (unhandled Ident={$Ident})");
+                    break;
+                }
         }
     }
+
 
 
 
@@ -1052,23 +1202,55 @@ class SensorGroup extends IPSModule
 
     public function GetConfigurationForm()
     {
+        // === DEBUG: Enter GetConfigurationForm ===
+        IPS_LogMessage('SensorGroup', 'DEBUG: GetConfigurationForm ENTER InstanceID=' . $this->InstanceID);
+
         $form = json_decode(file_get_contents(__DIR__ . '/form.json'), true);
+
+        // === DEBUG: form.json loaded ===
+        IPS_LogMessage(
+            'SensorGroup',
+            'DEBUG: GetConfigurationForm form.json loaded ' .
+                'elements=' . (isset($form['elements']) && is_array($form['elements']) ? count($form['elements']) : -1) .
+                ' actions=' . (isset($form['actions']) && is_array($form['actions']) ? count($form['actions']) : 0)
+        );
 
         // Blueprint 2.0: Prioritize RAM Buffers (Source of Truth)
         $definedClasses = json_decode($this->ReadAttributeString('ClassListBuffer'), true) ?: json_decode($this->ReadPropertyString('ClassList'), true) ?: [];
-        $definedGroups = json_decode($this->ReadAttributeString('GroupListBuffer'), true) ?: json_decode($this->ReadPropertyString('GroupList'), true) ?: [];
+        $definedGroups  = json_decode($this->ReadAttributeString('GroupListBuffer'), true) ?: json_decode($this->ReadPropertyString('GroupList'), true) ?: [];
 
-        $sensorList = json_decode($this->ReadAttributeString('SensorListBuffer'), true) ?: json_decode($this->ReadPropertyString('SensorList'), true) ?: [];
-        $bedroomList = json_decode($this->ReadAttributeString('BedroomListBuffer'), true) ?: json_decode($this->ReadPropertyString('BedroomList'), true) ?: [];
+        // === DEBUG: initial source-of-truth counts ===
+        IPS_LogMessage(
+            'SensorGroup',
+            'DEBUG: GetConfigurationForm initial SoT counts ' .
+                'definedClasses=' . (is_array($definedClasses) ? count($definedClasses) : -1) .
+                ' definedGroups=' . (is_array($definedGroups) ? count($definedGroups) : -1) .
+                ' attr_ClassListBufferLen=' . strlen((string)$this->ReadAttributeString('ClassListBuffer')) .
+                ' prop_ClassListLen=' . strlen((string)$this->ReadPropertyString('ClassList')) .
+                ' attr_GroupListBufferLen=' . strlen((string)$this->ReadAttributeString('GroupListBuffer')) .
+                ' prop_GroupListLen=' . strlen((string)$this->ReadPropertyString('GroupList'))
+        );
+
+        $sensorList   = json_decode($this->ReadAttributeString('SensorListBuffer'), true) ?: json_decode($this->ReadPropertyString('SensorList'), true) ?: [];
+        $bedroomList  = json_decode($this->ReadAttributeString('BedroomListBuffer'), true) ?: json_decode($this->ReadPropertyString('BedroomList'), true) ?: [];
         $groupMembers = json_decode($this->ReadAttributeString('GroupMembersBuffer'), true) ?: json_decode($this->ReadPropertyString('GroupMembers'), true) ?: [];
+
+        // === DEBUG: other list counts ===
+        IPS_LogMessage(
+            'SensorGroup',
+            'DEBUG: GetConfigurationForm list counts ' .
+                'sensorList=' . (is_array($sensorList) ? count($sensorList) : -1) .
+                ' bedroomList=' . (is_array($bedroomList) ? count($bedroomList) : -1) .
+                ' groupMembers=' . (is_array($groupMembers) ? count($groupMembers) : -1)
+        );
 
         // Blueprint 2.0 - Step 2: Label Healing
         $metadata = $this->GetMasterMetadata();
         foreach ($sensorList as &$s) {
             $vid = $s['VariableID'] ?? 0;
             if (isset($metadata[$vid])) {
-                $s['DisplayID'] = $metadata[$vid]['DisplayID'];
-                $s['ParentName'] = $metadata[$vid]['ParentName'];
+                $s['DisplayID']       = $metadata[$vid]['DisplayID'];
+                $s['ParentName']      = $metadata[$vid]['ParentName'];
                 $s['GrandParentName'] = $metadata[$vid]['GrandParentName'];
             }
         }
@@ -1081,6 +1263,17 @@ class SensorGroup extends IPSModule
         $this->WriteAttributeString('BedroomListBuffer', json_encode($bedroomList));
         $this->WriteAttributeString('GroupMembersBuffer', json_encode($groupMembers));
 
+        // === DEBUG: after sync to RAM buffers ===
+        IPS_LogMessage(
+            'SensorGroup',
+            'DEBUG: GetConfigurationForm after buffer sync ' .
+                'attr_ClassListBufferLen=' . strlen((string)$this->ReadAttributeString('ClassListBuffer')) .
+                ' attr_GroupListBufferLen=' . strlen((string)$this->ReadAttributeString('GroupListBuffer')) .
+                ' attr_SensorListBufferLen=' . strlen((string)$this->ReadAttributeString('SensorListBuffer')) .
+                ' attr_BedroomListBufferLen=' . strlen((string)$this->ReadAttributeString('BedroomListBuffer')) .
+                ' attr_GroupMembersBufferLen=' . strlen((string)$this->ReadAttributeString('GroupMembersBuffer'))
+        );
+
         // Options for dynamic dropdowns
         $classOptions = [];
         foreach ($definedClasses as $c) {
@@ -1091,6 +1284,9 @@ class SensorGroup extends IPSModule
         }
         if (count($classOptions) == 0) $classOptions[] = ['caption' => '- No Classes -', 'value' => ''];
 
+        // === DEBUG: classOptions count ===
+        IPS_LogMessage('SensorGroup', 'DEBUG: GetConfigurationForm classOptions=' . count($classOptions));
+
         // Build list of containers to search (Elements and Actions)
         $sections = [&$form['elements']];
         if (isset($form['actions'])) $sections[] = &$form['actions'];
@@ -1099,22 +1295,34 @@ class SensorGroup extends IPSModule
             foreach ($elements as &$element) {
                 // --- STEP 2: DYNAMIC SENSORS ---
                 if (isset($element['name']) && $element['name'] === 'DynamicSensorContainer') {
+
+                    // === DEBUG: found DynamicSensorContainer ===
+                    IPS_LogMessage('SensorGroup', 'DEBUG: GetConfigurationForm found container DynamicSensorContainer; building class panels=' . count($definedClasses));
+
                     foreach ($definedClasses as $class) {
                         $classID = !empty($class['ClassID']) ? $class['ClassID'] : $class['ClassName'];
-                        $safeID = md5($classID);
+                        $safeID  = md5($classID);
                         $classSensors = array_values(array_filter($sensorList, function ($s) use ($classID) {
                             return ($s['ClassID'] ?? '') === $classID;
                         }));
+
+                        // === DEBUG: per-class sensors ===
+                        IPS_LogMessage(
+                            'SensorGroup',
+                            'DEBUG: GetConfigurationForm build sensors panel class=' . ($class['ClassName'] ?? '') .
+                                ' classID=' . $classID . ' safeID=' . $safeID . ' sensors=' . count($classSensors)
+                        );
+
                         $element['items'][] = [
-                            "type" => "ExpansionPanel",
+                            "type"    => "ExpansionPanel",
                             "caption" => $class['ClassName'] . " (" . count($classSensors) . ")",
-                            "items" => [[
-                                "type" => "List",
-                                "name" => "List_" . $safeID,
+                            "items"   => [[
+                                "type"    => "List",
+                                "name"    => "List_" . $safeID,
                                 "rowCount" => 8,
-                                "add" => false,
-                                "delete" => false,
-                                "onEdit" => "IPS_RequestAction(\$id, 'UPD_SENS_$safeID', json_encode(\$List_$safeID));",
+                                "add"     => false,
+                                "delete"  => false,
+                                "onEdit"  => "IPS_RequestAction(\$id, 'UPD_SENS_$safeID', json_encode(\$List_$safeID));",
                                 "columns" => [
                                     ["caption" => "ID", "name" => "DisplayID", "width" => "70px"],
                                     ["caption" => "Variable", "name" => "VariableID", "width" => "200px", "edit" => ["type" => "SelectVariable"]],
@@ -1124,7 +1332,7 @@ class SensorGroup extends IPSModule
                                     ["caption" => "Value", "name" => "ComparisonValue", "width" => "100px", "edit" => ["type" => "ValidationTextBox"]],
                                     ["caption" => "Action", "name" => "Action", "width" => "80px", "edit" => ["type" => "Button", "caption" => "Delete", "onClick" => "IPS_RequestAction(\$id, 'DEL_SENS_$safeID', \$VariableID);"]]
                                 ],
-                                "values" => $classSensors
+                                "values"  => $classSensors
                             ]]
                         ];
                     }
@@ -1132,47 +1340,66 @@ class SensorGroup extends IPSModule
 
                 // --- STEP 3a: DYNAMIC GROUP DEFINITIONS (Stateless) ---
                 if (isset($element['name']) && $element['name'] === 'DynamicGroupContainer') {
+
+                    // === DEBUG: found DynamicGroupContainer + confirm onEdit ===
+                    IPS_LogMessage(
+                        'SensorGroup',
+                        'DEBUG: GetConfigurationForm found container DynamicGroupContainer; injecting List_Groups with values=' . (is_array($definedGroups) ? count($definedGroups) : -1)
+                    );
+                    IPS_LogMessage(
+                        'SensorGroup',
+                        "DEBUG: GetConfigurationForm Step3 List_Groups onEdit=" . "IPS_RequestAction(\$id, 'UpdateGroupList', json_encode(\$List_Groups));"
+                    );
+
                     $element['items'][] = [
-                        "type" => "List",
-                        "name" => "List_Groups",
+                        "type"     => "List",
+                        "name"     => "List_Groups",
                         "rowCount" => 5,
-                        "add" => true,
-                        "delete" => false,
-                        "onEdit" => "IPS_RequestAction(\$id, 'UpdateGroupList', json_encode(\$List_Groups));",
-                        "columns" => [
+                        "add"      => true,
+                        "delete"   => false,
+                        "onEdit"   => "IPS_RequestAction(\$id, 'UpdateGroupList', json_encode(\$List_Groups));",
+                        "columns"  => [
                             ["caption" => "ID", "name" => "GroupID", "width" => "0px", "add" => "", "visible" => false],
                             ["caption" => "Group Name", "name" => "GroupName", "width" => "200px", "add" => "", "edit" => ["type" => "ValidationTextBox"]],
                             ["caption" => "Alignment Spacer", "name" => "Spacer", "width" => "200px", "add" => ""],
                             ["caption" => "Logic", "name" => "GroupLogic", "width" => "200px", "add" => 0, "edit" => ["type" => "Select", "options" => [["caption" => "OR (Any Member)", "value" => 0], ["caption" => "AND (All Members)", "value" => 1]]]],
                             ["caption" => "Action", "name" => "Action", "width" => "80px", "add" => "", "edit" => ["type" => "Button", "caption" => "Delete", "onClick" => "IPS_RequestAction(\$id, 'DeleteGroupListItemByName', '\$GroupName');"]]
                         ],
-                        "values" => $definedGroups
+                        "values"   => $definedGroups
                     ];
                 }
 
                 // --- STEP 3b: DYNAMIC BEDROOMS ---
                 if (isset($element['name']) && $element['name'] === 'DynamicBedroomContainer') {
+
+                    // === DEBUG: found DynamicBedroomContainer ===
+                    IPS_LogMessage('SensorGroup', 'DEBUG: GetConfigurationForm found container DynamicBedroomContainer; groups=' . (is_array($definedGroups) ? count($definedGroups) : -1));
+
                     foreach ($definedGroups as $group) {
                         $gName = $group['GroupName'];
                         $bedData = array_values(array_filter($bedroomList, function ($b) use ($gName) {
                             return ($b['GroupName'] ?? '') === $gName;
                         }));
+
+                        // === DEBUG: per-group bedroom rows ===
+                        IPS_LogMessage('SensorGroup', 'DEBUG: GetConfigurationForm build bedrooms panel group=' . $gName . ' rows=' . count($bedData));
+
                         $element['items'][] = [
-                            "type" => "ExpansionPanel",
+                            "type"    => "ExpansionPanel",
                             "caption" => "Group: " . $gName,
-                            "items" => [[
-                                "type" => "List",
-                                "name" => "Bed_" . md5($gName),
+                            "items"   => [[
+                                "type"     => "List",
+                                "name"     => "Bed_" . md5($gName),
                                 "rowCount" => 3,
-                                "add" => true,
-                                "delete" => false,
-                                "onEdit" => "IPS_RequestAction(\$id, 'UpdateBedroomProperty', json_encode(['GroupName' => '$gName', 'Values' => \$Bed_" . md5($gName) . "]));",
-                                "columns" => [
+                                "add"      => true,
+                                "delete"   => false,
+                                "onEdit"   => "IPS_RequestAction(\$id, 'UpdateBedroomProperty', json_encode(['GroupName' => '$gName', 'Values' => \$Bed_" . md5($gName) . "]));",
+                                "columns"  => [
                                     ["caption" => "Active Var (IPSView)", "name" => "ActiveVariableID", "width" => "200px", "add" => 0, "edit" => ["type" => "SelectVariable"]],
                                     ["caption" => "Door Class (Trigger)", "name" => "BedroomDoorClassID", "width" => "200px", "add" => "", "edit" => ["type" => "Select", "options" => $classOptions]],
                                     ["caption" => "Action", "name" => "Action", "width" => "80px", "add" => "", "edit" => ["type" => "Button", "caption" => "Delete", "onClick" => "IPS_RequestAction(\$id, 'DeleteBedroomListItemByVarID', '$gName||\$ActiveVariableID');"]]
                                 ],
-                                "values" => $bedData
+                                "values"   => $bedData
                             ]]
                         ];
                     }
@@ -1180,6 +1407,10 @@ class SensorGroup extends IPSModule
 
                 // --- STEP B: DYNAMIC GROUP MEMBERS (Checkbox Matrix Strategy) ---
                 if (isset($element['name']) && $element['name'] === 'DynamicGroupMemberContainer') {
+
+                    // === DEBUG: found DynamicGroupMemberContainer ===
+                    IPS_LogMessage('SensorGroup', 'DEBUG: GetConfigurationForm found container DynamicGroupMemberContainer; groups=' . (is_array($definedGroups) ? count($definedGroups) : -1) . ' classes=' . (is_array($definedClasses) ? count($definedClasses) : -1));
+
                     foreach ($definedGroups as $group) {
                         $gName = $group['GroupName'];
 
@@ -1201,22 +1432,25 @@ class SensorGroup extends IPSModule
                             ];
                         }
 
+                        // === DEBUG: per-group member matrix rows ===
+                        IPS_LogMessage('SensorGroup', 'DEBUG: GetConfigurationForm build members panel group=' . $gName . ' rows=' . count($matrixValues));
+
                         $element['items'][] = [
-                            "type" => "ExpansionPanel",
+                            "type"    => "ExpansionPanel",
                             "caption" => "Members for " . $gName,
-                            "items" => [[
-                                "type" => "List",
-                                "name" => "Mem_" . md5($gName),
+                            "items"   => [[
+                                "type"     => "List",
+                                "name"     => "Mem_" . md5($gName),
                                 "rowCount" => count($matrixValues),
-                                "add" => false,
-                                "delete" => false,
-                                "onEdit" => "IPS_RequestAction(\$id, 'UpdateMemberProperty', json_encode(['GroupName' => '$gName', 'Values' => \$Mem_" . md5($gName) . "]));",
-                                "columns" => [
+                                "add"      => false,
+                                "delete"   => false,
+                                "onEdit"   => "IPS_RequestAction(\$id, 'UpdateMemberProperty', json_encode(['GroupName' => '$gName', 'Values' => \$Mem_" . md5($gName) . "]));",
+                                "columns"  => [
                                     ["caption" => "Class Name", "name" => "ClassName", "width" => "300px"],
                                     ["caption" => "ID", "name" => "ClassID", "width" => "0px", "visible" => false],
                                     ["caption" => "Assigned", "name" => "Assigned", "width" => "100px", "edit" => ["type" => "CheckBox"]]
                                 ],
-                                "values" => $matrixValues
+                                "values"   => $matrixValues
                             ]]
                         ];
                     }
@@ -1227,8 +1461,12 @@ class SensorGroup extends IPSModule
         $this->UpdateFormOption($form['elements'], 'ImportClass', $classOptions);
         if (isset($form['actions'])) $this->UpdateFormOption($form['actions'], 'ImportClass', $classOptions);
 
+        // === DEBUG: exit GetConfigurationForm ===
+        IPS_LogMessage('SensorGroup', 'DEBUG: GetConfigurationForm EXIT returning json');
+
         return json_encode($form);
     }
+
 
     public function UI_LoadBackup()
     {
