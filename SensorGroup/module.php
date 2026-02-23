@@ -776,25 +776,34 @@ class SensorGroup extends IPSModule
             case 'UpdateBedroomProperty': {
                     $data = json_decode($Value, true);
                     $gName = $data['GroupName'] ?? '';
-                    $newValues = (isset($data['Values']['ActiveVariableID'])) ? [$data['Values']] : ($data['Values'] ?? []);
+
+                    $newValues = $data['Values'] ?? [];
+                    if (isset($newValues['ActiveVariableID'])) {
+                        $newValues = [$newValues];
+                    } else {
+                        $newValues = array_values($newValues);
+                    }
+
                     $master = json_decode($this->ReadAttributeString('BedroomListBuffer'), true)
                         ?: json_decode($this->ReadPropertyString('BedroomList'), true)
                         ?: [];
+
                     $others = array_values(array_filter($master, function ($b) use ($gName) {
                         return ($b['GroupName'] ?? '') !== $gName;
                     }));
+
                     foreach ($newValues as &$row) {
                         if (is_array($row)) {
                             $row['GroupName'] = $gName;
                         }
                     }
                     unset($row);
+
                     $json = json_encode(array_merge($others, (array)$newValues));
                     $this->WriteAttributeString('BedroomListBuffer', $json);
                     IPS_SetProperty($this->InstanceID, 'BedroomList', $json);
                     break;
                 }
-
             case 'DeleteBedroomListItemByVarID': {
                     $parts = explode('||', (string)$Value);
                     $gName = $parts[0] ?? '';
