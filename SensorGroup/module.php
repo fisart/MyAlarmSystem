@@ -1266,8 +1266,10 @@ class SensorGroup extends IPSModule
         $definedClasses = json_decode($this->ReadPropertyString('ClassList'), true)
             ?: json_decode($this->ReadAttributeString('ClassListBuffer'), true)
             ?: [];
-        $definedGroups  = json_decode($this->ReadAttributeString('GroupListBuffer'), true) ?: json_decode($this->ReadPropertyString('GroupList'), true) ?: [];
-        // DEBUG: show raw sources (buffer vs property)
+
+        $definedGroups  = json_decode($this->ReadPropertyString('GroupList'), true)
+            ?: json_decode($this->ReadAttributeString('GroupListBuffer'), true)
+            ?: [];        // DEBUG: show raw sources (buffer vs property)
         IPS_LogMessage('SensorGroup', 'DEBUG: ClassListBuffer RAW=' . $this->ReadAttributeString('ClassListBuffer'));
         IPS_LogMessage('SensorGroup', 'DEBUG: ClassListProperty RAW=' . $this->ReadPropertyString('ClassList'));
         // === DEBUG: initial source-of-truth counts ===
