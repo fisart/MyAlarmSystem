@@ -91,10 +91,9 @@ class SensorGroup extends IPSModule
         // === END AGREED CHANGE ===
 
         // 1. LIFECYCLE: ID STABILIZATION (Sticky IDs)
-        $classList = json_decode($this->ReadAttributeString('ClassListBuffer'), true)
-            ?: json_decode($this->ReadPropertyString('ClassList'), true)
+        $classList = json_decode($this->ReadPropertyString('ClassList'), true)
+            ?: json_decode($this->ReadAttributeString('ClassListBuffer'), true)
             ?: [];
-
         // FIX: Prioritize Buffer for stateless Group definitions to prevent GC wipeout
         $groupList = json_decode($this->ReadAttributeString('GroupListBuffer'), true) ?: json_decode($this->ReadPropertyString('GroupList'), true) ?: [];
 
