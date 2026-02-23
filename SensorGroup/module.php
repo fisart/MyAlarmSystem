@@ -1363,7 +1363,7 @@ class SensorGroup extends IPSModule
                             ["caption" => "Group Name", "name" => "GroupName", "width" => "200px", "add" => "", "edit" => ["type" => "ValidationTextBox"]],
                             ["caption" => "Alignment Spacer", "name" => "Spacer", "width" => "200px", "add" => ""],
                             ["caption" => "Logic", "name" => "GroupLogic", "width" => "200px", "add" => 0, "edit" => ["type" => "Select", "options" => [["caption" => "OR (Any Member)", "value" => 0], ["caption" => "AND (All Members)", "value" => 1]]]],
-                            ["caption" => "Action", "name" => "Action", "width" => "80px", "add" => "", "edit" => ["type" => "Button", "caption" => "Delete", "onClick" => "IPS_RequestAction(\$id, 'DeleteGroupListItemByName', '\$GroupName');"]]
+                            ["caption" => "Action", "name" => "Action", "width" => "80px", "add" => "", "edit" => ["type" => "Button", "caption" => "Delete", "onClick" => "IPS_RequestAction(\$id, 'DeleteGroupListItemByName', \$GroupName);"]]
                         ],
                         "values"   => $definedGroups
                     ];
