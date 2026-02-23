@@ -42,6 +42,54 @@ class SensorGroup extends IPSModule
         if (count($gProp) > 0) $this->LogMessage("DEBUG: ApplyChanges - LastPropGroup=" . json_encode(end($gProp)), KL_MESSAGE);
         if (count($gBuf) > 0)  $this->LogMessage("DEBUG: ApplyChanges - LastBufGroup=" . json_encode(end($gBuf)), KL_MESSAGE);
 
+        // === AGREED CHANGE: Heal missing GroupID after APPLY (in case UI Add popup didn't trigger onEdit/RequestAction) ===
+        $stateData_tmp  = json_decode($this->ReadAttributeString('ClassStateAttribute'), true) ?: [];
+        $groupIDMap_tmp = $stateData_tmp['GroupIDMap'] ?? [];
+        if (!is_array($groupIDMap_tmp)) {
+            $groupIDMap_tmp = [];
+        }
+
+        $groupIDsFixed = false;
+
+        if (is_array($gProp)) {
+            foreach ($gProp as $i => &$gRow) {
+                if (!is_array($gRow)) {
+                    continue;
+                }
+                $gName = trim((string)($gRow['GroupName'] ?? ''));
+                if ($gName === '') {
+                    continue;
+                }
+
+                $gId = (string)($gRow['GroupID'] ?? '');
+
+                if ($gId === '') {
+                    if (isset($groupIDMap_tmp[$gName]) && (string)$groupIDMap_tmp[$gName] !== '') {
+                        $gId = (string)$groupIDMap_tmp[$gName];
+                    } else {
+                        $gId = uniqid('grp_');
+                    }
+                    $gRow['GroupID'] = $gId;
+                    $groupIDsFixed = true;
+                }
+
+                $groupIDMap_tmp[$gName] = $gId;
+            }
+            unset($gRow);
+        }
+
+        if ($groupIDsFixed) {
+            $stateData_tmp['GroupIDMap'] = $groupIDMap_tmp;
+            $this->WriteAttributeString('ClassStateAttribute', json_encode($stateData_tmp));
+
+            $json_fixed = json_encode(array_values($gProp));
+            IPS_SetProperty($this->InstanceID, 'GroupList', $json_fixed);
+            $this->WriteAttributeString('GroupListBuffer', $json_fixed);
+
+            $this->LogMessage("DEBUG: ApplyChanges - Healed missing GroupIDs in GroupListProperty and synced GroupListBuffer", KL_MESSAGE);
+        }
+        // === END AGREED CHANGE ===
+
         // 1. LIFECYCLE: ID STABILIZATION (Sticky IDs)
         $classList = json_decode($this->ReadAttributeString('ClassListBuffer'), true)
             ?: json_decode($this->ReadPropertyString('ClassList'), true)
@@ -143,7 +191,6 @@ class SensorGroup extends IPSModule
             }
         }
 
-
         // UI Glitch Notification
         $totalClasses = count($classList);
         $totalGroups = count($groupList);
@@ -169,7 +216,6 @@ class SensorGroup extends IPSModule
         $stateData['IDMap'] = $idMap;
         $stateData['GroupIDMap'] = $groupIDMap;
         $this->WriteAttributeString('ClassStateAttribute', json_encode($stateData));
-
 
         if ($idsChanged) {
             IPS_SetProperty($this->InstanceID, 'ClassList', json_encode($classList));
@@ -1357,7 +1403,6 @@ class SensorGroup extends IPSModule
                         "rowCount" => 5,
                         "add"      => true,
                         "delete"   => false,
-                        "onEdit"   => "IPS_RequestAction(\$id, 'UpdateGroupList', json_encode(\$List_Groups));",
                         "columns"  => [
                             ["caption" => "ID", "name" => "GroupID", "width" => "0px", "add" => "", "visible" => false],
                             ["caption" => "Group Name", "name" => "GroupName", "width" => "200px", "add" => "", "edit" => ["type" => "ValidationTextBox"]],
