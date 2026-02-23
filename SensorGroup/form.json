@@ -21,19 +21,20 @@
                 { "type": "List", "name": "TamperList", "caption": "Tamper Sensors", "add": true, "delete": true, "columns": [ { "caption": "Variable", "name": "VariableID", "width": "200px", "add": 0, "edit": { "type": "SelectVariable" } }, { "caption": "Invert", "name": "Invert", "width": "100px", "add": false, "edit": { "type": "CheckBox" } } ] }
             ]
         },
-        { "type": "CheckBox", "name": "MaintenanceMode", "caption": "Maintenance Mode" }
-    ],
-    "actions": [
-        {
-  "type": "Button",
-  "caption": "COMMIT ALL CHANGES TO DISK",
-  "onClick": "MYALARM_SaveConfiguration($id);"
-}
-,
+
         { "type": "Label", "caption": "3. GROUP MANAGEMENT (Stateless)" },
         { "type": "ExpansionPanel", "name": "DynamicGroupContainer", "caption": "Step 3a: Create and Edit Groups", "items": [] },
         { "type": "ExpansionPanel", "name": "DynamicBedroomContainer", "caption": "Step 3b: Bedroom Behavioral Settings", "items": [] },
         { "type": "ExpansionPanel", "name": "DynamicGroupMemberContainer", "caption": "Step B: Assign Classes to Groups", "items": [] },
+
+        { "type": "CheckBox", "name": "MaintenanceMode", "caption": "Maintenance Mode" }
+    ],
+    "actions": [
+        {
+            "type": "Button",
+            "caption": "COMMIT ALL CHANGES TO DISK",
+            "onClick": "MYALARM_SaveConfiguration($id);"
+        },
         { "type": "ExpansionPanel", "caption": "BULK IMPORT WIZARD", "items": [
                 { "type": "Label", "caption": "Scan for sensors and assign them to a Class defined above." },
                 { "type": "SelectObject", "name": "ImportRootID", "caption": "Search Root" },
