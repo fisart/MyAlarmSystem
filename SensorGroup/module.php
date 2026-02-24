@@ -1126,6 +1126,28 @@ class SensorGroup extends IPSModule
         $tamperList = json_decode($this->ReadPropertyString('TamperList'), true);
         $groupList = json_decode($this->ReadPropertyString('GroupList'), true);
         $groupMembers = json_decode($this->ReadPropertyString('GroupMembers'), true);
+        if ((int)$TriggeringID === 17847) {
+            $rawClass = (string)$this->ReadPropertyString('ClassList');
+            $rawSens  = (string)$this->ReadPropertyString('SensorList');
+            $rawGroup = (string)$this->ReadPropertyString('GroupList');
+            $rawMem   = (string)$this->ReadPropertyString('GroupMembers');
+
+            $this->LogMessage("RAW: ClassList(len=" . strlen($rawClass) . ")=" . substr($rawClass, 0, 500), KL_MESSAGE);
+            $this->LogMessage("RAW: SensorList(len=" . strlen($rawSens) . ")=" . substr($rawSens, 0, 500), KL_MESSAGE);
+            $this->LogMessage("RAW: GroupList(len=" . strlen($rawGroup) . ")=" . substr($rawGroup, 0, 500), KL_MESSAGE);
+            $this->LogMessage("RAW: GroupMembers(len=" . strlen($rawMem) . ")=" . substr($rawMem, 0, 500), KL_MESSAGE);
+
+            // Also log exact IDs used for matching (first entries)
+            $this->LogMessage(
+                "RAW: FirstIDs classID=" . json_encode($classList[0]['ClassID'] ?? null) .
+                    " className=" . json_encode($classList[0]['ClassName'] ?? null) .
+                    " sensorVID=" . json_encode($sensorList[0]['VariableID'] ?? null) .
+                    " sensorClassID=" . json_encode($sensorList[0]['ClassID'] ?? null) .
+                    " memGroup=" . json_encode($groupMembers[0]['GroupName'] ?? null) .
+                    " memClassID=" . json_encode($groupMembers[0]['ClassID'] ?? null),
+                KL_MESSAGE
+            );
+        }
         $trigVal = null;
         $trigType = 'n/a';
         if ($TriggeringID > 0 && IPS_VariableExists($TriggeringID)) {
