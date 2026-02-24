@@ -1288,6 +1288,21 @@ class SensorGroup extends IPSModule
                 'trigger_details' => $primaryPayload
             ];
             $this->SetValue('EventData', json_encode($payload));
+        } else {
+            // === NEW: Explicit Reset Payload to clear stale data ===
+            $payload = [
+                'event_id' => uniqid(),
+                'timestamp' => time(),
+                'source_id' => $this->InstanceID,
+                'source_name' => IPS_GetName($this->InstanceID),
+                'primary_class' => '',
+                'primary_group' => '',
+                'active_classes' => [],
+                'active_groups' => [],
+                'is_maintenance' => $this->ReadPropertyBoolean('MaintenanceMode'),
+                'trigger_details' => null
+            ];
+            $this->SetValue('EventData', json_encode($payload));
         }
     }
 
