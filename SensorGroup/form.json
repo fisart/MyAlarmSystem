@@ -28,6 +28,7 @@
         { "type": "ExpansionPanel", "name": "DynamicGroupMemberContainer", "caption": "Step B: Assign Classes to Groups", "items": [] },
 
         { "type": "CheckBox", "name": "MaintenanceMode", "caption": "Maintenance Mode" },
+        { "type": "CheckBox", "name": "DebugMode", "caption": "Debug Logging" },
        {
   "type": "List",
   "name": "BedroomList",
