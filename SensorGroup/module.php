@@ -1137,7 +1137,6 @@ class SensorGroup extends IPSModule
                 $classNameMap[$classID] = $className;
 
                 $logicMode = $classDef['LogicMode'];
-                // NEW: Read the LabelMode setting (default to 0=Name)
                 $labelMode = $classDef['LabelMode'] ?? 0;
 
                 if (!isset($classStates[$classID])) $classStates[$classID] = ['Buffer' => []];
@@ -1160,9 +1159,12 @@ class SensorGroup extends IPSModule
                     $match = $this->CheckSensorRule($s);
                     if ($match) {
                         $activeCount++;
-                        // Inside CheckLogic, update the $lastTriggerDetails block:
-                        if (($s['VariableID'] ?? 0) == $TriggeringID) {
-                            $triggerInClass = true;
+
+                        // === BUGFIX 1: Capture details for ANY active sensor, prioritize specific trigger ===
+                        if ($lastTriggerDetails === null || ($s['VariableID'] ?? 0) == $TriggeringID) {
+                            if (($s['VariableID'] ?? 0) == $TriggeringID) {
+                                $triggerInClass = true;
+                            }
                             $parentID = IPS_GetParent($s['VariableID']);
                             $grandParentID = ($parentID > 0) ? IPS_GetParent($parentID) : 0;
 
@@ -1173,7 +1175,7 @@ class SensorGroup extends IPSModule
                                 'class_id'    => $classID,
                                 'var_name'    => IPS_GetName($s['VariableID']),
                                 'parent_name' => ($parentID > 0) ? IPS_GetName($parentID) : "Root",
-                                'grandparent_name' => ($grandParentID > 0) ? IPS_GetName($grandParentID) : "", // NEW
+                                'grandparent_name' => ($grandParentID > 0) ? IPS_GetName($grandParentID) : "",
                                 'value_human' => GetValueFormatted($s['VariableID']),
                                 'smart_label' => $this->GetSmartLabel($s['VariableID'], $labelMode)
                             ];
@@ -1208,7 +1210,7 @@ class SensorGroup extends IPSModule
 
         $primaryPayload = null;
         $mainStatus = false;
-        $activeGroups = []; // Track names of active groups
+        $activeGroups = [];
 
         $mergedGroups = [];
         if (is_array($groupList)) {
@@ -1230,7 +1232,6 @@ class SensorGroup extends IPSModule
             }
         }
 
-        $firstGroupProcessed = false;
         foreach ($mergedGroups as $gName => $gData) {
             $gClasses = $gData['Classes'];
             $gLogic = $gData['Logic'];
@@ -1249,47 +1250,41 @@ class SensorGroup extends IPSModule
                 if ($gLogic == 0) $groupActive = ($activeClassCount > 0);
                 elseif ($gLogic == 1) $groupActive = ($activeClassCount == $targetClassCount);
             }
-            IPS_LogMessage('SensorGroup', 'DEBUG: CheckLogic SanitizeIdent input type=' . gettype($gName) . ' value=' . json_encode($gName));
+
             $ident = "Status_" . $this->SanitizeIdent($gName);
             if (@$this->GetIDForIdent($ident)) $this->SetValue($ident, $groupActive);
 
             if ($groupActive) {
                 $activeGroups[] = $gName;
-            }
-
-            if (!$firstGroupProcessed) {
-                $mainStatus = $groupActive;
-                $firstGroupProcessed = true;
+                // === BUGFIX 2: Global status is TRUE if ANY group is active ===
+                $mainStatus = true;
             }
         }
 
         $this->SetValue('Status', $mainStatus);
 
-        if ($mainStatus && $primaryPayload) {
+        // === BUGFIX 3: Removed strict check for $primaryPayload, relies cleanly on mainStatus ===
+        if ($mainStatus) {
             $readableActiveClasses = [];
             foreach (array_keys($activeClasses) as $aid) {
                 $readableActiveClasses[] = $classNameMap[$aid] ?? $aid;
             }
 
-            // NEW: Updated JSON Structure matching Tier 2 Requirements
             $payload = [
                 'event_id' => uniqid(),
                 'timestamp' => time(),
-                'source_id' => $this->InstanceID, // Added Source ID
+                'source_id' => $this->InstanceID,
                 'source_name' => IPS_GetName($this->InstanceID),
-
                 'primary_class' => $primaryPayload['tag'] ?? 'General',
-                'primary_group' => $activeGroups[0] ?? 'General', // Added Primary Group
-
+                'primary_group' => $activeGroups[0] ?? 'General',
                 'active_classes' => $readableActiveClasses,
-                'active_groups' => $activeGroups, // Added List of Active Groups
-
+                'active_groups' => $activeGroups,
                 'is_maintenance' => $this->ReadPropertyBoolean('MaintenanceMode'),
                 'trigger_details' => $primaryPayload
             ];
             $this->SetValue('EventData', json_encode($payload));
         } else {
-            // === NEW: Explicit Reset Payload to clear stale data ===
+            // Explicit Reset Payload
             $payload = [
                 'event_id' => uniqid(),
                 'timestamp' => time(),
