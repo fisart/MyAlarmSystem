@@ -1786,8 +1786,10 @@ class SensorGroup extends IPSModule
                 IPS_SetProperty($this->InstanceID, $key, $json);
 
                 // Blueprint 2.0: Sync RAM Buffers to ensure dynamic folders show restored data immediately
-                if ($key === 'SensorList') $this->WriteAttributeString('SensorListBuffer', $json);
-                if ($key === 'BedroomList') $this->WriteAttributeString('BedroomListBuffer', $json);
+                if ($key === 'ClassList')    $this->WriteAttributeString('ClassListBuffer', $json);
+                if ($key === 'GroupList')    $this->WriteAttributeString('GroupListBuffer', $json);
+                if ($key === 'SensorList')   $this->WriteAttributeString('SensorListBuffer', $json);
+                if ($key === 'BedroomList')  $this->WriteAttributeString('BedroomListBuffer', $json);
                 if ($key === 'GroupMembers') $this->WriteAttributeString('GroupMembersBuffer', $json);
 
                 $restoredCount++;
@@ -1796,6 +1798,7 @@ class SensorGroup extends IPSModule
 
         if ($restoredCount > 0) {
             IPS_ApplyChanges($this->InstanceID);
+            $this->ReloadForm();
             echo "Configuration restored successfully.";
         } else {
             echo "No valid configuration keys found.";
