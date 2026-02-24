@@ -1217,6 +1217,16 @@ class SensorGroup extends IPSModule
 
                 foreach ($classSensors as $s) {
                     $match = $this->CheckSensorRule($s);
+                    $this->LogMessage(
+                        "CHK: AND_EVAL class=" . json_encode($className) .
+                            " vid=" . (int)($s['VariableID'] ?? 0) .
+                            " curType=" . (IPS_VariableExists((int)($s['VariableID'] ?? 0)) ? gettype(GetValue((int)$s['VariableID'])) : 'NA') .
+                            " curVal=" . (IPS_VariableExists((int)($s['VariableID'] ?? 0)) ? json_encode(GetValue((int)$s['VariableID'])) : 'NA') .
+                            " op=" . json_encode($s['Operator'] ?? null) .
+                            " target=" . json_encode($s['ComparisonValue'] ?? null) .
+                            " match=" . (int)$match,
+                        KL_MESSAGE
+                    );
                     if ($TriggeringID > 0 && (int)($s['VariableID'] ?? 0) === (int)$TriggeringID) {
                         $curVal = null;
                         $curType = 'n/a';
