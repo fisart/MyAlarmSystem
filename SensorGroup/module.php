@@ -1084,6 +1084,22 @@ class SensorGroup extends IPSModule
 
     public function MessageSink($TimeStamp, $SenderID, $Message, $Data)
     {
+        $val = null;
+        $valType = 'n/a';
+        $valFmt = 'n/a';
+
+        if (IPS_VariableExists($SenderID)) {
+            $val = GetValue($SenderID);
+            $valType = gettype($val);
+            $valFmt = @GetValueFormatted($SenderID);
+        }
+
+        $this->LogMessage(
+            "MSINK: InstanceID={$this->InstanceID} SenderID={$SenderID} Msg={$Message} ValType={$valType} Val=" . json_encode($val) .
+                " ValFmt=" . json_encode($valFmt) . " TS={$TimeStamp}",
+            KL_MESSAGE
+        );
+
         $this->CheckLogic($SenderID);
     }
 
@@ -1110,7 +1126,22 @@ class SensorGroup extends IPSModule
         $tamperList = json_decode($this->ReadPropertyString('TamperList'), true);
         $groupList = json_decode($this->ReadPropertyString('GroupList'), true);
         $groupMembers = json_decode($this->ReadPropertyString('GroupMembers'), true);
+        $trigVal = null;
+        $trigType = 'n/a';
+        if ($TriggeringID > 0 && IPS_VariableExists($TriggeringID)) {
+            $trigVal = GetValue($TriggeringID);
+            $trigType = gettype($trigVal);
+        }
 
+        $this->LogMessage(
+            "CHK: ENTER TrigID={$TriggeringID} TrigType={$trigType} TrigVal=" . json_encode($trigVal) .
+                " classes=" . (is_array($classList) ? count($classList) : -1) .
+                " sensors=" . (is_array($sensorList) ? count($sensorList) : -1) .
+                " groups=" . (is_array($groupList) ? count($groupList) : -1) .
+                " members=" . (is_array($groupMembers) ? count($groupMembers) : -1) .
+                " maint=" . (int)$this->ReadPropertyBoolean('MaintenanceMode'),
+            KL_MESSAGE
+        );
         $classStates = json_decode($this->ReadAttributeString('ClassStateAttribute'), true);
         if (!is_array($classStates)) $classStates = [];
 
@@ -1157,6 +1188,23 @@ class SensorGroup extends IPSModule
 
                 foreach ($classSensors as $s) {
                     $match = $this->CheckSensorRule($s);
+                    if ($TriggeringID > 0 && (int)($s['VariableID'] ?? 0) === (int)$TriggeringID) {
+                        $curVal = null;
+                        $curType = 'n/a';
+                        if (IPS_VariableExists($TriggeringID)) {
+                            $curVal = GetValue($TriggeringID);
+                            $curType = gettype($curVal);
+                        }
+
+                        $this->LogMessage(
+                            "CHK: EVAL TrigSensor vid={$TriggeringID} class={$className} classID={$classID}" .
+                                " op=" . (string)($s['Operator'] ?? '') .
+                                " target=" . json_encode($s['ComparisonValue'] ?? null) .
+                                " curType={$curType} curVal=" . json_encode($curVal) .
+                                " match=" . (int)$match,
+                            KL_MESSAGE
+                        );
+                    }
                     if ($match) {
                         $activeCount++;
 
@@ -1250,7 +1298,11 @@ class SensorGroup extends IPSModule
                 if ($gLogic == 0) $groupActive = ($activeClassCount > 0);
                 elseif ($gLogic == 1) $groupActive = ($activeClassCount == $targetClassCount);
             }
-
+            $this->LogMessage(
+                "CHK: GROUP g=" . json_encode($gName) .
+                    " logic={$gLogic} activeClasses={$activeClassCount}/{$targetClassCount} active=" . (int)$groupActive,
+                KL_MESSAGE
+            );
             $ident = "Status_" . $this->SanitizeIdent($gName);
             if (@$this->GetIDForIdent($ident)) $this->SetValue($ident, $groupActive);
 
@@ -1262,7 +1314,13 @@ class SensorGroup extends IPSModule
         }
 
         $this->SetValue('Status', $mainStatus);
-
+        $this->LogMessage(
+            "CHK: RESULT main=" . (int)$mainStatus .
+                " activeGroups=" . json_encode($activeGroups) .
+                " activeClassIDs=" . json_encode(array_keys($activeClasses)) .
+                " primaryNull=" . (int)($primaryPayload === null),
+            KL_MESSAGE
+        );
         // === BUGFIX 3: Removed strict check for $primaryPayload, relies cleanly on mainStatus ===
         if ($mainStatus) {
             $readableActiveClasses = [];
