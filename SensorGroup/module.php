@@ -1180,7 +1180,14 @@ class SensorGroup extends IPSModule
                         }
                     }
                 }
-
+                $this->LogMessage(
+                    "CHK: CLASS className=" . json_encode($className) .
+                        " classID=" . json_encode($classID) .
+                        " sensorsInClass=" . count($classSensors) .
+                        " firstSensorClassID=" . json_encode($sensorList[0]['ClassID'] ?? null) .
+                        " firstSensorVID=" . json_encode($sensorList[0]['VariableID'] ?? null),
+                    KL_MESSAGE
+                );
                 $activeCount = 0;
                 $total = count($classSensors);
                 $triggerInClass = false;
