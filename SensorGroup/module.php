@@ -261,14 +261,14 @@ class SensorGroup extends IPSModule
         // Keep properties in sync (so backup/restore + Apply works)
         IPS_SetProperty($this->InstanceID, 'DispatchTargets', $jsonTargets);
         IPS_SetProperty($this->InstanceID, 'GroupDispatch',  $jsonDispatch);
-if ($this->ReadPropertyBoolean('DebugMode')) {
-    $this->LogMessage(
-        "DEBUG: ApplyChanges - Router Sync targets=" . count($dispatchTargets) .
-        " routes=" . count($cleanDispatch),
-        KL_MESSAGE
-    );
-}
+        if ($this->ReadPropertyBoolean('DebugMode')) {
+            $this->LogMessage(
+                "DEBUG: ApplyChanges - Router Sync targets=" . count($dispatchTargets) .
+                    " routes=" . count($cleanDispatch),
+                KL_MESSAGE
+            );
         }
+
         foreach (array_keys($groupIDMap) as $mappedGroupName) {
             if (!in_array($mappedGroupName, $validGroupNames, true)) {
                 unset($groupIDMap[$mappedGroupName]);
@@ -1188,9 +1188,9 @@ if ($this->ReadPropertyBoolean('DebugMode')) {
         $groupMembers = json_decode($this->ReadAttributeString('GroupMembersBuffer'), true) ?: [];
         $dispatchTargets = json_decode($this->ReadAttributeString('DispatchTargetsBuffer'), true) ?: [];
         if ($this->ReadPropertyBoolean('DebugMode')) $this->LogMessage(
-        "DEBUG: COMMIT PRECHECK - ClassListBuffer firstRow=" . json_encode($classList[0] ?? null),
-        KL_MESSAGE
-    );
+            "DEBUG: COMMIT PRECHECK - ClassListBuffer firstRow=" . json_encode($classList[0] ?? null),
+            KL_MESSAGE
+        );
         // DEBUG: Compare buffer vs property just before COMMIT writes anything
         $propGroupList = json_decode($this->ReadPropertyString('GroupList'), true) ?: [];
         if ($this->ReadPropertyBoolean('DebugMode')) $this->LogMessage(
