@@ -14,7 +14,6 @@ class SensorGroup extends IPSModule
         $this->RegisterPropertyString('TamperList', '[]');
         $this->RegisterPropertyString('BedroomList', '[]');
         $this->RegisterPropertyString('GroupDispatch', '[]');
-        $this->RegisterPropertyString('DispatchTargets', '[]');
         $this->RegisterPropertyBoolean('MaintenanceMode', false);
         $this->RegisterPropertyBoolean('DebugMode', false);
 
