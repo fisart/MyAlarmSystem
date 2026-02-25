@@ -53,7 +53,7 @@ class SensorGroup extends IPSModule
         if (count($gProp) > 0) if ($this->ReadPropertyBoolean('DebugMode')) $this->LogMessage("DEBUG: ApplyChanges - LastPropGroup=" . json_encode(end($gProp)), KL_MESSAGE);
         if (count($gBuf) > 0)  if ($this->ReadPropertyBoolean('DebugMode')) $this->LogMessage("DEBUG: ApplyChanges - LastBufGroup=" . json_encode(end($gBuf)), KL_MESSAGE);
 
-        // === AGREED CHANGE: Heal missing GroupID after APPLY (in case UI Add popup didn't trigger onEdit/RequestAction) ===
+        // === AGREED and CHANGE: Heal missing GroupID after APPLY (in case UI Add popup didn't trigger onEdit/RequestAction) ===
         $stateData_tmp  = json_decode($this->ReadAttributeString('ClassStateAttribute'), true) ?: [];
         $groupIDMap_tmp = $stateData_tmp['GroupIDMap'] ?? [];
         if (!is_array($groupIDMap_tmp)) {
