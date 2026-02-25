@@ -24,7 +24,7 @@ class SensorGroup extends IPSModule
         $this->RegisterAttributeString('BedroomListBuffer', '[]');
         $this->RegisterAttributeString('GroupMembersBuffer', '[]');
         $this->RegisterAttributeString('GroupDispatchBuffer', '[]');
-        $this->RegisterAttributeString('DispatchTargetsBuffer', '[]');
+
 
         $this->RegisterAttributeString('ClassStateAttribute', '{}');
         $this->RegisterAttributeString('ScanCache', '[]');
