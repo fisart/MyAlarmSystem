@@ -1728,6 +1728,7 @@ class SensorGroup extends IPSModule
                     $this->LogMessage("DISPATCH ERROR: Target {$iid} refused payload. Missing ReceivePayload action?", KL_WARNING);
                 }
             }
+            }
                 
          else {
             // Explicit Reset Payload
