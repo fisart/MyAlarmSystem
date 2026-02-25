@@ -1775,41 +1775,32 @@ GroupDispatch: [
         $targetOptions = [
             ['caption' => '- Select target -', 'value' => 0]
         ];
-        $seenTargetIDs = [];
 
         foreach ($dispatchTargets as $t) {
             if (!is_array($t)) {
                 continue;
             }
 
-            $nameRaw = $t['Name'] ?? '';
-            $iidRaw  = $t['InstanceID'] ?? 0;
+            $name = trim((string)($t['Name'] ?? ''));
 
-            // Normalize InstanceID safely
+            // Normalize InstanceID safely (accept numeric strings too)
+            $iidRaw = $t['InstanceID'] ?? 0;
             $iid = is_numeric($iidRaw) ? (int)$iidRaw : 0;
             if ($iid <= 0) {
                 continue;
             }
 
-            // Only offer existing instances in the dropdown
-            if (!IPS_InstanceExists($iid)) {
-                continue;
+            // Build caption even if instance is missing (don't filter it out)
+            if (IPS_InstanceExists($iid)) {
+                $instCaption = IPS_GetName($iid);
+            } else {
+                $instCaption = 'Missing Instance #' . $iid;
             }
 
-            // De-dup by InstanceID
-            if (isset($seenTargetIDs[$iid])) {
-                continue;
-            }
-            $seenTargetIDs[$iid] = true;
-
-            $name = trim((string)$nameRaw);
-
-            $instCaption = IPS_GetName($iid);
             $cap = ($name !== '') ? ($name . ' (' . $instCaption . ')') : $instCaption;
 
             $targetOptions[] = ['caption' => $cap, 'value' => $iid];
         }
-
         // If only the default entry exists, show "No Targets"
         if (count($targetOptions) === 1) {
             $targetOptions = [['caption' => '- No Targets -', 'value' => 0]];
