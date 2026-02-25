@@ -1772,22 +1772,37 @@ GroupDispatch: [
         if (count($groupOptions) == 0) $groupOptions[] = ['caption' => '- No Groups -', 'value' => ''];
 
         // InstanceID dropdown (from DispatchTargets)
-        $targetOptions = [];
+        $targetOptions = [
+            ['caption' => '- Select target -', 'value' => 0]
+        ];
         $seenTargetIDs = [];
 
         foreach ($dispatchTargets as $t) {
-            if (!is_array($t)) continue;
+            if (!is_array($t)) {
+                continue;
+            }
 
-            $name = trim((string)($t['Name'] ?? ''));
-            $iid  = (int)($t['InstanceID'] ?? 0);
-            if ($iid <= 0) continue;
+            $nameRaw = $t['Name'] ?? '';
+            $iidRaw  = $t['InstanceID'] ?? 0;
+
+            // Normalize InstanceID safely
+            $iid = is_numeric($iidRaw) ? (int)$iidRaw : 0;
+            if ($iid <= 0) {
+                continue;
+            }
 
             // Only offer existing instances in the dropdown
-            if (!IPS_InstanceExists($iid)) continue;
+            if (!IPS_InstanceExists($iid)) {
+                continue;
+            }
 
             // De-dup by InstanceID
-            if (isset($seenTargetIDs[$iid])) continue;
+            if (isset($seenTargetIDs[$iid])) {
+                continue;
+            }
             $seenTargetIDs[$iid] = true;
+
+            $name = trim((string)$nameRaw);
 
             $instCaption = IPS_GetName($iid);
             $cap = ($name !== '') ? ($name . ' (' . $instCaption . ')') : $instCaption;
@@ -1795,8 +1810,9 @@ GroupDispatch: [
             $targetOptions[] = ['caption' => $cap, 'value' => $iid];
         }
 
-        if (count($targetOptions) === 0) {
-            $targetOptions[] = ['caption' => '- No Targets -', 'value' => 0];
+        // If only the default entry exists, show "No Targets"
+        if (count($targetOptions) === 1) {
+            $targetOptions = [['caption' => '- No Targets -', 'value' => 0]];
         }
         // === DEBUG: classOptions count ===
         if ($this->ReadPropertyBoolean('DebugMode')) IPS_LogMessage('SensorGroup', 'DEBUG: GetConfigurationForm classOptions=' . count($classOptions));
