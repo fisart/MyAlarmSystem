@@ -2060,13 +2060,35 @@ GroupDispatch: [
     public function UI_LoadBackup()
     {
         // Blueprint 2.0: Backup from RAM Buffer (Source of Truth) to ensure export matches visual UI state
+
+        // DispatchTargets: prefer PROPERTY if it has >= rows than buffer (buffer can be stale)
+        $dtBuf  = json_decode($this->ReadAttributeString('DispatchTargetsBuffer'), true);
+        $dtProp = json_decode($this->ReadPropertyString('DispatchTargets'), true);
+        if (!is_array($dtBuf))  $dtBuf  = [];
+        if (!is_array($dtProp)) $dtProp = [];
+        $dispatchTargets = (count($dtProp) >= count($dtBuf)) ? $dtProp : $dtBuf;
+
+        // GroupDispatch: prefer PROPERTY if it has >= rows than buffer (buffer can be stale)
+        $gdBuf  = json_decode($this->ReadAttributeString('GroupDispatchBuffer'), true);
+        $gdProp = json_decode($this->ReadPropertyString('GroupDispatch'), true);
+        if (!is_array($gdBuf))  $gdBuf  = [];
+        if (!is_array($gdProp)) $gdProp = [];
+        $groupDispatch = (count($gdProp) >= count($gdBuf)) ? $gdProp : $gdBuf;
+
         $config = [
-            'ClassList'    => json_decode($this->ReadAttributeString('ClassListBuffer'), true) ?: json_decode($this->ReadPropertyString('ClassList'), true) ?: [],
-            'GroupList'    => json_decode($this->ReadAttributeString('GroupListBuffer'), true) ?: json_decode($this->ReadPropertyString('GroupList'), true) ?: [],
-            'SensorList'   => json_decode($this->ReadAttributeString('SensorListBuffer'), true) ?: json_decode($this->ReadPropertyString('SensorList'), true) ?: [],
-            'BedroomList'  => json_decode($this->ReadAttributeString('BedroomListBuffer'), true) ?: json_decode($this->ReadPropertyString('BedroomList'), true) ?: [],
-            'GroupMembers' => json_decode($this->ReadAttributeString('GroupMembersBuffer'), true) ?: json_decode($this->ReadPropertyString('GroupMembers'), true) ?: [],
-            'TamperList'   => json_decode($this->ReadPropertyString('TamperList'), true) ?: []
+            'ClassList'       => json_decode($this->ReadAttributeString('ClassListBuffer'), true) ?: json_decode($this->ReadPropertyString('ClassList'), true) ?: [],
+            'GroupList'       => json_decode($this->ReadAttributeString('GroupListBuffer'), true) ?: json_decode($this->ReadPropertyString('GroupList'), true) ?: [],
+            'SensorList'      => json_decode($this->ReadAttributeString('SensorListBuffer'), true) ?: json_decode($this->ReadPropertyString('SensorList'), true) ?: [],
+            'BedroomList'     => json_decode($this->ReadAttributeString('BedroomListBuffer'), true) ?: json_decode($this->ReadPropertyString('BedroomList'), true) ?: [],
+            'GroupMembers'    => json_decode($this->ReadAttributeString('GroupMembersBuffer'), true) ?: json_decode($this->ReadPropertyString('GroupMembers'), true) ?: [],
+            'TamperList'      => json_decode($this->ReadPropertyString('TamperList'), true) ?: [],
+
+            // NEW: Module 2 routing
+            'DispatchTargets' => $dispatchTargets,
+            'GroupDispatch'   => $groupDispatch,
+
+            // OPTIONAL but recommended (boolean property)
+            'MaintenanceMode' => $this->ReadPropertyBoolean('MaintenanceMode')
         ];
 
         $json = json_encode($config, JSON_PRETTY_PRINT);
@@ -2081,23 +2103,47 @@ GroupDispatch: [
             return;
         }
 
-        $keys = ['ClassList', 'GroupList', 'SensorList', 'BedroomList', 'GroupMembers', 'TamperList'];
+        // Arrays (JSON-encoded string properties)
+        $keysArray = [
+            'ClassList',
+            'GroupList',
+            'SensorList',
+            'BedroomList',
+            'GroupMembers',
+            'TamperList',
+
+            // NEW
+            'DispatchTargets',
+            'GroupDispatch'
+        ];
+
         $restoredCount = 0;
 
-        foreach ($keys as $key) {
+        foreach ($keysArray as $key) {
             if (isset($config[$key]) && is_array($config[$key])) {
                 $json = json_encode($config[$key]);
+
                 IPS_SetProperty($this->InstanceID, $key, $json);
 
-                // Blueprint 2.0: Sync RAM Buffers to ensure dynamic folders show restored data immediately
-                if ($key === 'ClassList')    $this->WriteAttributeString('ClassListBuffer', $json);
-                if ($key === 'GroupList')    $this->WriteAttributeString('GroupListBuffer', $json);
-                if ($key === 'SensorList')   $this->WriteAttributeString('SensorListBuffer', $json);
-                if ($key === 'BedroomList')  $this->WriteAttributeString('BedroomListBuffer', $json);
-                if ($key === 'GroupMembers') $this->WriteAttributeString('GroupMembersBuffer', $json);
+                // Sync RAM Buffers so dynamic UI shows restored data immediately
+                if ($key === 'ClassList')        $this->WriteAttributeString('ClassListBuffer', $json);
+                if ($key === 'GroupList')        $this->WriteAttributeString('GroupListBuffer', $json);
+                if ($key === 'SensorList')       $this->WriteAttributeString('SensorListBuffer', $json);
+                if ($key === 'BedroomList')      $this->WriteAttributeString('BedroomListBuffer', $json);
+                if ($key === 'GroupMembers')     $this->WriteAttributeString('GroupMembersBuffer', $json);
+
+                // NEW buffers
+                if ($key === 'DispatchTargets')  $this->WriteAttributeString('DispatchTargetsBuffer', $json);
+                if ($key === 'GroupDispatch')    $this->WriteAttributeString('GroupDispatchBuffer', $json);
 
                 $restoredCount++;
             }
+        }
+
+        // OPTIONAL boolean
+        if (array_key_exists('MaintenanceMode', $config)) {
+            IPS_SetProperty($this->InstanceID, 'MaintenanceMode', (bool)$config['MaintenanceMode']);
+            $restoredCount++;
         }
 
         if ($restoredCount > 0) {
