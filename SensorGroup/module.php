@@ -1744,7 +1744,7 @@ if (!IPS_InstanceExists((int)$iid)) continue;
             ];
             $this->SetValue('EventData', json_encode($payload));
             // === DISPATCH: Reset once on clear (recommended) ===
-            // Send reset to targets of ALL configured groups (so Module2 can reliably clear state)
+            // Send reset and to targets of ALL configured groups (so Module2 can reliably clear state)
             $payloadJson = json_encode($payload);
 
             $allTargets = [];
