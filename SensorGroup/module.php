@@ -13,6 +13,8 @@ class SensorGroup extends IPSModule
         $this->RegisterPropertyString('GroupMembers', '[]');
         $this->RegisterPropertyString('TamperList', '[]');
         $this->RegisterPropertyString('BedroomList', '[]');
+        $this->RegisterPropertyString('GroupDispatch', '[]');
+        $this->RegisterPropertyString('DispatchTargets', '[]');
         $this->RegisterPropertyBoolean('MaintenanceMode', false);
         $this->RegisterPropertyBoolean('DebugMode', false);
 
@@ -22,12 +24,21 @@ class SensorGroup extends IPSModule
         $this->RegisterAttributeString('SensorListBuffer', '[]');
         $this->RegisterAttributeString('BedroomListBuffer', '[]');
         $this->RegisterAttributeString('GroupMembersBuffer', '[]');
+        $this->RegisterAttributeString('GroupDispatchBuffer', '[]');
+        $this->RegisterAttributeString('DispatchTargetsBuffer', '[]');
 
         $this->RegisterAttributeString('ClassStateAttribute', '{}');
         $this->RegisterAttributeString('ScanCache', '[]');
         $this->RegisterVariableBoolean('Status', 'Status', '~Alert', 10);
         $this->RegisterVariableBoolean('Sabotage', 'Sabotage', '~Alert', 90);
         $this->RegisterVariableString('EventData', 'Event Payload', '', 99);
+
+        $this->RegisterPropertyString('DispatchTargets', '[]');   // list of Module2 targets
+        $this->RegisterPropertyString('GroupTargetMap', '[]');    // routing: group -> target(s)
+
+        $this->RegisterAttributeString('DispatchTargetsBuffer', '[]');
+        $this->RegisterAttributeString('GroupTargetMapBuffer', '[]');
+        $this->RegisterAttributeBoolean('LastMainStatus', false);
         IPS_SetHidden($this->GetIDForIdent('EventData'), true);
     }
 
@@ -184,6 +195,96 @@ class SensorGroup extends IPSModule
 
         // Re-index after unsets
         $groupList = array_values($groupList);
+        // =========================
+        // DISPATCH ROUTER: GC + Buffer/Property sync
+        // =========================
+        $dispatchTargets = json_decode($this->ReadAttributeString('DispatchTargetsBuffer'), true)
+            ?: json_decode($this->ReadPropertyString('DispatchTargets'), true)
+            ?: [];
+        if (!is_array($dispatchTargets)) $dispatchTargets = [];
+
+        $groupTargetMap = json_decode($this->ReadAttributeString('GroupTargetMapBuffer'), true)
+            ?: json_decode($this->ReadPropertyString('GroupTargetMap'), true)
+            ?: [];
+        if (!is_array($groupTargetMap)) $groupTargetMap = [];
+
+        /*
+Expected shapes:
+DispatchTargets: [
+  ["Name" => "Einbruch", "InstanceID" => 12345],
+  ...
+]
+GroupTargetMap: [
+  ["GroupName" => "Wasser Alarm", "TargetIDs" => [12345, 67890]],
+  ...
+]
+*/
+
+        $routerChanged = false;
+
+        // Build set of valid target IDs
+        $validTargetIDs = [];
+        foreach ($dispatchTargets as $t) {
+            $tid = (int)($t['InstanceID'] ?? 0);
+            if ($tid > 0) $validTargetIDs[$tid] = true;
+        }
+
+        // Clean routes: keep only existing groups + existing target IDs
+        $cleanMap = [];
+        foreach ($groupTargetMap as $r) {
+            if (!is_array($r)) continue;
+
+            $gName = trim((string)($r['GroupName'] ?? ''));
+            if ($gName === '') {
+                $routerChanged = true;
+                continue;
+            }
+            if (!in_array($gName, $validGroupNames, true)) {
+                $routerChanged = true;
+                continue;
+            }
+
+            $targets = $r['TargetIDs'] ?? [];
+            if (!is_array($targets)) {
+                $routerChanged = true;
+                $targets = [];
+            }
+
+            $targets2 = [];
+            foreach ($targets as $tid) {
+                $tid = (int)$tid;
+                if ($tid > 0 && isset($validTargetIDs[$tid])) {
+                    $targets2[] = $tid;
+                } else {
+                    $routerChanged = true;
+                }
+            }
+            $targets2 = array_values(array_unique($targets2));
+
+            $cleanMap[] = [
+                'GroupName'  => $gName,
+                'TargetIDs'  => $targets2
+            ];
+        }
+
+        // Persist router if changed or if buffers missing
+        $jsonTargets = json_encode(array_values($dispatchTargets));
+        $jsonMap     = json_encode(array_values($cleanMap));
+
+        $this->WriteAttributeString('DispatchTargetsBuffer', $jsonTargets);
+        $this->WriteAttributeString('GroupTargetMapBuffer', $jsonMap);
+
+        // Keep properties in sync (so backup/restore + Apply works)
+        IPS_SetProperty($this->InstanceID, 'DispatchTargets', $jsonTargets);
+        IPS_SetProperty($this->InstanceID, 'GroupTargetMap', $jsonMap);
+
+        if ($this->ReadPropertyBoolean('DebugMode')) {
+            $this->LogMessage(
+                "DEBUG: ApplyChanges - Router Sync targets=" . count($dispatchTargets) .
+                    " routes=" . count($cleanMap),
+                KL_MESSAGE
+            );
+        }
         foreach (array_keys($groupIDMap) as $mappedGroupName) {
             if (!in_array($mappedGroupName, $validGroupNames, true)) {
                 unset($groupIDMap[$mappedGroupName]);
@@ -324,7 +425,9 @@ class SensorGroup extends IPSModule
             if ($obj['ObjectType'] == 2 && !in_array($obj['ObjectIdent'], $keepIdents)) $this->UnregisterVariable($obj['ObjectIdent']);
         }
         if ($this->ReadAttributeString('ClassStateAttribute') == '') $this->WriteAttributeString('ClassStateAttribute', '{}');
-
+        if ($this->ReadAttributeString('LastMainStatus') === '') {
+            $this->WriteAttributeBoolean('LastMainStatus', false);
+        }
         // 5. RELOAD FORM
         $this->ReloadForm();
         $this->CheckLogic();
@@ -559,6 +662,75 @@ class SensorGroup extends IPSModule
             // =========================
             // GROUP DEFINITIONS
             // =========================
+            case 'UpdateGroupDispatch': {
+                    $incoming = json_decode($Value, true);
+                    if (!is_array($incoming)) {
+                        if ($this->ReadPropertyBoolean('DebugMode')) IPS_LogMessage('SensorGroup', "DEBUG: UpdateGroupDispatch ABORT - incoming not array");
+                        return;
+                    }
+
+                    // Normalize + validate rows (allow many rows per group, allow same InstanceID across groups)
+                    $definedGroups = json_decode($this->ReadAttributeString('GroupListBuffer'), true)
+                        ?: json_decode($this->ReadPropertyString('GroupList'), true)
+                        ?: [];
+                    $validGroupNames = [];
+                    if (is_array($definedGroups)) {
+                        foreach ($definedGroups as $g) {
+                            $n = trim((string)($g['GroupName'] ?? ''));
+                            if ($n !== '') $validGroupNames[$n] = true;
+                        }
+                    }
+
+                    $clean = [];
+                    $seen = []; // de-dup by GroupName||InstanceID
+                    foreach ($incoming as $row) {
+                        if (!is_array($row)) continue;
+
+                        $gName = trim((string)($row['GroupName'] ?? ''));
+                        $iid   = (int)($row['InstanceID'] ?? 0);
+
+                        if ($gName === '' || $iid <= 0) continue;
+                        if (!isset($validGroupNames[$gName])) continue;
+                        if (!IPS_InstanceExists($iid)) continue;
+
+                        $k = $gName . '||' . $iid;
+                        if (isset($seen[$k])) continue;
+                        $seen[$k] = true;
+
+                        $clean[] = ['GroupName' => $gName, 'InstanceID' => $iid];
+                    }
+
+                    $json = json_encode(array_values($clean));
+                    $this->WriteAttributeString('GroupDispatchBuffer', $json);
+                    IPS_SetProperty($this->InstanceID, 'GroupDispatch', $json);
+
+                    $this->ReloadForm();
+                    break;
+                }
+            case 'UpdateDispatchTargets': {
+                    $incoming = json_decode($Value, true);
+                    if (!is_array($incoming)) {
+                        if ($this->ReadPropertyBoolean('DebugMode')) IPS_LogMessage('SensorGroup', "DEBUG: UpdateDispatchTargets ABORT - incoming not array");
+                        return;
+                    }
+
+                    // normalize rows (optional but safe)
+                    $clean = [];
+                    foreach ($incoming as $row) {
+                        if (!is_array($row)) continue;
+                        $name = trim((string)($row['Name'] ?? ''));
+                        $iid  = (int)($row['InstanceID'] ?? 0);
+                        if ($name === '' || $iid <= 0) continue;
+                        $clean[] = ['Name' => $name, 'InstanceID' => $iid];
+                    }
+
+                    $json = json_encode(array_values($clean));
+                    $this->WriteAttributeString('DispatchTargetsBuffer', $json);
+                    IPS_SetProperty($this->InstanceID, 'DispatchTargets', $json);
+
+                    $this->ReloadForm();
+                    break;
+                }
             case 'UpdateGroupList': {
                     if ($this->ReadPropertyBoolean('DebugMode')) IPS_LogMessage('SensorGroup', "DEBUG: UpdateGroupList START raw=" . (is_string($Value) ? $Value : json_encode($Value)));
 
@@ -1019,6 +1191,7 @@ class SensorGroup extends IPSModule
         $sensorList   = json_decode($this->ReadAttributeString('SensorListBuffer'), true) ?: [];
         $bedroomList  = json_decode($this->ReadAttributeString('BedroomListBuffer'), true) ?: [];
         $groupMembers = json_decode($this->ReadAttributeString('GroupMembersBuffer'), true) ?: [];
+        $dispatchTargets = json_decode($this->ReadAttributeString('DispatchTargetsBuffer'), true) ?: [];
         // DEBUG: Compare buffer vs property just before COMMIT writes anything
         $propGroupList = json_decode($this->ReadPropertyString('GroupList'), true) ?: [];
         if ($this->ReadPropertyBoolean('DebugMode')) $this->LogMessage(
@@ -1056,6 +1229,7 @@ class SensorGroup extends IPSModule
         IPS_SetProperty($this->InstanceID, 'SensorList', json_encode($sensorList));
         IPS_SetProperty($this->InstanceID, 'BedroomList', json_encode($bedroomList));
         IPS_SetProperty($this->InstanceID, 'GroupMembers', json_encode($groupMembers));
+        IPS_SetProperty($this->InstanceID, 'DispatchTargets', json_encode($dispatchTargets));
 
         // 4. Force System Apply
         if (IPS_HasChanges($this->InstanceID)) {
@@ -1361,6 +1535,21 @@ class SensorGroup extends IPSModule
                 " primaryNull=" . (int)($primaryPayload === null),
             KL_MESSAGE
         );
+
+        // === DISPATCH (Module 2 Routing) - load routing table ===
+        // GroupDispatch rows: { GroupName, InstanceID }
+        $groupDispatch = json_decode($this->ReadPropertyString('GroupDispatch'), true);
+        if (!is_array($groupDispatch)) $groupDispatch = [];
+
+        // Build: GroupName -> [InstanceID => true]
+        $dispatchMap = [];
+        foreach ($groupDispatch as $row) {
+            if (!is_array($row)) continue;
+            $g = trim((string)($row['GroupName'] ?? ''));
+            $iid = (int)($row['InstanceID'] ?? 0);
+            if ($g === '' || $iid <= 0) continue;
+            $dispatchMap[$g][$iid] = true;
+        }
         // === BUGFIX 3: Removed strict check for $primaryPayload, relies cleanly on mainStatus ===
         if ($mainStatus) {
             $readableActiveClasses = [];
@@ -1381,6 +1570,19 @@ class SensorGroup extends IPSModule
                 'trigger_details' => $primaryPayload
             ];
             $this->SetValue('EventData', json_encode($payload));
+            // === DISPATCH: Edge-triggered "ALARM" per active group ===
+            $payloadJson = json_encode($payload);
+
+            foreach ($activeGroups as $gName) {
+                if (!isset($dispatchMap[$gName])) continue;
+
+                foreach (array_keys($dispatchMap[$gName]) as $iid) {
+                    if (!IPS_InstanceExists((int)$iid)) continue;
+
+                    // keep payload as-is; only send it
+                    IPS_RequestAction((int)$iid, 'ReceivePayload', $payloadJson);
+                }
+            }
         } else {
             // Explicit Reset Payload
             $payload = [
@@ -1396,6 +1598,21 @@ class SensorGroup extends IPSModule
                 'trigger_details' => null
             ];
             $this->SetValue('EventData', json_encode($payload));
+            // === DISPATCH: Reset once on clear (recommended) ===
+            // Send reset to targets of ALL configured groups (so Module2 can reliably clear state)
+            $payloadJson = json_encode($payload);
+
+            $allTargets = [];
+            foreach ($dispatchMap as $g => $targets) {
+                foreach (array_keys($targets) as $iid) {
+                    $allTargets[(int)$iid] = true;
+                }
+            }
+
+            foreach (array_keys($allTargets) as $iid) {
+                if (!IPS_InstanceExists((int)$iid)) continue;
+                IPS_RequestAction((int)$iid, 'ReceivePayload', $payloadJson);
+            }
         }
     }
 
@@ -1496,7 +1713,8 @@ class SensorGroup extends IPSModule
             ];
         }
         $groupMembers = json_decode($this->ReadAttributeString('GroupMembersBuffer'), true) ?: json_decode($this->ReadPropertyString('GroupMembers'), true) ?: [];
-
+        $dispatchTargets = json_decode($this->ReadAttributeString('DispatchTargetsBuffer'), true) ?: json_decode($this->ReadPropertyString('DispatchTargets'), true) ?: [];
+        if (!is_array($dispatchTargets)) $dispatchTargets = [];
         // === DEBUG: other list counts ===
         if ($this->ReadPropertyBoolean('DebugMode')) IPS_LogMessage(
             'SensorGroup',
@@ -1524,7 +1742,7 @@ class SensorGroup extends IPSModule
         $this->WriteAttributeString('SensorListBuffer', json_encode($sensorList));
         $this->WriteAttributeString('BedroomListBuffer', json_encode($bedroomList));
         $this->WriteAttributeString('GroupMembersBuffer', json_encode($groupMembers));
-
+        $this->WriteAttributeString('DispatchTargetsBuffer', json_encode($dispatchTargets));
         // === DEBUG: after sync to RAM buffers ===
         if ($this->ReadPropertyBoolean('DebugMode')) IPS_LogMessage(
             'SensorGroup',
@@ -1748,6 +1966,13 @@ class SensorGroup extends IPSModule
                 break;
             }
         }
+        foreach ($form['elements'] as &$e) {
+            if (isset($e['name']) && $e['name'] === 'DispatchTargets') {
+                $e['values'] = $dispatchTargets;
+                break;
+            }
+        }
+
         unset($e);
         return json_encode($form);
     }

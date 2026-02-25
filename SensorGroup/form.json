@@ -27,6 +27,41 @@
         { "type": "ExpansionPanel", "name": "DynamicBedroomContainer", "caption": "Step 3b: Bedroom Behavioral Settings", "items": [] },
         { "type": "ExpansionPanel", "name": "DynamicGroupMemberContainer", "caption": "Step B: Assign Classes to Groups", "items": [] },
 
+        { "type": "Label", "caption": "4. DISPATCH TARGETS (Module 2 Routing)" },
+{
+    "type": "List",
+    "name": "DispatchTargets",
+    "caption": "Module 2 Instances",
+    "rowCount": 5,
+    "add": true,
+    "delete": true,
+    "onEdit": "IPS_RequestAction($id, 'UpdateDispatchTargets', json_encode($DispatchTargets));",
+    "columns": [
+        { "caption": "Name", "name": "Name", "width": "220px", "add": "New Target", "edit": { "type": "ValidationTextBox" } },
+        { "caption": "Instance", "name": "InstanceID", "width": "220px", "add": 0, "edit": { "type": "SelectInstance" } }
+    ]
+},
+       {
+  "type": "ExpansionPanel",
+  "caption": "Step 3c: Route Groups to Module 2 Targets",
+  "items": [
+    {
+      "type": "List",
+      "name": "GroupDispatch",
+      "caption": "Group → Module 2 Instance",
+      "rowCount": 8,
+      "add": true,
+      "delete": true,
+      "onEdit": "IPS_RequestAction($id, 'UpdateGroupDispatch', json_encode($GroupDispatch));",
+      "columns": [
+        { "caption": "GroupName", "name": "GroupName", "width": "220px", "add": "", "edit": { "type": "ValidationTextBox" } },
+        { "caption": "InstanceID", "name": "InstanceID", "width": "220px", "add": 0, "edit": { "type": "SelectInstance" } }
+      ],
+      "values": []
+    }
+  ]
+},
+
         { "type": "CheckBox", "name": "MaintenanceMode", "caption": "Maintenance Mode" },
         { "type": "CheckBox", "name": "DebugMode", "caption": "Debug Logging" },
        {
