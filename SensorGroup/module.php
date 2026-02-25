@@ -37,7 +37,7 @@ class SensorGroup extends IPSModule
 
         $this->RegisterAttributeString('DispatchTargetsBuffer', '[]');
         $this->RegisterAttributeString('GroupTargetMapBuffer', '[]');
-        $this->RegisterAttributeBoolean('LastMainStatus', '0');
+        $this->RegisterAttributeString('LastMainStatus', '0');
         IPS_SetHidden($this->GetIDForIdent('EventData'), true);
     }
 
