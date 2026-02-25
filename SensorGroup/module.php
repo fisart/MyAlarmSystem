@@ -47,8 +47,12 @@ class SensorGroup extends IPSModule
         if ($this->ReadPropertyBoolean('DebugMode')) $this->LogMessage("DEBUG: ApplyChanges - START", KL_MESSAGE);
         parent::ApplyChanges();
         // DEBUG: What does ApplyChanges see right after parent lifecycle?
-        $gProp = json_decode($this->ReadPropertyString('GroupList'), true) ?: [];
-        $gBuf  = json_decode($this->ReadAttributeString('GroupListBuffer'), true) ?: [];
+        $tmp = json_decode((string)$this->ReadPropertyString('GroupList'), true);
+        $gProp = is_array($tmp) ? $tmp : [];
+        unset($tmp);
+        $tmp = json_decode((string)$this->ReadAttributeString('GroupListBuffer'), true);
+        $gBuf = is_array($tmp) ? $tmp : [];
+        unset($tmp);
         if ($this->ReadPropertyBoolean('DebugMode')) $this->LogMessage("DEBUG: ApplyChanges - GroupListProperty=" . count($gProp) . " | GroupListBuffer=" . count($gBuf), KL_MESSAGE);
         if (count($gProp) > 0) if ($this->ReadPropertyBoolean('DebugMode')) $this->LogMessage("DEBUG: ApplyChanges - LastPropGroup=" . json_encode(end($gProp)), KL_MESSAGE);
         if (count($gBuf) > 0)  if ($this->ReadPropertyBoolean('DebugMode')) $this->LogMessage("DEBUG: ApplyChanges - LastBufGroup=" . json_encode(end($gBuf)), KL_MESSAGE);
@@ -106,7 +110,15 @@ class SensorGroup extends IPSModule
             ?: json_decode($this->ReadAttributeString('ClassListBuffer'), true)
             ?: [];
         // FIX: Prioritize Buffer for stateless Group definitions to prevent GC wipeout
-        $groupList = json_decode($this->ReadAttributeString('GroupListBuffer'), true) ?: json_decode($this->ReadPropertyString('GroupList'), true) ?: [];
+        $tmp = json_decode((string)$this->ReadAttributeString('GroupListBuffer'), true);
+        if (is_array($tmp)) {
+            $groupList = $tmp;               // buffer is valid (even if empty [])
+        } else {
+            $tmp2 = json_decode((string)$this->ReadPropertyString('GroupList'), true);
+            $groupList = is_array($tmp2) ? $tmp2 : [];
+            unset($tmp2);
+        }
+        unset($tmp);
 
         // Load persistent ID Map
         $stateData = json_decode($this->ReadAttributeString('ClassStateAttribute'), true) ?: [];
@@ -1199,12 +1211,33 @@ class SensorGroup extends IPSModule
     public function SaveConfiguration()
     {
         // 1. Load data from RAM Buffers (The stateless Source of Truth)
-        $classList    = json_decode($this->ReadAttributeString('ClassListBuffer'), true) ?: [];
-        $groupList    = json_decode($this->ReadAttributeString('GroupListBuffer'), true) ?: [];
-        $sensorList   = json_decode($this->ReadAttributeString('SensorListBuffer'), true) ?: [];
-        $bedroomList  = json_decode($this->ReadAttributeString('BedroomListBuffer'), true) ?: [];
-        $groupMembers = json_decode($this->ReadAttributeString('GroupMembersBuffer'), true) ?: [];
-        $dispatchTargets = json_decode($this->ReadAttributeString('DispatchTargetsBuffer'), true) ?: [];
+        // 1. Load data from RAM Buffers (The stateless Source of Truth)
+        // IMPORTANT: do NOT use ?: [] on arrays, because [] is "falsey" and breaks empty-list semantics.
+        $rawClassList       = (string)$this->ReadAttributeString('ClassListBuffer');
+        $rawGroupList       = (string)$this->ReadAttributeString('GroupListBuffer');
+        $rawSensorList      = (string)$this->ReadAttributeString('SensorListBuffer');
+        $rawBedroomList     = (string)$this->ReadAttributeString('BedroomListBuffer');
+        $rawGroupMembers    = (string)$this->ReadAttributeString('GroupMembersBuffer');
+        $rawDispatchTargets = (string)$this->ReadAttributeString('DispatchTargetsBuffer');
+
+        $tmp = json_decode($rawClassList, true);
+        $classList = (is_array($tmp) && $rawClassList !== '') ? $tmp : [];
+
+        $tmp = json_decode($rawGroupList, true);
+        $groupList = (is_array($tmp) && $rawGroupList !== '') ? $tmp : [];
+
+        $tmp = json_decode($rawSensorList, true);
+        $sensorList = (is_array($tmp) && $rawSensorList !== '') ? $tmp : [];
+
+        $tmp = json_decode($rawBedroomList, true);
+        $bedroomList = (is_array($tmp) && $rawBedroomList !== '') ? $tmp : [];
+
+        $tmp = json_decode($rawGroupMembers, true);
+        $groupMembers = (is_array($tmp) && $rawGroupMembers !== '') ? $tmp : [];
+
+        $tmp = json_decode($rawDispatchTargets, true);
+        $dispatchTargets = (is_array($tmp) && $rawDispatchTargets !== '') ? $tmp : [];
+        unset($tmp);
         if ($this->ReadPropertyBoolean('DebugMode')) $this->LogMessage(
             "DEBUG: COMMIT PRECHECK - ClassListBuffer firstRow=" . json_encode($classList[0] ?? null),
             KL_MESSAGE
@@ -1802,9 +1835,27 @@ class SensorGroup extends IPSModule
                 ' attr_GroupListBufferLen=' . strlen((string)$this->ReadAttributeString('GroupListBuffer')) .
                 ' prop_GroupListLen=' . strlen((string)$this->ReadPropertyString('GroupList'))
         );
+        // SensorList: prefer buffer if it is a valid array (even if empty). Else fallback to property.
+        $raw = (string)$this->ReadAttributeString('SensorListBuffer');
+        $tmp = json_decode($raw, true);
+        if (is_array($tmp)) {
+            $sensorList = $tmp;
+        } else {
+            $tmp2 = json_decode((string)$this->ReadPropertyString('SensorList'), true);
+            $sensorList = is_array($tmp2) ? $tmp2 : [];
+        }
+        unset($raw, $tmp, $tmp2);
 
-        $sensorList   = json_decode($this->ReadAttributeString('SensorListBuffer'), true) ?: json_decode($this->ReadPropertyString('SensorList'), true) ?: [];
-        $bedroomList  = json_decode($this->ReadAttributeString('BedroomListBuffer'), true) ?: json_decode($this->ReadPropertyString('BedroomList'), true) ?: [];
+        // BedroomList: prefer buffer if it is a valid array (even if empty). Else fallback to property.
+        $raw = (string)$this->ReadAttributeString('BedroomListBuffer');
+        $tmp = json_decode($raw, true);
+        if (is_array($tmp)) {
+            $bedroomList = $tmp;
+        } else {
+            $tmp2 = json_decode((string)$this->ReadPropertyString('BedroomList'), true);
+            $bedroomList = is_array($tmp2) ? $tmp2 : [];
+        }
+        unset($raw, $tmp, $tmp2);
         // === FIX: Ensure a property-bound (hidden) BedroomList field exists in "elements"
         // This is required so Symcon can show the orange "Apply changes" button when bedrooms change.
         $hasBedroomField = false;
