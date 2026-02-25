@@ -2023,9 +2023,9 @@ class SensorGroup extends IPSModule
                                     "columns"  => [
                                         ["caption" => "Active Var (IPSView)", "name" => "ActiveVariableID", "width" => "200px", "edit" => ["type" => "SelectVariable"]],
                                         ["caption" => "Door Class (Trigger)", "name" => "BedroomDoorClassID", "width" => "200px", "edit" => ["type" => "Select", "options" => $classOptions]],
-                                        ["caption" => "Action", "name" => "Action", "width" => "80px","edit" => ["type" => "Button", "caption" => "Delete","onClick" => "IPS_RequestAction(\$id, 'DeleteBedroomListItemByVarID', json_encode(['GroupName' => '$gName', 'ActiveVariableID' => \$ActiveVariableID]));"]
-                                    ],
-                                    "values"   => $bedData
+                                        ["caption" => "Action", "name" => "Action", "width" => "80px", "edit" => ["type" => "Button", "caption" => "Delete", "onClick" => "IPS_RequestAction(\$id, 'DeleteBedroomListItemByVarID', json_encode(['GroupName' => '$gName', 'ActiveVariableID' => \$ActiveVariableID]));"]],
+                                        "values"   => $bedData
+                                    ]
                                 ]
                             ]
                         ];
