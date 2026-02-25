@@ -1038,37 +1038,7 @@ class SensorGroup extends IPSModule
                     $this->ReloadForm();
                     break;
                 }
-            case 'DeleteBedroomListItemByVarID': {
-                    $parts = explode('||', (string)$Value);
-                    $gName = $parts[0] ?? '';
-                    $varID = $parts[1] ?? '';
 
-                    $master = json_decode($this->ReadAttributeString('BedroomListBuffer'), true)
-                        ?: json_decode($this->ReadPropertyString('BedroomList'), true)
-                        ?: [];
-
-                    $newMaster = [];
-                    foreach ($master as $row) {
-                        $rowGName = $row['GroupName'] ?? '';
-                        $rowVarID = (string)($row['ActiveVariableID'] ?? '');
-
-                        if ($rowGName === $gName && $rowVarID === $varID) {
-                            continue;
-                        }
-                        $newMaster[] = $row;
-                    }
-
-                    $json = json_encode($newMaster);
-                    $this->WriteAttributeString('BedroomListBuffer', $json);
-                    IPS_SetProperty($this->InstanceID, 'BedroomList', $json);
-                    $this->UpdateFormField('BedroomList', 'values', json_encode(json_decode($json, true) ?: []));
-                    $this->ReloadForm();
-                    break;
-                }
-
-                // =========================
-                // GROUP MEMBERS
-                // =========================
             case 'UpdateMemberProperty': {
                     $data = json_decode($Value, true);
                     $gName = $data['GroupName'] ?? '';
@@ -2053,7 +2023,7 @@ class SensorGroup extends IPSModule
                                     "columns"  => [
                                         ["caption" => "Active Var (IPSView)", "name" => "ActiveVariableID", "width" => "200px", "edit" => ["type" => "SelectVariable"]],
                                         ["caption" => "Door Class (Trigger)", "name" => "BedroomDoorClassID", "width" => "200px", "edit" => ["type" => "Select", "options" => $classOptions]],
-                                        ["caption" => "Action", "name" => "Action", "width" => "80px", "edit" => ["type" => "Button", "caption" => "Delete", "onClick" => "IPS_RequestAction(\$id, 'DeleteBedroomListItemByVarID', '$gName||\$ActiveVariableID');"]]
+                                        ["caption" => "Action", "name" => "Action", "width" => "80px","edit" => ["type" => "Button", "caption" => "Delete","onClick" => "IPS_RequestAction(\$id, 'DeleteBedroomListItemByVarID', json_encode(['GroupName' => '$gName', 'ActiveVariableID' => \$ActiveVariableID]));"]
                                     ],
                                     "values"   => $bedData
                                 ]
