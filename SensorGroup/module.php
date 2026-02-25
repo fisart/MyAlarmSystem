@@ -1720,17 +1720,16 @@ class SensorGroup extends IPSModule
                 if (!isset($dispatchMap[$gName])) continue;
 
                 foreach (array_keys($dispatchMap[$gName]) as $iid) {
-                if (!IPS_InstanceExists((int)$iid)) continue;
+                    if (!IPS_InstanceExists((int)$iid)) continue;
 
-                // keep payload as-is; only send it
-                $sent = @IPS_RequestAction((int)$iid, 'ReceivePayload', $payloadJson);
-                if (!$sent && $this->ReadPropertyBoolean('DebugMode')) {
-                    $this->LogMessage("DISPATCH ERROR: Target {$iid} refused payload. Missing ReceivePayload action?", KL_WARNING);
+                    // keep payload as-is; only send it
+                    $sent = @IPS_RequestAction((int)$iid, 'ReceivePayload', $payloadJson);
+                    if (!$sent && $this->ReadPropertyBoolean('DebugMode')) {
+                        $this->LogMessage("DISPATCH ERROR: Target {$iid} refused payload. Missing ReceivePayload action?", KL_WARNING);
+                    }
                 }
             }
-            }
-                
-         else {
+        } else {
             // Explicit Reset Payload
             $payload = [
                 'event_id' => uniqid(),
