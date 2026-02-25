@@ -715,6 +715,7 @@ class SensorGroup extends IPSModule
                     break;
                 }
             case 'UpdateDispatchTargets': {
+                    $this->LogMessage("DEBUG [Dispatch]: UI sent UpdateDispatchTargets with payload: " . $Value, KL_MESSAGE);
                     $incoming = json_decode($Value, true);
                     if (!is_array($incoming)) {
                         if ($this->ReadPropertyBoolean('DebugMode')) IPS_LogMessage('SensorGroup', "DEBUG: UpdateDispatchTargets ABORT - incoming not array");
@@ -732,6 +733,7 @@ class SensorGroup extends IPSModule
                     }
 
                     $json = json_encode(array_values($clean));
+                    $this->LogMessage("DEBUG[Dispatch]: Saving to Buffer. Cleaned payload: " . $json, KL_MESSAGE);
                     $this->WriteAttributeString('DispatchTargetsBuffer', $json);
                     IPS_SetProperty($this->InstanceID, 'DispatchTargets', $json);
 
@@ -1891,6 +1893,7 @@ class SensorGroup extends IPSModule
         if (!is_array($dtProp)) $dtProp = [];
 
         $dispatchTargets = (count($dtBuf) > 0) ? $dtBuf : $dtProp;
+        $this->LogMessage("DEBUG [ConfigForm]: Resolving Targets - BufferCount: " . count($dtBuf) . " | PropCount: " . count($dtProp) . " | FinalCount: " . count($dispatchTargets), KL_MESSAGE);
         // GroupDispatch: prefer PROPERTY if it contains newer/more rows than buffer
         $gdBuf  = json_decode($this->ReadAttributeString('GroupDispatchBuffer'), true);
         $gdProp = json_decode($this->ReadPropertyString('GroupDispatch'), true);
