@@ -33,10 +33,10 @@ class SensorGroup extends IPSModule
         $this->RegisterVariableString('EventData', 'Event Payload', '', 99);
 
         $this->RegisterPropertyString('DispatchTargets', '[]');   // list of Module2 targets
-        $this->RegisterPropertyString('GroupTargetMap', '[]');    // routing: group -> target(s)
+
 
         $this->RegisterAttributeString('DispatchTargetsBuffer', '[]');
-        $this->RegisterAttributeString('GroupTargetMapBuffer', '[]');
+
         $this->RegisterAttributeString('LastMainStatus', '0');
         IPS_SetHidden($this->GetIDForIdent('EventData'), true);
     }
@@ -195,17 +195,18 @@ class SensorGroup extends IPSModule
         // Re-index after unsets
         $groupList = array_values($groupList);
         // =========================
-        // DISPATCH ROUTER: GC + Buffer/Property sync
+        // DISPATCH ROUTER: GC + Buffer/Property sync  (FLAT LIST: GroupDispatch)
         // =========================
         $dispatchTargets = json_decode($this->ReadAttributeString('DispatchTargetsBuffer'), true)
             ?: json_decode($this->ReadPropertyString('DispatchTargets'), true)
             ?: [];
         if (!is_array($dispatchTargets)) $dispatchTargets = [];
 
-        $groupTargetMap = json_decode($this->ReadAttributeString('GroupTargetMapBuffer'), true)
-            ?: json_decode($this->ReadPropertyString('GroupTargetMap'), true)
+        // NEW agreed router: flat list
+        $groupDispatch = json_decode($this->ReadAttributeString('GroupDispatchBuffer'), true)
+            ?: json_decode($this->ReadPropertyString('GroupDispatch'), true)
             ?: [];
-        if (!is_array($groupTargetMap)) $groupTargetMap = [];
+        if (!is_array($groupDispatch)) $groupDispatch = [];
 
         /*
 Expected shapes:
@@ -213,13 +214,11 @@ DispatchTargets: [
   ["Name" => "Einbruch", "InstanceID" => 12345],
   ...
 ]
-GroupTargetMap: [
-  ["GroupName" => "Wasser Alarm", "TargetIDs" => [12345, 67890]],
+GroupDispatch: [
+  ["GroupName" => "Wasser Alarm", "InstanceID" => 12345],
   ...
 ]
 */
-
-        $routerChanged = false;
 
         // Build set of valid target IDs
         $validTargetIDs = [];
@@ -229,54 +228,39 @@ GroupTargetMap: [
         }
 
         // Clean routes: keep only existing groups + existing target IDs
-        $cleanMap = [];
-        foreach ($groupTargetMap as $r) {
+        $cleanDispatch = [];
+        $seen = [];
+        foreach ($groupDispatch as $r) {
             if (!is_array($r)) continue;
 
             $gName = trim((string)($r['GroupName'] ?? ''));
-            if ($gName === '') {
-                $routerChanged = true;
-                continue;
-            }
-            if (!in_array($gName, $validGroupNames, true)) {
-                $routerChanged = true;
-                continue;
-            }
+            $iid   = (int)($r['InstanceID'] ?? 0);
 
-            $targets = $r['TargetIDs'] ?? [];
-            if (!is_array($targets)) {
-                $routerChanged = true;
-                $targets = [];
-            }
+            if ($gName === '') continue;
+            if (!in_array($gName, $validGroupNames, true)) continue;
+            if ($iid <= 0 || !isset($validTargetIDs[$iid])) continue;
 
-            $targets2 = [];
-            foreach ($targets as $tid) {
-                $tid = (int)$tid;
-                if ($tid > 0 && isset($validTargetIDs[$tid])) {
-                    $targets2[] = $tid;
-                } else {
-                    $routerChanged = true;
-                }
-            }
-            $targets2 = array_values(array_unique($targets2));
+            // de-dup exact pair (GroupName + InstanceID)
+            $key = $gName . '|' . $iid;
+            if (isset($seen[$key])) continue;
+            $seen[$key] = true;
 
-            $cleanMap[] = [
+            $cleanDispatch[] = [
                 'GroupName'  => $gName,
-                'TargetIDs'  => $targets2
+                'InstanceID' => $iid
             ];
         }
 
-        // Persist router if changed or if buffers missing
-        $jsonTargets = json_encode(array_values($dispatchTargets));
-        $jsonMap     = json_encode(array_values($cleanMap));
+        // Persist router (buffers + properties)
+        $jsonTargets   = json_encode(array_values($dispatchTargets));
+        $jsonDispatch  = json_encode(array_values($cleanDispatch));
 
         $this->WriteAttributeString('DispatchTargetsBuffer', $jsonTargets);
-        $this->WriteAttributeString('GroupTargetMapBuffer', $jsonMap);
+        $this->WriteAttributeString('GroupDispatchBuffer',  $jsonDispatch);
 
         // Keep properties in sync (so backup/restore + Apply works)
         IPS_SetProperty($this->InstanceID, 'DispatchTargets', $jsonTargets);
-        IPS_SetProperty($this->InstanceID, 'GroupTargetMap', $jsonMap);
-
+        IPS_SetProperty($this->InstanceID, 'GroupDispatch',  $jsonDispatch);
         if ($this->ReadPropertyBoolean('DebugMode')) {
             $this->LogMessage(
                 "DEBUG: ApplyChanges - Router Sync targets=" . count($dispatchTargets) .
@@ -690,7 +674,18 @@ GroupTargetMap: [
 
                         if ($gName === '' || $iid <= 0) continue;
                         if (!isset($validGroupNames[$gName])) continue;
-                        if (!IPS_InstanceExists($iid)) continue;
+                        // must be one of the defined DispatchTargets (Module 2 interfaces)
+                        $dispatchTargets = json_decode($this->ReadAttributeString('DispatchTargetsBuffer'), true)
+                            ?: json_decode($this->ReadPropertyString('DispatchTargets'), true)
+                            ?: [];
+                        $validTargetIDs = [];
+                        if (is_array($dispatchTargets)) {
+                            foreach ($dispatchTargets as $t) {
+                                $tid = (int)($t['InstanceID'] ?? 0);
+                                if ($tid > 0) $validTargetIDs[$tid] = true;
+                            }
+                        }
+                        if (!isset($validTargetIDs[$iid])) continue;
 
                         $k = $gName . '||' . $iid;
                         if (isset($seen[$k])) continue;
@@ -1713,6 +1708,10 @@ GroupTargetMap: [
         }
         $groupMembers = json_decode($this->ReadAttributeString('GroupMembersBuffer'), true) ?: json_decode($this->ReadPropertyString('GroupMembers'), true) ?: [];
         $dispatchTargets = json_decode($this->ReadAttributeString('DispatchTargetsBuffer'), true) ?: json_decode($this->ReadPropertyString('DispatchTargets'), true) ?: [];
+        $groupDispatch = json_decode($this->ReadAttributeString('GroupDispatchBuffer'), true)
+            ?: json_decode($this->ReadPropertyString('GroupDispatch'), true)
+            ?: [];
+        if (!is_array($groupDispatch)) $groupDispatch = [];
         if (!is_array($dispatchTargets)) $dispatchTargets = [];
         // === DEBUG: other list counts ===
         if ($this->ReadPropertyBoolean('DebugMode')) IPS_LogMessage(
@@ -1742,6 +1741,7 @@ GroupTargetMap: [
         $this->WriteAttributeString('BedroomListBuffer', json_encode($bedroomList));
         $this->WriteAttributeString('GroupMembersBuffer', json_encode($groupMembers));
         $this->WriteAttributeString('DispatchTargetsBuffer', json_encode($dispatchTargets));
+        $this->WriteAttributeString('GroupDispatchBuffer', json_encode($groupDispatch));
         // === DEBUG: after sync to RAM buffers ===
         if ($this->ReadPropertyBoolean('DebugMode')) IPS_LogMessage(
             'SensorGroup',
@@ -1762,7 +1762,42 @@ GroupTargetMap: [
             }
         }
         if (count($classOptions) == 0) $classOptions[] = ['caption' => '- No Classes -', 'value' => ''];
+        // --- DISPATCH OPTIONS ---
+        // GroupName dropdown (from definedGroups)
+        $groupOptions = [];
+        foreach ($definedGroups as $g) {
+            $gn = trim((string)($g['GroupName'] ?? ''));
+            if ($gn !== '') $groupOptions[] = ['caption' => $gn, 'value' => $gn];
+        }
+        if (count($groupOptions) == 0) $groupOptions[] = ['caption' => '- No Groups -', 'value' => ''];
 
+        // InstanceID dropdown (from DispatchTargets)
+        $targetOptions = [];
+        $seenTargetIDs = [];
+
+        foreach ($dispatchTargets as $t) {
+            if (!is_array($t)) continue;
+
+            $name = trim((string)($t['Name'] ?? ''));
+            $iid  = (int)($t['InstanceID'] ?? 0);
+            if ($iid <= 0) continue;
+
+            // Only offer existing instances in the dropdown
+            if (!IPS_InstanceExists($iid)) continue;
+
+            // De-dup by InstanceID
+            if (isset($seenTargetIDs[$iid])) continue;
+            $seenTargetIDs[$iid] = true;
+
+            $instCaption = IPS_GetName($iid);
+            $cap = ($name !== '') ? ($name . ' (' . $instCaption . ')') : $instCaption;
+
+            $targetOptions[] = ['caption' => $cap, 'value' => $iid];
+        }
+
+        if (count($targetOptions) === 0) {
+            $targetOptions[] = ['caption' => '- No Targets -', 'value' => 0];
+        }
         // === DEBUG: classOptions count ===
         if ($this->ReadPropertyBoolean('DebugMode')) IPS_LogMessage('SensorGroup', 'DEBUG: GetConfigurationForm classOptions=' . count($classOptions));
 
@@ -1836,6 +1871,7 @@ GroupTargetMap: [
                         "rowCount" => 5,
                         "add"      => true,
                         "delete"   => false,
+                        "onEdit"   => "IPS_RequestAction(\$id, 'UpdateGroupList', json_encode(\$GroupList));",
                         "columns"  => [
                             ["caption" => "ID", "name" => "GroupID", "width" => "0px", "add" => "", "visible" => false],
                             ["caption" => "Group Name", "name" => "GroupName", "width" => "200px", "add" => "", "edit" => ["type" => "ValidationTextBox"]],
@@ -1960,19 +1996,39 @@ GroupTargetMap: [
         if ($this->ReadPropertyBoolean('DebugMode')) IPS_LogMessage('SensorGroup', 'DEBUG: GetConfigurationForm EXIT returning json');
         // === FIX: Push current bedroomList into the hidden property-bound field
         foreach ($form['elements'] as &$e) {
+
+            // Keep hidden property-bound BedroomList filled
             if (isset($e['name']) && $e['name'] === 'BedroomList') {
                 $e['values'] = $bedroomList;
-                break;
+                continue;
             }
-        }
-        foreach ($form['elements'] as &$e) {
+
+            // Step 4a: targets list values
             if (isset($e['name']) && $e['name'] === 'DispatchTargets') {
                 $e['values'] = $dispatchTargets;
-                break;
+                continue;
+            }
+
+            // Step 3c: GroupDispatch list: inject dropdown options + values
+            if (isset($e['name']) && $e['name'] === 'GroupDispatch') {
+                $e['values'] = $groupDispatch;
+
+                if (isset($e['columns']) && is_array($e['columns'])) {
+                    foreach ($e['columns'] as &$col) {
+                        if (($col['name'] ?? '') === 'GroupName' && isset($col['edit']) && is_array($col['edit'])) {
+                            $col['edit']['options'] = $groupOptions;
+                        }
+                        if (($col['name'] ?? '') === 'InstanceID' && isset($col['edit']) && is_array($col['edit'])) {
+                            $col['edit']['options'] = $targetOptions;
+                        }
+                    }
+                    unset($col);
+                }
             }
         }
-
         unset($e);
+
+
         return json_encode($form);
     }
 

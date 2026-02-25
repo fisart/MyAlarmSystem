@@ -39,28 +39,35 @@
     "columns": [
         { "caption": "Name", "name": "Name", "width": "220px", "add": "New Target", "edit": { "type": "ValidationTextBox" } },
         { "caption": "Instance", "name": "InstanceID", "width": "220px", "add": 0, "edit": { "type": "SelectInstance" } }
-    ]
+    ],
+  "values": []
 },
-       {
-  "type": "ExpansionPanel",
+      {
+  "type": "List",
+  "name": "GroupDispatch",
   "caption": "Step 3c: Route Groups to Module 2 Targets",
-  "items": [
+  "rowCount": 5,
+  "add": true,
+  "delete": true,
+  "onEdit": "IPS_RequestAction($id, 'UpdateGroupDispatch', json_encode($GroupDispatch));",
+  "columns": [
     {
-      "type": "List",
-      "name": "GroupDispatch",
-      "caption": "Group → Module 2 Instance",
-      "rowCount": 8,
-      "add": true,
-      "delete": true,
-      "onEdit": "IPS_RequestAction($id, 'UpdateGroupDispatch', json_encode($GroupDispatch));",
-      "columns": [
-        { "caption": "GroupName", "name": "GroupName", "width": "220px", "add": "", "edit": { "type": "ValidationTextBox" } },
-        { "caption": "InstanceID", "name": "InstanceID", "width": "220px", "add": 0, "edit": { "type": "SelectInstance" } }
-      ],
-      "values": []
+      "caption": "Group",
+      "name": "GroupName",
+      "width": "220px",
+      "add": "",
+      "edit": { "type": "Select", "options": [] }
+    },
+    {
+      "caption": "Target",
+      "name": "InstanceID",
+      "width": "320px",
+      "add": 0,
+      "edit": { "type": "Select", "options": [] }
     }
-  ]
-},
+  ],
+  "values": []
+} ,
 
         { "type": "CheckBox", "name": "MaintenanceMode", "caption": "Maintenance Mode" },
         { "type": "CheckBox", "name": "DebugMode", "caption": "Debug Logging" },
