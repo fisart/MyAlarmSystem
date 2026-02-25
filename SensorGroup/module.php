@@ -1821,7 +1821,7 @@ class SensorGroup extends IPSModule
         if (!is_array($dtBuf))  $dtBuf  = [];
         if (!is_array($dtProp)) $dtProp = [];
 
-        $dispatchTargets = (count($dtProp) >= count($dtBuf)) ? $dtProp : $dtBuf;
+        $dispatchTargets = (count($dtBuf) > 0) ? $dtBuf : $dtProp;
         // GroupDispatch: prefer PROPERTY if it contains newer/more rows than buffer
         $gdBuf  = json_decode($this->ReadAttributeString('GroupDispatchBuffer'), true);
         $gdProp = json_decode($this->ReadPropertyString('GroupDispatch'), true);
@@ -1829,7 +1829,7 @@ class SensorGroup extends IPSModule
         if (!is_array($gdBuf))  $gdBuf  = [];
         if (!is_array($gdProp)) $gdProp = [];
 
-        $groupDispatch = (count($gdProp) >= count($gdBuf)) ? $gdProp : $gdBuf;
+        $groupDispatch = (count($gdBuf) > 0) ? $gdBuf : $gdProp;
 
         // === DEBUG: other list counts ===
         if ($this->ReadPropertyBoolean('DebugMode')) IPS_LogMessage(
@@ -2167,14 +2167,14 @@ class SensorGroup extends IPSModule
         $dtProp = json_decode($this->ReadPropertyString('DispatchTargets'), true);
         if (!is_array($dtBuf))  $dtBuf  = [];
         if (!is_array($dtProp)) $dtProp = [];
-        $dispatchTargets = (count($dtProp) >= count($dtBuf)) ? $dtProp : $dtBuf;
+        $dispatchTargets = (count($dtBuf) > 0) ? $dtBuf : $dtProp;
 
         // GroupDispatch: prefer PROPERTY if it has >= rows than buffer (buffer can be stale)
         $gdBuf  = json_decode($this->ReadAttributeString('GroupDispatchBuffer'), true);
         $gdProp = json_decode($this->ReadPropertyString('GroupDispatch'), true);
         if (!is_array($gdBuf))  $gdBuf  = [];
         if (!is_array($gdProp)) $gdProp = [];
-        $groupDispatch = (count($gdProp) >= count($gdBuf)) ? $gdProp : $gdBuf;
+        $groupDispatch = (count($gdBuf) > 0) ? $gdBuf : $gdProp;
 
         $config = [
             'ClassList'       => json_decode($this->ReadAttributeString('ClassListBuffer'), true) ?: json_decode($this->ReadPropertyString('ClassList'), true) ?: [],
