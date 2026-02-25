@@ -1657,13 +1657,19 @@ GroupDispatch: [
         );
 
         // Blueprint 2.0: Prioritize RAM Buffers (Source of Truth)
-        $definedClasses = json_decode($this->ReadAttributeString('ClassListBuffer'), true)
-            ?: json_decode($this->ReadPropertyString('ClassList'), true)
-            ?: [];
+        // Classes: prefer PROPERTY if it contains newer/more rows than buffer
+        $clBuf  = json_decode($this->ReadAttributeString('ClassListBuffer'), true);
+        $clProp = json_decode($this->ReadPropertyString('ClassList'), true);
+        if (!is_array($clBuf))  $clBuf  = [];
+        if (!is_array($clProp)) $clProp = [];
+        $definedClasses = (count($clProp) >= count($clBuf)) ? $clProp : $clBuf;
 
-        $definedGroups  = json_decode($this->ReadAttributeString('GroupListBuffer'), true)
-            ?: json_decode($this->ReadPropertyString('GroupList'), true)
-            ?: [];
+        // Groups: prefer PROPERTY if it contains newer/more rows than buffer
+        $grBuf  = json_decode($this->ReadAttributeString('GroupListBuffer'), true);
+        $grProp = json_decode($this->ReadPropertyString('GroupList'), true);
+        if (!is_array($grBuf))  $grBuf  = [];
+        if (!is_array($grProp)) $grProp = [];
+        $definedGroups = (count($grProp) >= count($grBuf)) ? $grProp : $grBuf;
         if ($this->ReadPropertyBoolean('DebugMode')) IPS_LogMessage('SensorGroup', 'DEBUG: ClassListBuffer RAW=' . $this->ReadAttributeString('ClassListBuffer'));
         if ($this->ReadPropertyBoolean('DebugMode')) IPS_LogMessage('SensorGroup', 'DEBUG: ClassListProperty RAW=' . $this->ReadPropertyString('ClassList'));
         // === DEBUG: initial source-of-truth counts ===
@@ -1707,12 +1713,23 @@ GroupDispatch: [
             ];
         }
         $groupMembers = json_decode($this->ReadAttributeString('GroupMembersBuffer'), true) ?: json_decode($this->ReadPropertyString('GroupMembers'), true) ?: [];
-        $dispatchTargets = json_decode($this->ReadAttributeString('DispatchTargetsBuffer'), true) ?: json_decode($this->ReadPropertyString('DispatchTargets'), true) ?: [];
-        $groupDispatch = json_decode($this->ReadAttributeString('GroupDispatchBuffer'), true)
-            ?: json_decode($this->ReadPropertyString('GroupDispatch'), true)
-            ?: [];
-        if (!is_array($groupDispatch)) $groupDispatch = [];
-        if (!is_array($dispatchTargets)) $dispatchTargets = [];
+        // DispatchTargets: prefer PROPERTY if it contains newer/more rows than buffer (buffer can be stale)
+        $dtBuf  = json_decode($this->ReadAttributeString('DispatchTargetsBuffer'), true);
+        $dtProp = json_decode($this->ReadPropertyString('DispatchTargets'), true);
+
+        if (!is_array($dtBuf))  $dtBuf  = [];
+        if (!is_array($dtProp)) $dtProp = [];
+
+        $dispatchTargets = (count($dtProp) >= count($dtBuf)) ? $dtProp : $dtBuf;
+        // GroupDispatch: prefer PROPERTY if it contains newer/more rows than buffer
+        $gdBuf  = json_decode($this->ReadAttributeString('GroupDispatchBuffer'), true);
+        $gdProp = json_decode($this->ReadPropertyString('GroupDispatch'), true);
+
+        if (!is_array($gdBuf))  $gdBuf  = [];
+        if (!is_array($gdProp)) $gdProp = [];
+
+        $groupDispatch = (count($gdProp) >= count($gdBuf)) ? $gdProp : $gdBuf;
+
         // === DEBUG: other list counts ===
         if ($this->ReadPropertyBoolean('DebugMode')) IPS_LogMessage(
             'SensorGroup',
