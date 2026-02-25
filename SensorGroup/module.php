@@ -209,16 +209,16 @@ class SensorGroup extends IPSModule
         if (!is_array($groupDispatch)) $groupDispatch = [];
 
         /*
-Expected shapes:
-DispatchTargets: [
-  ["Name" => "Einbruch", "InstanceID" => 12345],
-  ...
-]
-GroupDispatch: [
-  ["GroupName" => "Wasser Alarm", "InstanceID" => 12345],
-  ...
-]
-*/
+        Expected shapes:
+        DispatchTargets: [
+        ["Name" => "Einbruch", "InstanceID" => 12345],
+        ...
+        ]
+        GroupDispatch: [
+        ["GroupName" => "Wasser Alarm", "InstanceID" => 12345],
+        ...
+        ]
+        */
 
         // Build set of valid target IDs
         $validTargetIDs = [];
@@ -261,12 +261,13 @@ GroupDispatch: [
         // Keep properties in sync (so backup/restore + Apply works)
         IPS_SetProperty($this->InstanceID, 'DispatchTargets', $jsonTargets);
         IPS_SetProperty($this->InstanceID, 'GroupDispatch',  $jsonDispatch);
-        if ($this->ReadPropertyBoolean('DebugMode')) {
-            $this->LogMessage(
-                "DEBUG: ApplyChanges - Router Sync targets=" . count($dispatchTargets) .
-                    " routes=" . count($cleanMap),
-                KL_MESSAGE
-            );
+if ($this->ReadPropertyBoolean('DebugMode')) {
+    $this->LogMessage(
+        "DEBUG: ApplyChanges - Router Sync targets=" . count($dispatchTargets) .
+        " routes=" . count($cleanDispatch),
+        KL_MESSAGE
+    );
+}
         }
         foreach (array_keys($groupIDMap) as $mappedGroupName) {
             if (!in_array($mappedGroupName, $validGroupNames, true)) {
@@ -1186,6 +1187,10 @@ GroupDispatch: [
         $bedroomList  = json_decode($this->ReadAttributeString('BedroomListBuffer'), true) ?: [];
         $groupMembers = json_decode($this->ReadAttributeString('GroupMembersBuffer'), true) ?: [];
         $dispatchTargets = json_decode($this->ReadAttributeString('DispatchTargetsBuffer'), true) ?: [];
+        if ($this->ReadPropertyBoolean('DebugMode')) $this->LogMessage(
+        "DEBUG: COMMIT PRECHECK - ClassListBuffer firstRow=" . json_encode($classList[0] ?? null),
+        KL_MESSAGE
+    );
         // DEBUG: Compare buffer vs property just before COMMIT writes anything
         $propGroupList = json_decode($this->ReadPropertyString('GroupList'), true) ?: [];
         if ($this->ReadPropertyBoolean('DebugMode')) $this->LogMessage(
@@ -1217,14 +1222,110 @@ GroupDispatch: [
         }
         unset($s);
 
-        // 3. Persist all verified data to Properties (Physical Disk)
+
+        // 3. FINAL STABILIZATION BEFORE COMMIT
+        // Ensure ClassIDs/GroupIDs exist even if the UI list edit dropped hidden columns.
+
+        // Load state maps (sticky IDs)
+        $stateData = json_decode($this->ReadAttributeString('ClassStateAttribute'), true) ?: [];
+        $idMap     = $stateData['IDMap'] ?? [];
+        $groupIDMap = $stateData['GroupIDMap'] ?? [];
+
+        if (!is_array($idMap)) $idMap = [];
+        if (!is_array($groupIDMap)) $groupIDMap = [];
+
+        // --- Heal ClassList IDs (by ClassName) ---
+        $classNameToId = [];
+        $classIdsFixed = false;
+
+        foreach ($classList as &$c) {
+            if (!is_array($c)) continue;
+
+            $name = trim((string)($c['ClassName'] ?? ''));
+            if ($name === '') continue;
+
+            $cid = (string)($c['ClassID'] ?? '');
+
+            if ($cid === '') {
+                if (isset($idMap[$name]) && (string)$idMap[$name] !== '') {
+                    $cid = (string)$idMap[$name];
+                } else {
+                    $cid = uniqid('cls_');
+                }
+                $c['ClassID'] = $cid;
+                $classIdsFixed = true;
+            }
+
+            $idMap[$name] = $cid;
+            $classNameToId[$name] = $cid;
+        }
+        unset($c);
+
+        // --- Heal GroupList IDs (by GroupName) ---
+        $groupIdsFixed = false;
+        foreach ($groupList as &$g) {
+            if (!is_array($g)) continue;
+
+            $gName = trim((string)($g['GroupName'] ?? ''));
+            if ($gName === '') continue;
+
+            $gId = (string)($g['GroupID'] ?? '');
+            if ($gId === '') {
+                if (isset($groupIDMap[$gName]) && (string)$groupIDMap[$gName] !== '') {
+                    $gId = (string)$groupIDMap[$gName];
+                } else {
+                    $gId = uniqid('grp_');
+                }
+                $g['GroupID'] = $gId;
+                $groupIdsFixed = true;
+            }
+
+            $groupIDMap[$gName] = $gId;
+        }
+        unset($g);
+
+        // --- Normalize SensorList ClassID: convert legacy ClassName references to real ClassID ---
+        $sensorsFixed = false;
+        foreach ($sensorList as &$s) {
+            if (!is_array($s)) continue;
+
+            $sid = $s['ClassID'] ?? '';
+            // If it's not a cls_* id, treat it as legacy ClassName and map it
+            if (is_string($sid) && $sid !== '' && strpos($sid, 'cls_') !== 0) {
+                if (isset($classNameToId[$sid])) {
+                    $s['ClassID'] = $classNameToId[$sid];
+                    $sensorsFixed = true;
+                }
+            }
+        }
+        unset($s);
+
+        // Persist updated maps if we changed anything
+        if ($classIdsFixed || $groupIdsFixed) {
+            $stateData['IDMap'] = $idMap;
+            $stateData['GroupIDMap'] = $groupIDMap;
+            $this->WriteAttributeString('ClassStateAttribute', json_encode($stateData));
+        }
+
+        // Keep buffers consistent with what we will commit
+        if ($classIdsFixed) $this->WriteAttributeString('ClassListBuffer', json_encode($classList));
+        if ($groupIdsFixed) $this->WriteAttributeString('GroupListBuffer', json_encode($groupList));
+        if ($sensorsFixed)  $this->WriteAttributeString('SensorListBuffer', json_encode($sensorList));
+
+        // Also include GroupDispatch in commit (you have it as a property)
+        $groupDispatch = json_decode($this->ReadAttributeString('GroupDispatchBuffer'), true)
+            ?: json_decode($this->ReadPropertyString('GroupDispatch'), true)
+            ?: [];
+        if (!is_array($groupDispatch)) $groupDispatch = [];
+
+        // 4. Persist all verified data to Properties (Physical Disk)
         IPS_SetProperty($this->InstanceID, 'ClassList', json_encode($classList));
         IPS_SetProperty($this->InstanceID, 'GroupList', json_encode($groupList));
         IPS_SetProperty($this->InstanceID, 'SensorList', json_encode($sensorList));
         IPS_SetProperty($this->InstanceID, 'BedroomList', json_encode($bedroomList));
         IPS_SetProperty($this->InstanceID, 'GroupMembers', json_encode($groupMembers));
         IPS_SetProperty($this->InstanceID, 'DispatchTargets', json_encode($dispatchTargets));
-
+        IPS_SetProperty($this->InstanceID, 'GroupDispatch', json_encode($groupDispatch));
         // 4. Force System Apply
         if (IPS_HasChanges($this->InstanceID)) {
             IPS_ApplyChanges($this->InstanceID);
