@@ -37,7 +37,7 @@ class SensorGroup extends IPSModule
 
         $this->RegisterAttributeString('DispatchTargetsBuffer', '[]');
         $this->RegisterAttributeString('GroupTargetMapBuffer', '[]');
-        $this->RegisterAttributeBoolean('LastMainStatus', false);
+        $this->RegisterAttributeBoolean('LastMainStatus', '0');
         IPS_SetHidden($this->GetIDForIdent('EventData'), true);
     }
 
@@ -425,7 +425,7 @@ GroupTargetMap: [
         }
         if ($this->ReadAttributeString('ClassStateAttribute') == '') $this->WriteAttributeString('ClassStateAttribute', '{}');
         if ($this->ReadAttributeString('LastMainStatus') === '') {
-            $this->WriteAttributeBoolean('LastMainStatus', false);
+            $this->WriteAttributeString('LastMainStatus', '0');
         }
         // 5. RELOAD FORM
         $this->ReloadForm();
