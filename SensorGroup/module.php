@@ -1366,6 +1366,19 @@ class SensorGroup extends IPSModule
         $groupDispatch = json_decode($this->ReadPropertyString('GroupDispatch'), true);
         if (!is_array($groupDispatch)) $groupDispatch = [];
 
+        // --- FIXED: Deduplicate GroupMembers to prevent hidden stacking ---
+        $uniqueMembers = [];
+        $seenMembers = [];
+        foreach ($groupMembers as $m) {
+            $key = ($m['GroupName'] ?? '') . '::' . ($m['ClassID'] ?? '');
+            if (!isset($seenMembers[$key])) {
+                $seenMembers[$key] = true;
+                $uniqueMembers[] = $m;
+            }
+        }
+        $groupMembers = $uniqueMembers;
+        $this->WriteAttributeString('GroupMembersBuffer', json_encode($groupMembers));
+
         // 4. Persist all verified data to Properties (Physical Disk)
         IPS_SetProperty($this->InstanceID, 'ClassList', json_encode($classList));
         IPS_SetProperty($this->InstanceID, 'GroupList', json_encode($groupList));
