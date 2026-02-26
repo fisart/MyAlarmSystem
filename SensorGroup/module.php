@@ -850,6 +850,41 @@ class SensorGroup extends IPSModule
                         if ($gId !== '' && isset($idxById[$gId])) {
                             $this->LogMessage("DEBUG [GroupList]: MATCHED by ID. Updating existing row.", KL_MESSAGE);
                             $pos = $idxById[$gId];
+
+                            // --- CASCADING RENAME START ---
+                            $oldName = $master[$pos]['GroupName'] ?? '';
+                            if ($oldName !== '' && $oldName !== $gName) {
+                                $this->LogMessage("DEBUG [GroupList]: Renaming references from '{$oldName}' to '{$gName}'", KL_MESSAGE);
+
+                                // 1. Update GroupMembers
+                                $memBuf = json_decode($this->ReadAttributeString('GroupMembersBuffer'), true) ?: [];
+                                foreach ($memBuf as &$m) {
+                                    if (($m['GroupName'] ?? '') === $oldName) $m['GroupName'] = $gName;
+                                }
+                                unset($m);
+                                $this->WriteAttributeString('GroupMembersBuffer', json_encode($memBuf));
+                                IPS_SetProperty($this->InstanceID, 'GroupMembers', json_encode($memBuf));
+
+                                // 2. Update BedroomList
+                                $bedBuf = json_decode($this->ReadAttributeString('BedroomListBuffer'), true) ?: [];
+                                foreach ($bedBuf as &$b) {
+                                    if (($b['GroupName'] ?? '') === $oldName) $b['GroupName'] = $gName;
+                                }
+                                unset($b);
+                                $this->WriteAttributeString('BedroomListBuffer', json_encode($bedBuf));
+                                IPS_SetProperty($this->InstanceID, 'BedroomList', json_encode($bedBuf));
+
+                                // 3. Update GroupDispatch
+                                $dispBuf = json_decode($this->ReadPropertyString('GroupDispatch'), true) ?: [];
+                                foreach ($dispBuf as &$d) {
+                                    if (($d['GroupName'] ?? '') === $oldName) $d['GroupName'] = $gName;
+                                }
+                                unset($d);
+                                $this->WriteAttributeString('GroupDispatchBuffer', json_encode($dispBuf));
+                                IPS_SetProperty($this->InstanceID, 'GroupDispatch', json_encode($dispBuf));
+                            }
+                            // --- CASCADING RENAME END ---
+
                             $master[$pos] = array_merge($master[$pos], $inRow);
                             $idxByName[$gName] = $pos;
                             $mergedExisting++;
