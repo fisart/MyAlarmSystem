@@ -1,0 +1,13 @@
+{
+    "id": "{D90786C5-5A3E-4B0F-935A-3A3A9D1C9E9A}",
+    "name": "Property State Manager",
+    "type": 3,
+    "vendor": "MyAlarm",
+    "aliases": [
+        "House Logic Controller"
+    ],
+    "parentRequirements": [],
+    "childRequirements": [],
+    "implemented": [],
+    "prefix": "PSM"
+}
