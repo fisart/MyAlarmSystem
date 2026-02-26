@@ -848,8 +848,34 @@ class SensorGroup extends IPSModule
                         $this->LogMessage("DEBUG [GroupList]: Processing Row - Name: '{$gName}' | ID: '{$gId}'", KL_MESSAGE);
 
                         if ($gId !== '' && isset($idxById[$gId])) {
-                            $this->LogMessage("DEBUG [GroupList]: MATCHED by ID. Updating existing row.", KL_MESSAGE);
                             $pos = $idxById[$gId];
+
+                            // --- CASCADING RENAME ---
+                            $oldName = $master[$pos]['GroupName'] ?? '';
+                            if ($oldName !== '' && $oldName !== $gName) {
+                                // 1. Cascade to Members
+                                $memBuf = json_decode($this->ReadAttributeString('GroupMembersBuffer'), true) ?: [];
+                                foreach ($memBuf as &$m) {
+                                    if (($m['GroupName'] ?? '') === $oldName) $m['GroupName'] = $gName;
+                                }
+                                $this->WriteAttributeString('GroupMembersBuffer', json_encode($memBuf));
+
+                                // 2. Cascade to Bedrooms
+                                $bedBuf = json_decode($this->ReadAttributeString('BedroomListBuffer'), true) ?: [];
+                                foreach ($bedBuf as &$b) {
+                                    if (($b['GroupName'] ?? '') === $oldName) $b['GroupName'] = $gName;
+                                }
+                                $this->WriteAttributeString('BedroomListBuffer', json_encode($bedBuf));
+
+                                // 3. Cascade to Dispatch
+                                $dispBuf = json_decode($this->ReadPropertyString('GroupDispatch'), true) ?: [];
+                                foreach ($dispBuf as &$d) {
+                                    if (($d['GroupName'] ?? '') === $oldName) $d['GroupName'] = $gName;
+                                }
+                                $this->WriteAttributeString('GroupDispatchBuffer', json_encode($dispBuf));
+                                IPS_SetProperty($this->InstanceID, 'GroupDispatch', json_encode($dispBuf));
+                            }
+
                             $master[$pos] = array_merge($master[$pos], $inRow);
                             $idxByName[$gName] = $pos;
                             $mergedExisting++;
@@ -1840,12 +1866,14 @@ class SensorGroup extends IPSModule
         if (!is_array($clProp)) $clProp = [];
         $definedClasses = (count($clProp) >= count($clBuf)) ? $clProp : $clBuf;
 
-        // Groups: prefer PROPERTY if it contains newer/more rows than buffer
+        // Groups: Always use BUFFER as the live draft to support renaming. Property is fallback.
         $grBuf  = json_decode($this->ReadAttributeString('GroupListBuffer'), true);
         $grProp = json_decode($this->ReadPropertyString('GroupList'), true);
         if (!is_array($grBuf))  $grBuf  = [];
         if (!is_array($grProp)) $grProp = [];
-        $definedGroups = (count($grProp) >= count($grBuf)) ? $grProp : $grBuf;
+
+        // FIX: Buffer is the Source of Truth for edits (like renaming). Property is only used if Buffer is empty.
+        $definedGroups = (count($grBuf) > 0) ? $grBuf : $grProp;
 
         if ($this->ReadPropertyBoolean('DebugMode')) IPS_LogMessage('SensorGroup', 'DEBUG: ClassListBuffer RAW=' . $this->ReadAttributeString('ClassListBuffer'));
         if ($this->ReadPropertyBoolean('DebugMode')) IPS_LogMessage('SensorGroup', 'DEBUG: ClassListProperty RAW=' . $this->ReadPropertyString('ClassList'));
