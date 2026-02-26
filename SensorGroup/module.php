@@ -892,6 +892,10 @@ class SensorGroup extends IPSModule
                     }
 
                     $json = json_encode($master);
+
+                    // DEBUG: Peek at what we are saving
+                    $this->LogMessage("DEBUG [GroupList]: Saving Master List. Count: " . count($master) . ". Content: " . substr($json, 0, 100) . "...", KL_MESSAGE);
+
                     $this->WriteAttributeString('GroupListBuffer', $json);
                     IPS_SetProperty($this->InstanceID, 'GroupList', $json);
 
@@ -1841,6 +1845,13 @@ class SensorGroup extends IPSModule
         $grProp = json_decode($this->ReadPropertyString('GroupList'), true);
         if (!is_array($grBuf))  $grBuf  = [];
         if (!is_array($grProp)) $grProp = [];
+
+        // DEBUG: Compare the first group name in both sources
+        $nameBuf = $grBuf[0]['GroupName'] ?? 'N/A';
+        $nameProp = $grProp[0]['GroupName'] ?? 'N/A';
+        $this->LogMessage("DEBUG [ConfigForm]: Compare - Buffer[0]: '$nameBuf' vs Property[0]: '$nameProp'", KL_MESSAGE);
+        $this->LogMessage("DEBUG [ConfigForm]: Decision - PropCount (" . count($grProp) . ") >= BufCount (" . count($grBuf) . ") ? " . ((count($grProp) >= count($grBuf)) ? "YES (Pick Property)" : "NO (Pick Buffer)"), KL_MESSAGE);
+
         $definedGroups = (count($grProp) >= count($grBuf)) ? $grProp : $grBuf;
         if ($this->ReadPropertyBoolean('DebugMode')) IPS_LogMessage('SensorGroup', 'DEBUG: ClassListBuffer RAW=' . $this->ReadAttributeString('ClassListBuffer'));
         if ($this->ReadPropertyBoolean('DebugMode')) IPS_LogMessage('SensorGroup', 'DEBUG: ClassListProperty RAW=' . $this->ReadPropertyString('ClassList'));
