@@ -2201,6 +2201,15 @@ class SensorGroup extends IPSModule
         $this->UpdateFormOption($form['elements'], 'ImportClass', $classOptions);
         if (isset($form['actions'])) $this->UpdateFormOption($form['actions'], 'ImportClass', $classOptions);
 
+        // === FINAL DEBUG TRACE ===
+        // Find the GroupList element and log what we are sending to the browser
+        foreach ($form['elements'] as $el) {
+            if (($el['name'] ?? '') === 'GroupList') {
+                $firstGroup = $el['values'][0]['GroupName'] ?? 'MISSING';
+                $this->LogMessage("DEBUG [FormOutput]: Sending GroupList. First Group Name: '{$firstGroup}'", KL_MESSAGE);
+            }
+        }
+
         // === DEBUG: exit GetConfigurationForm ===
         if ($this->ReadPropertyBoolean('DebugMode')) IPS_LogMessage('SensorGroup', 'DEBUG: GetConfigurationForm EXIT returning json');
         // === FIX: Push current bedroomList into the hidden property-bound field
