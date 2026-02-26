@@ -2307,10 +2307,10 @@ class SensorGroup extends IPSModule
             'DispatchTargets' => $dispatchTargets,
             'GroupDispatch'   => $groupDispatch,
 
-            // OPTIONAL but recommended (boolean property)
+            // OPTIONAL properties
+            'BedroomTarget'   => $this->ReadPropertyInteger('BedroomTarget'),
             'MaintenanceMode' => $this->ReadPropertyBoolean('MaintenanceMode')
         ];
-
         $json = json_encode($config, JSON_PRETTY_PRINT);
         $this->UpdateFormField('BackupData', 'value', $json);
     }
@@ -2360,7 +2360,11 @@ class SensorGroup extends IPSModule
             }
         }
 
-        // OPTIONAL boolean
+        // OPTIONAL properties
+        if (array_key_exists('BedroomTarget', $config)) {
+            IPS_SetProperty($this->InstanceID, 'BedroomTarget', (int)$config['BedroomTarget']);
+            $restoredCount++;
+        }
         if (array_key_exists('MaintenanceMode', $config)) {
             IPS_SetProperty($this->InstanceID, 'MaintenanceMode', (bool)$config['MaintenanceMode']);
             $restoredCount++;
