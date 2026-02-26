@@ -1846,13 +1846,10 @@ class SensorGroup extends IPSModule
         if (!is_array($grBuf))  $grBuf  = [];
         if (!is_array($grProp)) $grProp = [];
 
-        // DEBUG: Compare the first group name in both sources
-        $nameBuf = $grBuf[0]['GroupName'] ?? 'N/A';
-        $nameProp = $grProp[0]['GroupName'] ?? 'N/A';
-        $this->LogMessage("DEBUG [ConfigForm]: Compare - Buffer[0]: '$nameBuf' vs Property[0]: '$nameProp'", KL_MESSAGE);
-        $this->LogMessage("DEBUG [ConfigForm]: Decision - PropCount (" . count($grProp) . ") >= BufCount (" . count($grBuf) . ") ? " . ((count($grProp) >= count($grBuf)) ? "YES (Pick Property)" : "NO (Pick Buffer)"), KL_MESSAGE);
+        // FIX: Buffer is the Source of Truth for edits. Property is the Source of Truth for disk storage.
+        // If Buffer is populated, it contains the latest "Draft" state (including renames).
+        $definedGroups = (count($grBuf) > 0) ? $grBuf : $grProp;
 
-        $definedGroups = (count($grProp) >= count($grBuf)) ? $grProp : $grBuf;
         if ($this->ReadPropertyBoolean('DebugMode')) IPS_LogMessage('SensorGroup', 'DEBUG: ClassListBuffer RAW=' . $this->ReadAttributeString('ClassListBuffer'));
         if ($this->ReadPropertyBoolean('DebugMode')) IPS_LogMessage('SensorGroup', 'DEBUG: ClassListProperty RAW=' . $this->ReadPropertyString('ClassList'));
         // === DEBUG: initial source-of-truth counts ===
