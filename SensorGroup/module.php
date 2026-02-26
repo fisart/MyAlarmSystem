@@ -845,7 +845,10 @@ class SensorGroup extends IPSModule
                         }
 
                         // Keyed merge: prefer GroupID, fallback to GroupName
+                        $this->LogMessage("DEBUG [GroupList]: Processing Row - Name: '{$gName}' | ID: '{$gId}'", KL_MESSAGE);
+
                         if ($gId !== '' && isset($idxById[$gId])) {
+                            $this->LogMessage("DEBUG [GroupList]: MATCHED by ID. Updating existing row.", KL_MESSAGE);
                             $pos = $idxById[$gId];
                             $master[$pos] = array_merge($master[$pos], $inRow);
                             $idxByName[$gName] = $pos;
@@ -854,6 +857,7 @@ class SensorGroup extends IPSModule
                         }
 
                         if (isset($idxByName[$gName])) {
+                            $this->LogMessage("DEBUG [GroupList]: MATCHED by Name. ID was missing or new.", KL_MESSAGE);
                             $pos = $idxByName[$gName];
                             $master[$pos] = array_merge($master[$pos], $inRow);
                             if ($gId !== '') {
