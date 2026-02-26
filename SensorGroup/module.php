@@ -1871,12 +1871,14 @@ class SensorGroup extends IPSModule
         if (!is_array($clProp)) $clProp = [];
         $definedClasses = (count($clProp) >= count($clBuf)) ? $clProp : $clBuf;
 
-        // Groups: prefer PROPERTY if it contains newer/more rows than buffer
+        // Groups: Prioritize BUFFER to ensure renaming works (Property is only a fallback)
         $grBuf  = json_decode($this->ReadAttributeString('GroupListBuffer'), true);
         $grProp = json_decode($this->ReadPropertyString('GroupList'), true);
         if (!is_array($grBuf))  $grBuf  = [];
         if (!is_array($grProp)) $grProp = [];
-        $definedGroups = (count($grProp) >= count($grBuf)) ? $grProp : $grBuf;
+
+        // FIX: If Buffer has data, use it. Only use Property if Buffer is empty/stale.
+        $definedGroups = (count($grBuf) > 0) ? $grBuf : $grProp;
         if ($this->ReadPropertyBoolean('DebugMode')) IPS_LogMessage('SensorGroup', 'DEBUG: ClassListBuffer RAW=' . $this->ReadAttributeString('ClassListBuffer'));
         if ($this->ReadPropertyBoolean('DebugMode')) IPS_LogMessage('SensorGroup', 'DEBUG: ClassListProperty RAW=' . $this->ReadPropertyString('ClassList'));
         // === DEBUG: initial source-of-truth counts ===
