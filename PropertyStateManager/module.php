@@ -187,11 +187,7 @@ class PropertyStateManager extends IPSModule
         }
     }
 
-    private function EvaluateState()
-    {
-        // This is a placeholder for the 64-rule logic engine
-        // We will implement this in the next step.
-    }
+
     public function ApplyChanges()
     {
         // Never delete this line!
