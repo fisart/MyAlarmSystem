@@ -2286,9 +2286,26 @@ class SensorGroup extends IPSModule
 
     public function UI_LoadBackup()
     {
-        // Blueprint 2.0: Backup from RAM Buffer (Source of Truth) to ensure export matches visual UI state
+        // 1. Load Data
+        $classList    = json_decode($this->ReadAttributeString('ClassListBuffer'), true) ?: json_decode($this->ReadPropertyString('ClassList'), true) ?: [];
+        $groupList    = json_decode($this->ReadAttributeString('GroupListBuffer'), true) ?: json_decode($this->ReadPropertyString('GroupList'), true) ?: [];
+        $stateData    = json_decode($this->ReadAttributeString('ClassStateAttribute'), true) ?: [];
+        $idMap        = $stateData['IDMap'] ?? [];
+        $groupIDMap   = $stateData['GroupIDMap'] ?? [];
 
-        // FIX: Read directly from Property to prevent zombie rows in backup
+        // 2. HEAL: Re-attach hidden IDs from persistent maps before export
+        foreach ($classList as &$c) {
+            $name = $c['ClassName'] ?? '';
+            if (($c['ClassID'] ?? '') === '' && isset($idMap[$name])) $c['ClassID'] = $idMap[$name];
+        }
+        unset($c);
+
+        foreach ($groupList as &$g) {
+            $name = $g['GroupName'] ?? '';
+            if (($g['GroupID'] ?? '') === '' && isset($groupIDMap[$name])) $g['GroupID'] = $groupIDMap[$name];
+        }
+        unset($g);
+
         $dispatchTargets = json_decode($this->ReadPropertyString('DispatchTargets'), true);
         if (!is_array($dispatchTargets)) $dispatchTargets = [];
 
@@ -2296,13 +2313,12 @@ class SensorGroup extends IPSModule
         if (!is_array($groupDispatch)) $groupDispatch = [];
 
         $config = [
-            'ClassList'       => json_decode($this->ReadAttributeString('ClassListBuffer'), true) ?: json_decode($this->ReadPropertyString('ClassList'), true) ?: [],
-            'GroupList'       => json_decode($this->ReadAttributeString('GroupListBuffer'), true) ?: json_decode($this->ReadPropertyString('GroupList'), true) ?: [],
+            'ClassList'       => $classList,
+            'GroupList'       => $groupList,
             'SensorList'      => json_decode($this->ReadAttributeString('SensorListBuffer'), true) ?: json_decode($this->ReadPropertyString('SensorList'), true) ?: [],
             'BedroomList'     => json_decode($this->ReadAttributeString('BedroomListBuffer'), true) ?: json_decode($this->ReadPropertyString('BedroomList'), true) ?: [],
             'GroupMembers'    => json_decode($this->ReadAttributeString('GroupMembersBuffer'), true) ?: json_decode($this->ReadPropertyString('GroupMembers'), true) ?: [],
             'TamperList'      => json_decode($this->ReadPropertyString('TamperList'), true) ?: [],
-
             // NEW: Module 2 routing
             'DispatchTargets' => $dispatchTargets,
             'GroupDispatch'   => $groupDispatch,
