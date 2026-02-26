@@ -2283,6 +2283,53 @@ class SensorGroup extends IPSModule
         return json_encode($form);
     }
 
+    /**
+     * Public function for Module 2 to discover the configuration of this instance.
+     * Returns the same "Healed" JSON structure used by the backup system.
+     */
+    public function GetConfiguration()
+    {
+        // 1. Load Data
+        $classList    = json_decode($this->ReadAttributeString('ClassListBuffer'), true) ?: json_decode($this->ReadPropertyString('ClassList'), true) ?: [];
+        $groupList    = json_decode($this->ReadAttributeString('GroupListBuffer'), true) ?: json_decode($this->ReadPropertyString('GroupList'), true) ?: [];
+        $stateData    = json_decode($this->ReadAttributeString('ClassStateAttribute'), true) ?: [];
+        $idMap        = $stateData['IDMap'] ?? [];
+        $groupIDMap   = $stateData['GroupIDMap'] ?? [];
+
+        // 2. HEAL: Re-attach hidden IDs from persistent maps
+        foreach ($classList as &$c) {
+            $name = $c['ClassName'] ?? '';
+            if (($c['ClassID'] ?? '') === '' && isset($idMap[$name])) $c['ClassID'] = $idMap[$name];
+        }
+        unset($c);
+
+        foreach ($groupList as &$g) {
+            $name = $g['GroupName'] ?? '';
+            if (($g['GroupID'] ?? '') === '' && isset($groupIDMap[$name])) $g['GroupID'] = $groupIDMap[$name];
+        }
+        unset($g);
+
+        $dispatchTargets = json_decode($this->ReadPropertyString('DispatchTargets'), true);
+        if (!is_array($dispatchTargets)) $dispatchTargets = [];
+
+        $groupDispatch = json_decode($this->ReadPropertyString('GroupDispatch'), true);
+        if (!is_array($groupDispatch)) $groupDispatch = [];
+
+        $config = [
+            'ClassList'       => $classList,
+            'GroupList'       => $groupList,
+            'SensorList'      => json_decode($this->ReadAttributeString('SensorListBuffer'), true) ?: json_decode($this->ReadPropertyString('SensorList'), true) ?: [],
+            'BedroomList'     => json_decode($this->ReadAttributeString('BedroomListBuffer'), true) ?: json_decode($this->ReadPropertyString('BedroomList'), true) ?: [],
+            'GroupMembers'    => json_decode($this->ReadAttributeString('GroupMembersBuffer'), true) ?: json_decode($this->ReadPropertyString('GroupMembers'), true) ?: [],
+            'TamperList'      => json_decode($this->ReadPropertyString('TamperList'), true) ?: [],
+            'DispatchTargets' => $dispatchTargets,
+            'GroupDispatch'   => $groupDispatch,
+            'BedroomTarget'   => $this->ReadPropertyInteger('BedroomTarget'),
+            'MaintenanceMode' => $this->ReadPropertyBoolean('MaintenanceMode')
+        ];
+
+        return json_encode($config);
+    }
 
     public function UI_LoadBackup()
     {
