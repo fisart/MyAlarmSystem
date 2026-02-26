@@ -14,6 +14,7 @@ class SensorGroup extends IPSModule
         $this->RegisterPropertyString('TamperList', '[]');
         $this->RegisterPropertyString('BedroomList', '[]');
         $this->RegisterPropertyString('GroupDispatch', '[]');
+        $this->RegisterPropertyInteger('BedroomTarget', 0); // NEW: Global Bedroom Router
         $this->RegisterPropertyBoolean('MaintenanceMode', false);
         $this->RegisterPropertyBoolean('DebugMode', false);
 
@@ -1700,6 +1701,32 @@ class SensorGroup extends IPSModule
             KL_MESSAGE
         );
 
+        // === BEDROOM DISPATCH (Presence Sync) ===
+        $bedTarget = (int)$this->ReadPropertyInteger('BedroomTarget');
+        if ($bedTarget > 0 && IPS_InstanceExists($bedTarget)) {
+            $bedList = json_decode($this->ReadPropertyString('BedroomList'), true) ?: [];
+            $bedStates = [];
+            foreach ($bedList as $bed) {
+                $cID = $bed['BedroomDoorClassID'] ?? '';
+                if ($cID === '') continue; // Requirement: Only send if associated class exists
+
+                $vid = (int)($bed['ActiveVariableID'] ?? 0);
+                $bedStates[] = [
+                    'GroupName'   => $bed['GroupName'],
+                    'SwitchState' => ($vid > 0 && IPS_VariableExists($vid)) ? (bool)GetValue($vid) : false,
+                    'DoorTripped' => isset($activeClasses[$cID])
+                ];
+            }
+            if (count($bedStates) > 0) {
+                @IPS_RequestAction($bedTarget, 'ReceivePayload', json_encode([
+                    'event_type' => 'BEDROOM_SYNC',
+                    'timestamp'  => time(),
+                    'source_id'  => $this->InstanceID,
+                    'bedrooms'   => $bedStates
+                ]));
+            }
+        }
+
         // === DISPATCH (Module 2 Routing) - load routing table ===
         // GroupDispatch rows: { GroupName, InstanceID }
         $groupDispatch = json_decode($this->ReadPropertyString('GroupDispatch'), true);
@@ -2224,6 +2251,12 @@ class SensorGroup extends IPSModule
             // Step 4a: targets list values
             if (isset($e['name']) && $e['name'] === 'DispatchTargets') {
                 $e['values'] = $dispatchTargets;
+                continue;
+            }
+
+            // NEW: Global Bedroom Target dropdown options
+            if (isset($e['name']) && $e['name'] === 'BedroomTarget') {
+                $e['options'] = $targetOptions;
                 continue;
             }
 

@@ -67,7 +67,8 @@
     }
   ],
   "values": []
-} ,
+},
+        { "type": "Select", "name": "BedroomTarget", "caption": "Global Bedroom Target Server", "options": [] },
 
         { "type": "CheckBox", "name": "MaintenanceMode", "caption": "Maintenance Mode" },
         { "type": "CheckBox", "name": "DebugMode", "caption": "Debug Logging" },
