@@ -1,0 +1,11 @@
+{
+    "translations": {
+        "de": {
+            "Property State Manager": "Haus-Status-Manager",
+            "System State": "Systemstatus",
+            "Sensor Group Instance (Module 1)": "Sensor-Gruppen-Instanz (Modul 1)",
+            "Sync Configuration from SensorGroup": "Konfiguration von SensorGroup synchronisieren",
+            "Group Mapping": "Gruppen-Zuordnung"
+        }
+    }
+}
