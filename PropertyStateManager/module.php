@@ -2,26 +2,27 @@
 
 declare(strict_types=1);
 
-class PropertyStateManager extends IPSModule
+class PropertyStateManager extends IPSModuleStrict
 {
-    public function Create()
+    public function Create(): void
     {
+        // Never delete this line!
         parent::Create();
 
         // Properties
         $this->RegisterPropertyInteger("SensorGroupInstanceID", 0);
         $this->RegisterPropertyInteger("DispatchTargetID", 0);
-        $this->RegisterPropertyInteger("VaultInstanceID", 0);
         $this->RegisterPropertyString("GroupMapping", "[]");
         $this->RegisterPropertyString("DecisionMap", "[]");
-        $this->RegisterPropertyInteger("SyncTimestamp", 0); // New property for Apply trigger
+        $this->RegisterPropertyInteger("SyncTimestamp", 0);
         $this->RegisterPropertyInteger("ArmingDelayDuration", 1);
-        // Attributes (ActiveSensors instead of ActiveAlarms as agreed)
+        $this->RegisterPropertyInteger("VaultInstanceID", 0);
+
+        // Attributes (RAM Buffers)
         $this->RegisterAttributeString("ActiveSensors", "[]");
         $this->RegisterAttributeString("PresenceMap", "[]");
 
-
-        // Profiles and Variables
+        // Variable Profiles
         if (!IPS_VariableProfileExists('PSM.State')) {
             IPS_CreateVariableProfile('PSM.State', 1);
             IPS_SetVariableProfileAssociation('PSM.State', 0, "Disarmed", "", -1);
@@ -29,21 +30,25 @@ class PropertyStateManager extends IPSModule
             IPS_SetVariableProfileAssociation('PSM.State', 2, "Armed (External)", "", -1);
             IPS_SetVariableProfileAssociation('PSM.State', 3, "Alarm Triggered!", "", -1);
         }
+
+        // Variables
         $this->RegisterVariableInteger("SystemState", "System State", "PSM.State", 0);
 
         // Timers
         $this->RegisterTimer("DelayTimer", 0, 'PSM_HandleTimer($_IPS[\'TARGET\']);');
+
+        // Register WebHook (Native to IPSModuleStrict)
+        $this->RegisterHook("/hook/psm_logic_" . $this->InstanceID);
     }
 
-    public function ApplyChanges()
+    public function ApplyChanges(): void
     {
+        // Never delete this line!
         parent::ApplyChanges();
-
-        // Manual registration for standard IPSModule
-        $webhookControlID = IPS_GetInstanceListByModuleID("{0619B1A4-2591-4AD6-AD3B-35497334EF0D}")[0];
-        @WH_RegisterHook($webhookControlID, "/hook/psm_logic_" . $this->InstanceID, $this->InstanceID);
     }
-    public function HandleTimer()
+
+
+    public function HandleTimer(): void
     {
         // Stop the timer
         $this->SetTimerInterval("DelayTimer", 0);
@@ -59,13 +64,13 @@ class PropertyStateManager extends IPSModule
      * This is called by the UI button. 
      * Simply calling it forces IP-Symcon to reload GetConfigurationForm.
      */
-    public function UI_Refresh()
+    public function UI_Refresh(): void
     {
         // Update the property value in the UI to trigger the 'Apply' button
         $this->UpdateFormField("SyncTimestamp", "value", time());
     }
 
-    protected function ProcessHookData()
+    protected function ProcessHookData(): void
     {
         $vaultID = $this->ReadPropertyInteger("VaultInstanceID");
         if ($vaultID > 0 && @IPS_InstanceExists($vaultID)) {
@@ -167,7 +172,7 @@ class PropertyStateManager extends IPSModule
         return $bits;
     }
 
-    public function ReceivePayload(string $Payload)
+    public function ReceivePayload(string $Payload): void
     {
         $data = json_decode($Payload, true);
         if (!$data) return;
@@ -200,7 +205,7 @@ class PropertyStateManager extends IPSModule
         $this->EvaluateState();
     }
 
-    private function EvaluateState()
+    private function EvaluateState(): void
     {
         $decisionMap = json_decode($this->ReadPropertyString("DecisionMap"), true);
 
@@ -241,7 +246,7 @@ class PropertyStateManager extends IPSModule
 
         return json_encode($status);
     }
-    public function GetConfigurationForm()
+    public function GetConfigurationForm(): string
     {
         $form = json_decode(file_get_contents(__DIR__ . "/form.json"), true);
         $sensorGroupId = $this->ReadPropertyInteger("SensorGroupInstanceID");
