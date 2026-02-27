@@ -187,7 +187,61 @@ class PropertyStateManager extends IPSModule
         }
     }
 
+    public function GetConfigurationForm()
+    {
+        $form = json_decode(file_get_contents(__DIR__ . "/form.json"), true);
 
+        // 1. Get the ID of Module 1 from the instance properties
+        $sensorGroupId = $this->ReadPropertyInteger("SensorGroupInstanceID");
+
+        $options = [];
+        if ($sensorGroupId > 0 && IPS_InstanceExists($sensorGroupId)) {
+            // 2. Fetch the configuration of Module 1 (Assuming it stores groups in a property)
+            $groupConfig = json_decode(IPS_GetProperty($sensorGroupId, "Groups"), true);
+            if (is_array($groupConfig)) {
+                foreach ($groupConfig as $group) {
+                    $options[] = ["caption" => $group['Name'], "value" => $group['Name']];
+                }
+            }
+        }
+
+        // 3. Inject these options into the "Source Key" column (column index 0)
+        $form['elements'][2]['columns'][0]['edit']['options'] = $options;
+
+        return json_encode($form);
+    }
+
+
+    /**
+     * Updated Metadata: Now includes both Basement Lock and Contact.
+     * Total: 7 Inputs = 128 possible logic states.
+     */
+    function getInputsMetadata(): array
+    {
+        return [
+            ['name' => 'Front Door Lock',    'trueText' => 'Locked',   'falseText' => 'Unlocked'],
+            ['name' => 'Front Door Contact', 'trueText' => 'Closed',   'falseText' => 'Open'],
+            ['name' => 'Basement Door Lock', 'trueText' => 'Locked',   'falseText' => 'Unlocked'],
+            ['name' => 'Basement Door Contact', 'trueText' => 'Closed', 'falseText' => 'Open'],
+            ['name' => 'Presence',           'trueText' => 'Somebody Home', 'falseText' => 'Nobody Home'],
+            ['name' => 'Delay Timer',        'trueText' => 'Active',   'falseText' => 'Inactive'],
+            ['name' => 'Alarm System',       'trueText' => 'Armed',    'falseText' => 'Disarmed']
+        ];
+    }
+
+    function getCurrentInputState(array $variableIds): array
+    {
+        // Important: The sequence here must perfectly match getInputsMetadata
+        return [
+            !GetValueBoolean($variableIds['Front Door Lock']),    // Inverted logic if 0=Locked
+            !GetValueBoolean($variableIds['Front Door Contact']),
+            !GetValueBoolean($variableIds['Basement Door Lock']),
+            !GetValueBoolean($variableIds['Basement Door Contact']),
+            GetValueBoolean($variableIds['Presence']),
+            GetValueBoolean($variableIds['Delay Timer']),
+            !GetValueBoolean($variableIds['Alarm System']),
+        ];
+    }
     public function ApplyChanges()
     {
         // Never delete this line!

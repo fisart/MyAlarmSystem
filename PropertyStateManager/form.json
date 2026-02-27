@@ -6,39 +6,38 @@
             "caption": "Sensor Group Instance (Module 1)"
         },
         {
-            "type": "Label",
-            "caption": "Enter the Group Names from Module 1 and map them to logical roles:"
-        },
-        {
             "type": "List",
             "name": "GroupMapping",
-            "caption": "Group Mapping",
-            "rowCount": 10,
+            "caption": "Mapping: Payload Key to Logical Role",
+            "rowCount": 8,
             "add": true,
             "delete": true,
             "columns": [
                 {
-                    "caption": "Group Name",
-                    "name": "GroupName",
+                    "caption": "Source Key (from Module 1)",
+                    "name": "SourceKey",
                     "width": "250px",
                     "add": "",
                     "edit": {
-                        "type": "ValidationTextBox"
+                        "type": "Select",
+                        "options": [] 
                     }
                 },
                 {
-                    "caption": "Logical Role",
+                    "caption": "Logical Role (Rule Engine Input)",
                     "name": "LogicalRole",
-                    "width": "200px",
-                    "add": "bit0",
+                    "width": "250px",
+                    "add": "Front Door Lock",
                     "edit": {
                         "type": "Select",
                         "options": [
-                            { "caption": "Front Door Lock (Bit 0)", "value": "bit0" },
-                            { "caption": "Front Door Contact (Bit 1)", "value": "bit1" },
-                            { "caption": "Basement Door (Bit 2)", "value": "bit2" },
-                            { "caption": "Presence (Bit 3)", "value": "bit3" },
-                            { "caption": "General Alarm Group", "value": "alarm" }
+                            { "caption": "Front Door: Lock Status", "value": "Front Door Lock" },
+                            { "caption": "Front Door: Contact", "value": "Front Door Contact" },
+                            { "caption": "Basement: Lock Status", "value": "Basement Door Lock" },
+                            { "caption": "Basement: Contact", "value": "Basement Door Contact" },
+                            { "caption": "Presence", "value": "Presence" },
+                            { "caption": "Delay Timer", "value": "Delay Timer" },
+                            { "caption": "Alarm Master Switch", "value": "Alarm System" }
                         ]
                     }
                 }
@@ -48,8 +47,8 @@
     "actions": [
         {
             "type": "Button",
-            "caption": "Sync Configuration from SensorGroup",
-            "onClick": "PSM_SyncFromSensorGroup($id);"
+            "caption": "Refresh Keys from SensorGroup",
+            "onClick": "echo 'Reloading...'; IPS_RequestConfigForm($id, []);"
         }
     ]
 }
