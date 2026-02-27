@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 class PropertyStateManager extends IPSModule
 {
-public function Create()
+    public function Create()
     {
         parent::Create();
 
@@ -137,7 +137,7 @@ public function Create()
         }
     }
 
-public function GetConfigurationForm()
+    public function GetConfigurationForm()
     {
         $form = json_decode(file_get_contents(__DIR__ . "/form.json"), true);
         $sensorGroupId = $this->ReadPropertyInteger("SensorGroupInstanceID");
@@ -195,3 +195,4 @@ public function GetConfigurationForm()
         }
         return json_encode($form);
     }
+}
