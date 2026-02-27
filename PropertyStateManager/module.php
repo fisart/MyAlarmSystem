@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-class PropertyStateManager extends IPSModuleStrict
+class PropertyStateManager extends IPSModule
 {
-    public function Create(): void
+    public function Create()
     {
         // Never delete this line!
         parent::Create();
@@ -36,19 +36,47 @@ class PropertyStateManager extends IPSModuleStrict
 
         // Timers
         $this->RegisterTimer("DelayTimer", 0, 'PSM_HandleTimer($_IPS[\'TARGET\']);');
-
-        // Register WebHook (Native to IPSModuleStrict)
-        $this->RegisterHook("/hook/psm_logic_" . $this->InstanceID);
     }
 
-    public function ApplyChanges(): void
+    public function ApplyChanges()
     {
         // Never delete this line!
         parent::ApplyChanges();
+
+        // Register the Webhook using the manual helper
+        $this->RegisterHook('/hook/psm_logic_' . $this->InstanceID);
     }
 
+    private function RegisterHook($WebHook)
+    {
+        $ids = IPS_GetInstanceListByModuleID("{015A6EB8-D6E5-4B93-B496-0D3F77AE9FE1}");
 
-    public function HandleTimer(): void
+        if (count($ids) > 0) {
+            $hooks = json_decode(IPS_GetProperty($ids[0], "Hooks"), true);
+            $found = false;
+
+            if (!is_array($hooks)) {
+                $hooks = [];
+            }
+
+            foreach ($hooks as $index => $hook) {
+                if ($hook['Hook'] == $WebHook) {
+                    if ($hook['TargetID'] == $this->InstanceID) {
+                        return;
+                    }
+                    $hooks[$index]['TargetID'] = $this->InstanceID;
+                    $found = true;
+                }
+            }
+            if (!$found) {
+                $hooks[] = ["Hook" => $WebHook, "TargetID" => $this->InstanceID];
+            }
+            IPS_SetProperty($ids[0], "Hooks", json_encode($hooks));
+            IPS_ApplyChanges($ids[0]);
+        }
+    }
+
+    public function HandleTimer()
     {
         // Stop the timer
         $this->SetTimerInterval("DelayTimer", 0);
@@ -64,13 +92,13 @@ class PropertyStateManager extends IPSModuleStrict
      * This is called by the UI button. 
      * Simply calling it forces IP-Symcon to reload GetConfigurationForm.
      */
-    public function UI_Refresh(): void
+    public function UI_Refresh()
     {
         // Update the property value in the UI to trigger the 'Apply' button
         $this->UpdateFormField("SyncTimestamp", "value", time());
     }
 
-    protected function ProcessHookData(): void
+    protected function ProcessHookData()
     {
         $vaultID = $this->ReadPropertyInteger("VaultInstanceID");
         if ($vaultID > 0 && @IPS_InstanceExists($vaultID)) {
@@ -122,7 +150,7 @@ class PropertyStateManager extends IPSModuleStrict
         echo "</body></html>";
     }
 
-    private function GetStateName(int $id): string
+    private function GetStateName(int $id)
     {
         $profiles = IPS_GetVariableProfile("PSM.State");
         foreach ($profiles['Associations'] as $assoc) {
@@ -131,7 +159,7 @@ class PropertyStateManager extends IPSModuleStrict
         return "Unknown State";
     }
 
-    protected function GetCurrentBitmask(): int
+    protected function GetCurrentBitmask()
     {
         $mapping = json_decode($this->ReadPropertyString("GroupMapping"), true);
         $activeSensors = json_decode($this->ReadAttributeString("ActiveSensors"), true);
@@ -172,7 +200,7 @@ class PropertyStateManager extends IPSModuleStrict
         return $bits;
     }
 
-    public function ReceivePayload(string $Payload): void
+    public function ReceivePayload(string $Payload)
     {
         $data = json_decode($Payload, true);
         if (!$data) return;
@@ -205,7 +233,7 @@ class PropertyStateManager extends IPSModuleStrict
         $this->EvaluateState();
     }
 
-    private function EvaluateState(): void
+    private function EvaluateState()
     {
         $decisionMap = json_decode($this->ReadPropertyString("DecisionMap"), true);
 
@@ -235,7 +263,7 @@ class PropertyStateManager extends IPSModuleStrict
         }
     }
 
-    public function GetSystemState(): string
+    public function GetSystemState()
     {
         $status = [
             'StateID'       => $this->GetValue('SystemState'),
@@ -246,7 +274,8 @@ class PropertyStateManager extends IPSModuleStrict
 
         return json_encode($status);
     }
-    public function GetConfigurationForm(): string
+
+    public function GetConfigurationForm()
     {
         $form = json_decode(file_get_contents(__DIR__ . "/form.json"), true);
         $sensorGroupId = $this->ReadPropertyInteger("SensorGroupInstanceID");
