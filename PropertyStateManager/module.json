@@ -6,6 +6,7 @@
     "aliases": [
         "House Logic Controller"
     ],
+    "url": "https://github.com/fisart/MyAlarmSystem",
     "parentRequirements": [],
     "childRequirements": [],
     "implemented": [],
