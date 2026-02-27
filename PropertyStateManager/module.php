@@ -120,19 +120,40 @@ class PropertyStateManager extends IPSModule
     {
         $form = json_decode(file_get_contents(__DIR__ . "/form.json"), true);
 
-        // 1. DYNAMICALLY POPULATE SOURCE KEYS
         $sensorGroupId = $this->ReadPropertyInteger("SensorGroupInstanceID");
         $options = [];
+
         if ($sensorGroupId > 0 && IPS_InstanceExists($sensorGroupId)) {
-            $config = json_decode(IPS_GetConfiguration($sensorGroupId), true);
-            // Search common list names
-            $list = $config['Groups'] ?? $config['SensorList'] ?? $config['List'] ?? [];
-            foreach ($list as $item) {
-                $name = $item['Name'] ?? $item['Caption'] ?? 'Unknown';
-                $options[] = ["caption" => $name, "value" => $name];
+            // 1. Get the raw configuration of Module 1
+            $configJSON = IPS_GetConfiguration($sensorGroupId);
+            $config = json_decode($configJSON, true);
+
+            // 2. Identify the property that holds the list
+            // Common names: 'Groups', 'SensorList', 'List', 'VariableList'
+            $rawList = $config['Groups'] ?? $config['SensorList'] ?? $config['List'] ?? $config['VariableList'] ?? [];
+
+            // 3. FIX: If the list is a JSON string (common in Symcon), decode it again
+            $list = is_string($rawList) ? json_decode($rawList, true) : $rawList;
+
+            // 4. Populate the dropdown options
+            if (is_array($list)) {
+                foreach ($list as $item) {
+                    // Try to find a human-readable name in the array
+                    $name = $item['Name'] ?? $item['Caption'] ?? $item['GroupName'] ?? 'Unnamed Item';
+                    $options[] = ["caption" => $name, "value" => $name];
+                }
             }
         }
-        $form['elements'][2]['columns'][0]['edit']['options'] = $options;
+
+        // 5. Inject options into the SourceKey column (Index 0 of the List in form.json)
+        // We use a safety check to ensure we are pointing at the correct path in form.json
+        foreach ($form['elements'] as &$element) {
+            if (isset($element['name']) && $element['name'] === 'GroupMapping') {
+                if (isset($element['columns'][0]['edit'])) {
+                    $element['columns'][0]['edit']['options'] = $options;
+                }
+            }
+        }
 
         return json_encode($form);
     }
