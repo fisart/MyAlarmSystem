@@ -39,7 +39,9 @@ class PropertyStateManager extends IPSModule
     {
         parent::ApplyChanges();
 
-        $this->RegisterHook("/hook/psm_logic_" . $this->InstanceID);
+        // Manual registration for standard IPSModule
+        $webhookControlID = IPS_GetInstanceListByModuleID("{0619B1A4-2591-4AD6-AD3B-35497334EF0D}")[0];
+        @WH_RegisterHook($webhookControlID, "/hook/psm_logic_" . $this->InstanceID, $this->InstanceID);
     }
     public function HandleTimer()
     {
