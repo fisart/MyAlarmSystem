@@ -21,20 +21,26 @@
                     "caption": "Group Name",
                     "name": "GroupName",
                     "width": "250px",
-                    "type": "ValidationTextBox"
+                    "add": "",
+                    "edit": {
+                        "type": "ValidationTextBox"
+                    }
                 },
                 {
                     "caption": "Logical Role",
                     "name": "LogicalRole",
                     "width": "200px",
-                    "type": "Select",
-                    "options": [
-                        { "caption": "Front Door Lock (Bit 0)", "value": "bit0" },
-                        { "caption": "Front Door Contact (Bit 1)", "value": "bit1" },
-                        { "caption": "Basement Door (Bit 2)", "value": "bit2" },
-                        { "caption": "Presence (Bit 3)", "value": "bit3" },
-                        { "caption": "General Alarm Group", "value": "alarm" }
-                    ]
+                    "add": "bit0",
+                    "edit": {
+                        "type": "Select",
+                        "options": [
+                            { "caption": "Front Door Lock (Bit 0)", "value": "bit0" },
+                            { "caption": "Front Door Contact (Bit 1)", "value": "bit1" },
+                            { "caption": "Basement Door (Bit 2)", "value": "bit2" },
+                            { "caption": "Presence (Bit 3)", "value": "bit3" },
+                            { "caption": "General Alarm Group", "value": "alarm" }
+                        ]
+                    }
                 }
             ]
         }
