@@ -142,22 +142,22 @@ class PropertyStateManager extends IPSModule
         $form = json_decode(file_get_contents(__DIR__ . "/form.json"), true);
         $sensorGroupId = $this->ReadPropertyInteger("SensorGroupInstanceID");
         $targetID = $this->ReadPropertyInteger("DispatchTargetID");
-
+        $options = [];
         $targetOptions = [];
-        $sensorOptions = [];
 
         if ($sensorGroupId > 0 && @IPS_InstanceExists($sensorGroupId)) {
             $configJSON = @MYALARM_GetConfiguration($sensorGroupId);
             if ($configJSON !== false) {
                 $config = json_decode($configJSON, true);
 
-                // 1. Populate Dispatch Target Dropdown
+                // Populate Target List
                 foreach ($config['DispatchTargets'] ?? [] as $t) {
                     $targetOptions[] = ["caption" => $t['Name'], "value" => (int)$t['InstanceID']];
                 }
 
-                // 2. Filter Sensors based on the selected Dispatch Target
                 if ($targetID > 0) {
+                    $this->LogMessage("GF: Filtering for Target ID: " . $targetID, KL_MESSAGE);
+
                     $targetGroups = [];
                     foreach ($config['GroupDispatch'] ?? [] as $gd) {
                         if ((int)$gd['InstanceID'] === $targetID) $targetGroups[] = $gd['GroupName'];
@@ -167,30 +167,27 @@ class PropertyStateManager extends IPSModule
                     foreach ($config['GroupMembers'] ?? [] as $gm) {
                         if (in_array($gm['GroupName'], $targetGroups)) $targetClasses[] = $gm['ClassID'];
                     }
+                    $this->LogMessage("GF: Allowed Classes: " . implode(", ", $targetClasses), KL_MESSAGE);
 
                     foreach ($config['SensorList'] ?? [] as $sensor) {
+                        $vid = (int)$sensor['VariableID'];
                         if (in_array($sensor['ClassID'], $targetClasses)) {
-                            $vid = (int)$sensor['VariableID'];
                             $name = IPS_ObjectExists($vid) ? IPS_GetName($vid) : "Unknown";
                             $caption = sprintf("%s > %s > %s (%d)", $sensor['GrandParentName'] ?? '?', $sensor['ParentName'] ?? '?', $name, $vid);
-                            $sensorOptions[] = ["caption" => $caption, "value" => (string)$vid];
+                            $options[] = ["caption" => $caption, "value" => (string)$vid];
+                            if ($vid === 45731) $this->LogMessage("GF: SUCCESS - Found 45731 and added to options.", KL_MESSAGE);
+                        } else {
+                            if ($vid === 45731) $this->LogMessage("GF: FAIL - 45731 filtered out. ClassID: " . $sensor['ClassID'] . " not in target list.", KL_MESSAGE);
                         }
                     }
                 }
             }
         }
 
-        // 3. Inject options into the form elements
         foreach ($form['elements'] as &$element) {
-            if (isset($element['name']) && $element['name'] === 'DispatchTargetID') {
-                $element['options'] = $targetOptions;
-            }
+            if (isset($element['name']) && $element['name'] === 'DispatchTargetID') $element['options'] = $targetOptions;
             if (isset($element['name']) && $element['name'] === 'GroupMapping') {
-                foreach ($element['columns'] as &$column) {
-                    if ($column['name'] === 'SourceKey') {
-                        $column['edit']['options'] = $sensorOptions;
-                    }
-                }
+                $element['columns'][0]['edit']['options'] = $options;
             }
         }
         return json_encode($form);
