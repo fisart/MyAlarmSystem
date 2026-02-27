@@ -22,6 +22,10 @@ class PropertyStateManager extends IPSModule
         $this->RegisterAttributeString("ActiveSensors", "[]");
         $this->RegisterAttributeString("PresenceMap", "[]");
 
+        // Debug Attributes
+        $this->RegisterAttributeString("LastPayload", "");
+        $this->RegisterAttributeInteger("LastPayloadTime", 0);
+
         // Variable Profiles
         if (!IPS_VariableProfileExists('PSM.State')) {
             IPS_CreateVariableProfile('PSM.State', 1);
@@ -205,6 +209,10 @@ class PropertyStateManager extends IPSModule
 
     public function ReceivePayload(string $Payload)
     {
+        // DEBUG: Capture input for diagnosis
+        $this->WriteAttributeString("LastPayload", $Payload);
+        $this->WriteAttributeInteger("LastPayloadTime", time());
+
         $data = json_decode($Payload, true);
         if (!$data) return;
 
