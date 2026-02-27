@@ -151,42 +151,28 @@ public function GetConfigurationForm()
             if ($configJSON !== false) {
                 $config = json_decode($configJSON, true);
 
-                // 1. Populate Target Dropdown from DispatchTargets
+                // 1. Populate Dispatch Target Dropdown
                 foreach ($config['DispatchTargets'] ?? [] as $t) {
                     $targetOptions[] = ["caption" => $t['Name'], "value" => (int)$t['InstanceID']];
                 }
 
-                // 2. Filter Logic (identical to your sample script)
+                // 2. Filter Sensors based on the selected Dispatch Target
                 if ($targetID > 0) {
-                    // Find GroupNames routed to this Target
                     $targetGroups = [];
                     foreach ($config['GroupDispatch'] ?? [] as $gd) {
-                        if ((int)$gd['InstanceID'] === $targetID) {
-                            $targetGroups[] = $gd['GroupName'];
-                        }
+                        if ((int)$gd['InstanceID'] === $targetID) $targetGroups[] = $gd['GroupName'];
                     }
 
-                    // Find ClassIDs belonging to those Groups
                     $targetClasses = [];
                     foreach ($config['GroupMembers'] ?? [] as $gm) {
-                        if (in_array($gm['GroupName'], $targetGroups)) {
-                            $targetClasses[] = $gm['ClassID'];
-                        }
+                        if (in_array($gm['GroupName'], $targetGroups)) $targetClasses[] = $gm['ClassID'];
                     }
 
-                    // Get Sensors and format for Option A (Flat Hierarchy)
                     foreach ($config['SensorList'] ?? [] as $sensor) {
                         if (in_array($sensor['ClassID'], $targetClasses)) {
                             $vid = (int)$sensor['VariableID'];
-                            $vName = IPS_ObjectExists($vid) ? IPS_GetName($vid) : "OBJECT DELETED";
-                            
-                            $caption = sprintf("%s > %s > %s (%d)", 
-                                $sensor['GrandParentName'] ?? '?', 
-                                $sensor['ParentName'] ?? '?', 
-                                $vName, 
-                                $vid
-                            );
-
+                            $name = IPS_ObjectExists($vid) ? IPS_GetName($vid) : "Unknown";
+                            $caption = sprintf("%s > %s > %s (%d)", $sensor['GrandParentName'] ?? '?', $sensor['ParentName'] ?? '?', $name, $vid);
                             $sensorOptions[] = ["caption" => $caption, "value" => (string)$vid];
                         }
                     }
@@ -194,55 +180,18 @@ public function GetConfigurationForm()
             }
         }
 
-        // 3. Inject into Form
+        // 3. Inject options into the form elements
         foreach ($form['elements'] as &$element) {
             if (isset($element['name']) && $element['name'] === 'DispatchTargetID') {
                 $element['options'] = $targetOptions;
             }
             if (isset($element['name']) && $element['name'] === 'GroupMapping') {
-                $element['columns'][0]['edit']['options'] = $sensorOptions;
+                foreach ($element['columns'] as &$column) {
+                    if ($column['name'] === 'SourceKey') {
+                        $column['edit']['options'] = $sensorOptions;
+                    }
+                }
             }
         }
-
         return json_encode($form);
     }
-
-    public function ExportLogicForAI()
-    {
-        $mapping = json_decode($this->ReadPropertyString("GroupMapping"), true);
-        $decisionMap = json_decode($this->ReadPropertyString("DecisionMap"), true);
-
-        echo "ALARM SYSTEM LOGIC EXPORT\n";
-        echo "==========================\n\n";
-
-        echo "BIT DEFINITIONS:\n";
-        echo "0: Front Lock, 1: Front Contact, 2: Basement Lock, 3: Basement Contact,\n";
-        echo "4: Presence, 5: Delay Timer, 6: System Armed (Feedback)\n\n";
-
-        echo "INPUT MAPPING:\n";
-        foreach ($mapping as $m) {
-            echo "- Hardware '{$m['SourceKey']}' -> Role '{$m['LogicalRole']}'\n";
-        }
-
-        echo "\nDECISION RULES (Only active/non-zero rules shown):\n";
-        // Iterate through all 128 possible states
-        for ($i = 0; $i < 128; $i++) {
-            $state = $decisionMap[(string)$i] ?? 0;
-
-            // We only show non-zero states to keep the AI output clean
-            if ($state !== 0) {
-                $details = [];
-                if ($i & (1 << 0)) $details[] = "Front Lock: LOCKED";
-                if ($i & (1 << 1)) $details[] = "Front Contact: CLOSED";
-                if ($i & (1 << 2)) $details[] = "Basement Lock: LOCKED";
-                if ($i & (1 << 3)) $details[] = "Basement Contact: CLOSED";
-                if ($i & (1 << 4)) $details[] = "Presence: SOMEONE HOME";
-                if ($i & (1 << 5)) $details[] = "Timer: ACTIVE";
-                if ($i & (1 << 6)) $details[] = "System: ALREADY ARMED";
-
-                $cond = !empty($details) ? implode(" AND ", $details) : "All False";
-                echo "Rule #$i: IF [$cond] THEN Result: State $state\n";
-            }
-        }
-    }
-}
