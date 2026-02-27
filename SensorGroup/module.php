@@ -1741,6 +1741,13 @@ class SensorGroup extends IPSModule
             if ($g === '' || $iid <= 0) continue;
             $dispatchMap[$g][$iid] = true;
         }
+
+        // DEBUG: Trace the decision matrix
+        if ($this->ReadPropertyBoolean('DebugMode')) {
+            $this->LogMessage("DEBUG [Dispatch]: MainStatus=" . (int)$mainStatus . " | ActiveGroups=" . json_encode($activeGroups), KL_MESSAGE);
+            $this->LogMessage("DEBUG [Dispatch]: Routing Table=" . json_encode($dispatchMap), KL_MESSAGE);
+        }
+
         // === BUGFIX 3: Removed strict check for $primaryPayload, relies cleanly on mainStatus ===
         if ($mainStatus) {
             $readableActiveClasses = [];
@@ -1765,9 +1772,13 @@ class SensorGroup extends IPSModule
             $payloadJson = json_encode($payload);
 
             foreach ($activeGroups as $gName) {
-                if (!isset($dispatchMap[$gName])) continue;
+                if (!isset($dispatchMap[$gName])) {
+                    if ($this->ReadPropertyBoolean('DebugMode')) $this->LogMessage("DEBUG [Dispatch]: Group '{$gName}' is Active, but has NO route in DispatchMap.", KL_WARNING);
+                    continue;
+                }
 
                 foreach (array_keys($dispatchMap[$gName]) as $iid) {
+                    if ($this->ReadPropertyBoolean('DebugMode')) $this->LogMessage("DEBUG [Dispatch]: Sending ALARM for '{$gName}' to Instance {$iid}", KL_MESSAGE);
                     if (!IPS_InstanceExists((int)$iid)) continue;
 
                     // keep payload as-is; only send it
