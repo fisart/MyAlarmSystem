@@ -102,11 +102,14 @@ class PropertyStateManager extends IPSModule
     {
         $vaultID = $this->ReadPropertyInteger("VaultInstanceID");
         if ($vaultID > 0 && @IPS_InstanceExists($vaultID)) {
-            if (!SEC_IsPortalAuthenticated($vaultID)) {
-                $currentUrl = $_SERVER['REQUEST_URI'] ?? '';
-                $loginUrl = "/hook/secrets_" . $vaultID . "?portal=1&return=" . urlencode($currentUrl);
-                header("Location: " . $loginUrl);
-                exit;
+            // Check if the SecretsManager function exists to prevent fatal errors
+            if (function_exists('SEC_IsPortalAuthenticated')) {
+                if (!SEC_IsPortalAuthenticated($vaultID)) {
+                    $currentUrl = $_SERVER['REQUEST_URI'] ?? '';
+                    $loginUrl = "/hook/secrets_" . $vaultID . "?portal=1&return=" . urlencode($currentUrl);
+                    header("Location: " . $loginUrl);
+                    exit;
+                }
             }
         }
 
