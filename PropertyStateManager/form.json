@@ -10,6 +10,12 @@
             "caption": "Step 1: Map Module 1 Keys to Logical Roles"
         },
         {
+            "type": "Select",
+            "name": "DispatchTargetID",
+            "caption": "Step 1: Select Dispatch Target",
+            "options": []
+        },
+        {
             "type": "List",
             "name": "GroupMapping",
             "caption": "Group Mapping",

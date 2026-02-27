@@ -4,17 +4,18 @@ declare(strict_types=1);
 
 class PropertyStateManager extends IPSModule
 {
-    public function Create()
+public function Create()
     {
         parent::Create();
 
         // Properties
         $this->RegisterPropertyInteger("SensorGroupInstanceID", 0);
+        $this->RegisterPropertyInteger("DispatchTargetID", 0); // Added for filtering
         $this->RegisterPropertyString("GroupMapping", "[]");
-        $this->RegisterPropertyString("DecisionMap", "[]"); // Stores the 128-rule JSON
+        $this->RegisterPropertyString("DecisionMap", "[]");
 
-        // Attributes for Data Buffers
-        $this->RegisterAttributeString("ActiveAlarms", "[]");
+        // Attributes (ActiveSensors instead of ActiveAlarms as agreed)
+        $this->RegisterAttributeString("ActiveSensors", "[]");
         $this->RegisterAttributeString("PresenceMap", "[]");
 
         // Profiles and Variables
@@ -26,6 +27,9 @@ class PropertyStateManager extends IPSModule
             IPS_SetVariableProfileAssociation('PSM.State', 3, "Alarm Triggered!", "", -1);
         }
         $this->RegisterVariableInteger("SystemState", "System State", "PSM.State", 0);
+
+        // Timers
+        $this->RegisterTimer("DelayTimer", 0, 'PSM_HandleTimer($_IPS[\'TARGET\']);');
     }
 
     public function ApplyChanges()
@@ -133,49 +137,70 @@ class PropertyStateManager extends IPSModule
         }
     }
 
-    public function GetConfigurationForm()
+public function GetConfigurationForm()
     {
         $form = json_decode(file_get_contents(__DIR__ . "/form.json"), true);
         $sensorGroupId = $this->ReadPropertyInteger("SensorGroupInstanceID");
-        $options = [];
+        $targetID = $this->ReadPropertyInteger("DispatchTargetID");
+
+        $targetOptions = [];
+        $sensorOptions = [];
 
         if ($sensorGroupId > 0 && @IPS_InstanceExists($sensorGroupId)) {
-            // Retrieve configuration from Module 1
             $configJSON = @MYALARM_GetConfiguration($sensorGroupId);
             if ($configJSON !== false) {
                 $config = json_decode($configJSON, true);
-                $sensorList = $config['SensorList'] ?? [];
 
-                if (is_array($sensorList)) {
-                    foreach ($sensorList as $sensor) {
-                        $varID = $sensor['VariableID'] ?? 0;
-                        if ($varID > 0) {
-                            // Fetch the actual variable name from the system
-                            $name = @IPS_GetName($varID) ?: "Unknown Sensor";
-                            $parent = $sensor['ParentName'] ?? 'No Area';
-                            $grandparent = $sensor['GrandParentName'] ?? 'No Location';
+                // 1. Populate Target Dropdown from DispatchTargets
+                foreach ($config['DispatchTargets'] ?? [] as $t) {
+                    $targetOptions[] = ["caption" => $t['Name'], "value" => (int)$t['InstanceID']];
+                }
 
-                            // Format: Grandparent > Parent > Name (ID)
-                            $caption = sprintf("%s > %s > %s (%d)", $grandparent, $parent, $name, $varID);
+                // 2. Filter Logic (identical to your sample script)
+                if ($targetID > 0) {
+                    // Find GroupNames routed to this Target
+                    $targetGroups = [];
+                    foreach ($config['GroupDispatch'] ?? [] as $gd) {
+                        if ((int)$gd['InstanceID'] === $targetID) {
+                            $targetGroups[] = $gd['GroupName'];
+                        }
+                    }
 
-                            $options[] = [
-                                "caption" => $caption,
-                                "value" => (string)$varID
-                            ];
+                    // Find ClassIDs belonging to those Groups
+                    $targetClasses = [];
+                    foreach ($config['GroupMembers'] ?? [] as $gm) {
+                        if (in_array($gm['GroupName'], $targetGroups)) {
+                            $targetClasses[] = $gm['ClassID'];
+                        }
+                    }
+
+                    // Get Sensors and format for Option A (Flat Hierarchy)
+                    foreach ($config['SensorList'] ?? [] as $sensor) {
+                        if (in_array($sensor['ClassID'], $targetClasses)) {
+                            $vid = (int)$sensor['VariableID'];
+                            $vName = IPS_ObjectExists($vid) ? IPS_GetName($vid) : "OBJECT DELETED";
+                            
+                            $caption = sprintf("%s > %s > %s (%d)", 
+                                $sensor['GrandParentName'] ?? '?', 
+                                $sensor['ParentName'] ?? '?', 
+                                $vName, 
+                                $vid
+                            );
+
+                            $sensorOptions[] = ["caption" => $caption, "value" => (string)$vid];
                         }
                     }
                 }
             }
         }
 
-        // Inject options into the 'SourceKey' column of the 'GroupMapping' list
+        // 3. Inject into Form
         foreach ($form['elements'] as &$element) {
+            if (isset($element['name']) && $element['name'] === 'DispatchTargetID') {
+                $element['options'] = $targetOptions;
+            }
             if (isset($element['name']) && $element['name'] === 'GroupMapping') {
-                foreach ($element['columns'] as &$column) {
-                    if ($column['name'] === 'SourceKey') {
-                        $column['edit']['options'] = $options;
-                    }
-                }
+                $element['columns'][0]['edit']['options'] = $sensorOptions;
             }
         }
 
