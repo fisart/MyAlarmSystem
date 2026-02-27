@@ -244,6 +244,18 @@ class PropertyStateManager extends IPSModule
         $this->EvaluateState();
     }
 
+    public function GetLastPayload()
+    {
+        $payload = $this->ReadAttributeString("LastPayload");
+        $timestamp = $this->ReadAttributeInteger("LastPayloadTime");
+
+        return json_encode([
+            "Time" => $timestamp > 0 ? date("Y-m-d H:i:s", $timestamp) : "Never",
+            "RawData" => $payload,
+            "Decoded" => json_decode($payload, true)
+        ], JSON_PRETTY_PRINT);
+    }
+
     private function EvaluateState()
     {
         $decisionMap = json_decode($this->ReadPropertyString("DecisionMap"), true);
