@@ -51,9 +51,8 @@
                             { "caption": "Front Door: Contact", "value": "Front Door Contact" },
                             { "caption": "Basement: Lock", "value": "Basement Door Lock" },
                             { "caption": "Basement: Contact", "value": "Basement Door Contact" },
-                            { "caption": "Presence", "value": "Presence" },
-                            { "caption": "Delay Timer", "value": "Delay Timer" },
-                            { "caption": "Alarm System Master", "value": "Alarm System" }
+                            { "caption": "Presence", "value": "Presence" }
+
                         ]
                     }
                 }
