@@ -6,10 +6,14 @@
             "caption": "Sensor Group Instance (Module 1)"
         },
         {
+            "type": "Label",
+            "caption": "Map the keys sent by Module 1 to the specific logical roles required by the Alarm Engine:"
+        },
+        {
             "type": "List",
             "name": "GroupMapping",
             "caption": "Mapping: Payload Key to Logical Role",
-            "rowCount": 8,
+            "rowCount": 10,
             "add": true,
             "delete": true,
             "columns": [
@@ -20,24 +24,24 @@
                     "add": "",
                     "edit": {
                         "type": "Select",
-                        "options": [] 
+                        "options": []
                     }
                 },
                 {
                     "caption": "Logical Role (Rule Engine Input)",
                     "name": "LogicalRole",
-                    "width": "250px",
+                    "width": "300px",
                     "add": "Front Door Lock",
                     "edit": {
                         "type": "Select",
                         "options": [
                             { "caption": "Front Door: Lock Status", "value": "Front Door Lock" },
                             { "caption": "Front Door: Contact", "value": "Front Door Contact" },
-                            { "caption": "Basement: Lock Status", "value": "Basement Door Lock" },
-                            { "caption": "Basement: Contact", "value": "Basement Door Contact" },
-                            { "caption": "Presence", "value": "Presence" },
-                            { "caption": "Delay Timer", "value": "Delay Timer" },
-                            { "caption": "Alarm Master Switch", "value": "Alarm System" }
+                            { "caption": "Basement Door: Lock Status", "value": "Basement Door Lock" },
+                            { "caption": "Basement Door: Contact", "value": "Basement Door Contact" },
+                            { "caption": "Presence (Home/Away)", "value": "Presence" },
+                            { "caption": "Delay Timer (Active/Inactive)", "value": "Delay Timer" },
+                            { "caption": "Alarm Master Switch (Armed/Disarmed)", "value": "Alarm System" }
                         ]
                     }
                 }
@@ -48,7 +52,7 @@
         {
             "type": "Button",
             "caption": "Refresh Keys from SensorGroup",
-            "onClick": "echo 'Reloading...'; IPS_RequestConfigForm($id, []);"
+            "onClick": "IPS_RequestConfigForm($id, []);"
         }
     ]
 }

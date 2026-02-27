@@ -191,22 +191,40 @@ class PropertyStateManager extends IPSModule
     {
         $form = json_decode(file_get_contents(__DIR__ . "/form.json"), true);
 
-        // 1. Get the ID of Module 1 from the instance properties
         $sensorGroupId = $this->ReadPropertyInteger("SensorGroupInstanceID");
-
         $options = [];
+
         if ($sensorGroupId > 0 && IPS_InstanceExists($sensorGroupId)) {
-            // 2. Fetch the configuration of Module 1 (Assuming it stores groups in a property)
-            $groupConfig = json_decode(IPS_GetProperty($sensorGroupId, "Groups"), true);
-            if (is_array($groupConfig)) {
-                foreach ($groupConfig as $group) {
-                    $options[] = ["caption" => $group['Name'], "value" => $group['Name']];
+            // Fetch ALL configuration properties from Module 1
+            $rawConfig = IPS_GetConfiguration($sensorGroupId);
+            $settings = json_decode($rawConfig, true);
+
+            // We search for the list of groups. 
+            // It's likely named 'Groups', 'SensorList', 'List', or 'VariableList'.
+            $foundList = [];
+            foreach (['Groups', 'SensorList', 'List', 'VariableList'] as $key) {
+                if (isset($settings[$key]) && is_array($settings[$key])) {
+                    $foundList = $settings[$key];
+                    break;
                 }
+            }
+
+            if (!empty($foundList)) {
+                foreach ($foundList as $item) {
+                    // We look for a 'Name' or 'Caption' field in the list
+                    $name = $item['Name'] ?? $item['Caption'] ?? $item['GroupName'] ?? 'Unknown Item';
+                    $options[] = ["caption" => $name, "value" => $name];
+                }
+            } else {
+                // Fallback if we can't find the list automatically
+                $options[] = ["caption" => "No Groups found in Module 1", "value" => ""];
             }
         }
 
-        // 3. Inject these options into the "Source Key" column (column index 0)
-        $form['elements'][2]['columns'][0]['edit']['options'] = $options;
+        // Inject the found options into the "Source Key" column (column index 0)
+        if (isset($form['elements'][2]['columns'][0])) {
+            $form['elements'][2]['columns'][0]['edit']['options'] = $options;
+        }
 
         return json_encode($form);
     }
