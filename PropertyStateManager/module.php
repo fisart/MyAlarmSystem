@@ -65,8 +65,6 @@ class PropertyStateManager extends IPSModule
     protected function ProcessHookData()
     {
         $vaultID = $this->ReadPropertyInteger("VaultInstanceID");
-
-        // Biometric Gatekeeper (Blueprint B from SecretsManager PDF)
         if ($vaultID > 0 && @IPS_InstanceExists($vaultID)) {
             if (!SEC_IsPortalAuthenticated($vaultID)) {
                 $currentUrl = $_SERVER['REQUEST_URI'] ?? '';
@@ -76,9 +74,94 @@ class PropertyStateManager extends IPSModule
             }
         }
 
-        // Logic Dashboard Content (Placeholder)
-        echo "<h1>Logic Decision Tree</h1>";
-        echo "<p>Current Bitmask: ...</p>";
+        $bits = $this->GetCurrentBitmask();
+        $decisionMap = json_decode($this->ReadPropertyString("DecisionMap"), true);
+        $targetState = $decisionMap[(string)$bits] ?? 0;
+
+        echo "<html><head><style>
+                body { font-family: sans-serif; background: #111; color: #eee; padding: 20px; }
+                .bit-row { display: flex; justify-content: space-between; padding: 10px; border-bottom: 1px solid #333; }
+                .active { color: #4caf50; font-weight: bold; }
+                .inactive { color: #f44336; }
+                .header { font-size: 1.5em; margin-bottom: 20px; color: #2196f3; }
+                .footer { margin-top: 30px; padding: 20px; background: #222; border-radius: 8px; text-align: center; }
+              </style></head><body>";
+
+        echo "<div class='header'>Logic Analysis Dashboard</div>";
+        echo "<h3>Current Sensor Status (Bitmask: $bits)</h3>";
+
+        $labels = [
+            "Front Door Lock",
+            "Front Door Contact",
+            "Basement Door Lock",
+            "Basement Door Contact",
+            "Presence Detected",
+            "Delay Timer Active",
+            "System Currently Armed"
+        ];
+
+        for ($i = 0; $i < 7; $i++) {
+            $isActive = ($bits & (1 << $i));
+            $status = $isActive ? "ON" : "OFF";
+            $class = $isActive ? "active" : "inactive";
+            echo "<div class='bit-row'><span>Bit $i: $labels[$i]</span><span class='$class'>$status</span></div>";
+        }
+
+        echo "<div class='footer'>
+                <strong>Resulting Decision:</strong><br>
+                <span style='font-size: 2em; color: #ff9800;'>" . $this->GetStateName($targetState) . "</span>
+              </div>";
+        echo "</body></html>";
+    }
+
+    private function GetStateName(int $id): string
+    {
+        $profiles = IPS_GetVariableProfile("PSM.State");
+        foreach ($profiles['Associations'] as $assoc) {
+            if ($assoc['Value'] == $id) return $assoc['Name'];
+        }
+        return "Unknown State";
+    }
+
+    protected function GetCurrentBitmask(): int
+    {
+        $mapping = json_decode($this->ReadPropertyString("GroupMapping"), true);
+        $activeSensors = json_decode($this->ReadAttributeString("ActiveSensors"), true);
+        $presenceMap = json_decode($this->ReadAttributeString("PresenceMap"), true);
+
+        $bits = 0;
+        // Bits 0-3: Hardware Sensors
+        foreach ($mapping as $item) {
+            if (in_array($item['SourceKey'], $activeSensors)) {
+                switch ($item['LogicalRole']) {
+                    case 'Front Door Lock':
+                        $bits |= (1 << 0);
+                        break;
+                    case 'Front Door Contact':
+                        $bits |= (1 << 1);
+                        break;
+                    case 'Basement Door Lock':
+                        $bits |= (1 << 2);
+                        break;
+                    case 'Basement Door Contact':
+                        $bits |= (1 << 3);
+                        break;
+                }
+            }
+        }
+        // Bit 4: Presence
+        foreach ($presenceMap as $room) {
+            if ($room['SwitchState'] ?? false) {
+                $bits |= (1 << 4);
+                break;
+            }
+        }
+        // Bit 5: Timer
+        if ($this->GetTimerInterval("DelayTimer") > 0) $bits |= (1 << 5);
+        // Bit 6: Feedback
+        if ($this->GetValue("SystemState") > 0) $bits |= (1 << 6);
+
+        return $bits;
     }
 
     public function ReceivePayload(string $Payload)
@@ -116,51 +199,9 @@ class PropertyStateManager extends IPSModule
 
     private function EvaluateState()
     {
-        $mapping = json_decode($this->ReadPropertyString("GroupMapping"), true);
-        $activeSensors = json_decode($this->ReadAttributeString("ActiveSensors"), true);
-        $presenceMap = json_decode($this->ReadAttributeString("PresenceMap"), true);
         $decisionMap = json_decode($this->ReadPropertyString("DecisionMap"), true);
 
-        $bits = 0;
-
-        // Bits 0-3: Door/Lock Status (ID-based Mapping)
-        foreach ($mapping as $item) {
-            // Check if the mapped Variable ID (SourceKey) is in the active list
-            if (in_array($item['SourceKey'], $activeSensors)) {
-                switch ($item['LogicalRole']) {
-                    case 'Front Door Lock':
-                        $bits |= (1 << 0);
-                        break;
-                    case 'Front Door Contact':
-                        $bits |= (1 << 1);
-                        break;
-                    case 'Basement Door Lock':
-                        $bits |= (1 << 2);
-                        break;
-                    case 'Basement Door Contact':
-                        $bits |= (1 << 3);
-                        break;
-                }
-            }
-        }
-
-        // Bit 4: Presence
-        foreach ($presenceMap as $room) {
-            if ($room['SwitchState'] ?? false) {
-                $bits |= (1 << 4);
-                break;
-            }
-        }
-
-        // Bit 5: Delay Timer
-        if ($this->GetTimerInterval("DelayTimer") > 0) {
-            $bits |= (1 << 5);
-        }
-
-        // Bit 6: Alarm System Feedback
-        if ($this->GetValue("SystemState") > 0) {
-            $bits |= (1 << 6);
-        }
+        $bits = $this->GetCurrentBitmask();
 
         // Safe Lookup: Convert integer $bits to string key for JSON array
         $bitKey = (string)$bits;
