@@ -38,8 +38,9 @@ class PropertyStateManager extends IPSModule
     public function ApplyChanges()
     {
         parent::ApplyChanges();
-    }
 
+        $this->RegisterHook("/hook/psm_logic_" . $this->InstanceID);
+    }
     public function HandleTimer()
     {
         // Stop the timer
