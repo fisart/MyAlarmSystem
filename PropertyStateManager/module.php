@@ -11,6 +11,7 @@ class PropertyStateManager extends IPSModule
         // Properties
         $this->RegisterPropertyInteger("SensorGroupInstanceID", 0);
         $this->RegisterPropertyInteger("DispatchTargetID", 0);
+        $this->RegisterPropertyInteger("VaultInstanceID", 0);
         $this->RegisterPropertyString("GroupMapping", "[]");
         $this->RegisterPropertyString("DecisionMap", "[]");
         $this->RegisterPropertyInteger("SyncTimestamp", 0); // New property for Apply trigger
@@ -18,6 +19,7 @@ class PropertyStateManager extends IPSModule
         // Attributes (ActiveSensors instead of ActiveAlarms as agreed)
         $this->RegisterAttributeString("ActiveSensors", "[]");
         $this->RegisterAttributeString("PresenceMap", "[]");
+
 
         // Profiles and Variables
         if (!IPS_VariableProfileExists('PSM.State')) {
@@ -58,6 +60,25 @@ class PropertyStateManager extends IPSModule
     {
         // Update the property value in the UI to trigger the 'Apply' button
         $this->UpdateFormField("SyncTimestamp", "value", time());
+    }
+
+    protected function ProcessHookData()
+    {
+        $vaultID = $this->ReadPropertyInteger("VaultInstanceID");
+
+        // Biometric Gatekeeper (Blueprint B from SecretsManager PDF)
+        if ($vaultID > 0 && @IPS_InstanceExists($vaultID)) {
+            if (!SEC_IsPortalAuthenticated($vaultID)) {
+                $currentUrl = $_SERVER['REQUEST_URI'] ?? '';
+                $loginUrl = "/hook/secrets_" . $vaultID . "?portal=1&return=" . urlencode($currentUrl);
+                header("Location: " . $loginUrl);
+                exit;
+            }
+        }
+
+        // Logic Dashboard Content (Placeholder)
+        echo "<h1>Logic Decision Tree</h1>";
+        echo "<p>Current Bitmask: ...</p>";
     }
 
     public function ReceivePayload(string $Payload)

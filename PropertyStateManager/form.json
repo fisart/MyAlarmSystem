@@ -28,6 +28,12 @@
             "minimum": 0
         },
         {
+            "type": "SelectInstance",
+            "name": "VaultInstanceID",
+            "caption": "Security Vault (SecretsManager)",
+            "restrict": ["{9716D37A-94B6-F63E-5C13-34537E3A06B8}"]
+        },
+        {
             "type": "List",
             "name": "GroupMapping",
             "caption": "Group Mapping",
