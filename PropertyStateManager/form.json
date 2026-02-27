@@ -6,6 +6,12 @@
             "caption": "Sensor Group Instance (Module 1)"
         },
         {
+            "type": "NumberSpinner",
+            "name": "SyncTimestamp",
+            "caption": "Last Sync",
+            "visible": false
+        },
+        {
             "type": "Label",
             "caption": "Step 1: Map Module 1 Keys to Logical Roles"
         },

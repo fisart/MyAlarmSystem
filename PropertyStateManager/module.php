@@ -4,15 +4,16 @@ declare(strict_types=1);
 
 class PropertyStateManager extends IPSModule
 {
-    public function Create()
+public function Create()
     {
         parent::Create();
 
         // Properties
         $this->RegisterPropertyInteger("SensorGroupInstanceID", 0);
-        $this->RegisterPropertyInteger("DispatchTargetID", 0); // Added for filtering
+        $this->RegisterPropertyInteger("DispatchTargetID", 0);
         $this->RegisterPropertyString("GroupMapping", "[]");
         $this->RegisterPropertyString("DecisionMap", "[]");
+        $this->RegisterPropertyInteger("SyncTimestamp", 0); // New property for Apply trigger
 
         // Attributes (ActiveSensors instead of ActiveAlarms as agreed)
         $this->RegisterAttributeString("ActiveSensors", "[]");
@@ -41,9 +42,10 @@ class PropertyStateManager extends IPSModule
      * This is called by the UI button. 
      * Simply calling it forces IP-Symcon to reload GetConfigurationForm.
      */
-    public function UI_Refresh()
+public function UI_Refresh()
     {
-        // No code needed, the act of calling this via onClick refreshes the form.
+        // Update the property value in the UI to trigger the 'Apply' button
+        $this->UpdateFormField("SyncTimestamp", "value", time());
     }
 
     public function ReceivePayload(string $Payload)
@@ -175,9 +177,9 @@ class PropertyStateManager extends IPSModule
                             $name = IPS_ObjectExists($vid) ? IPS_GetName($vid) : "Unknown";
                             $caption = sprintf("%s > %s > %s (%d)", $sensor['GrandParentName'] ?? '?', $sensor['ParentName'] ?? '?', $name, $vid);
                             $options[] = ["caption" => $caption, "value" => (string)$vid];
-                            if ($vid === 45731) $this->LogMessage("GF: SUCCESS - Found 45731 and added to options.", KL_MESSAGE);
+                            
                         } else {
-                            if ($vid === 45731) $this->LogMessage("GF: FAIL - 45731 filtered out. ClassID: " . $sensor['ClassID'] . " not in target list.", KL_MESSAGE);
+                            
                         }
                     }
                 }
