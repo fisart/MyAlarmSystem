@@ -6,61 +6,56 @@ class PropertyStateManager extends IPSModule
 {
     public function Create()
     {
-        // Never delete this line!
         parent::Create();
 
         // Properties
         $this->RegisterPropertyInteger("SensorGroupInstanceID", 0);
         $this->RegisterPropertyString("GroupMapping", "[]");
+        $this->RegisterPropertyString("DecisionMap", "[]"); // Stores the 128-rule JSON
 
-        // Attributes (RAM Buffers - Blueprint Strategy 2.0)
-        $this->RegisterAttributeString("PresenceMap", "[]");
+        // Attributes for Data Buffers
         $this->RegisterAttributeString("ActiveAlarms", "[]");
-        $this->RegisterAttributeString("RuleConfiguration", "[]");
+        $this->RegisterAttributeString("PresenceMap", "[]");
 
-        // Variable Profiles
+        // Profiles and Variables
         if (!IPS_VariableProfileExists('PSM.State')) {
-            IPS_CreateVariableProfile('PSM.State', 1); // Integer
-            IPS_SetVariableProfileAssociation('PSM.State', 0, "Disarmed", "Information", -1);
-            IPS_SetVariableProfileAssociation('PSM.State', 1, "Intent Leaving", "Motion", -1);
-            IPS_SetVariableProfileAssociation('PSM.State', 2, "Exit Delay", "Clock", -1);
-            IPS_SetVariableProfileAssociation('PSM.State', 3, "Armed Away", "Shield", -1);
-            IPS_SetVariableProfileAssociation('PSM.State', 4, "Armed Holiday", "Airplane", -1);
-            IPS_SetVariableProfileAssociation('PSM.State', 5, "Intent Bedtime", "Moon", -1);
-            IPS_SetVariableProfileAssociation('PSM.State', 6, "Armed Night", "Moon", -1);
+            IPS_CreateVariableProfile('PSM.State', 1);
+            IPS_SetVariableProfileAssociation('PSM.State', 0, "Disarmed", "", -1);
+            IPS_SetVariableProfileAssociation('PSM.State', 1, "Armed (Internal)", "", -1);
+            IPS_SetVariableProfileAssociation('PSM.State', 2, "Armed (External)", "", -1);
+            IPS_SetVariableProfileAssociation('PSM.State', 3, "Alarm Triggered!", "", -1);
         }
-
-        // Variables
         $this->RegisterVariableInteger("SystemState", "System State", "PSM.State", 0);
+    }
 
-        // Timers
-        $this->RegisterTimer("DelayTimer", 0, 'PSM_HandleTimer($_IPS[\'TARGET\']);');
+    public function ApplyChanges()
+    {
+        parent::ApplyChanges();
+    }
+
+    /**
+     * This is called by the UI button. 
+     * Simply calling it forces IP-Symcon to reload GetConfigurationForm.
+     */
+    public function UI_Refresh()
+    {
+        // No code needed, the act of calling this via onClick refreshes the form.
     }
 
     public function ReceivePayload(string $Payload)
     {
         $data = json_decode($Payload, true);
-        if (!$data) {
-            $this->LogMessage("ReceivePayload: Invalid JSON received.", KL_MESSAGE);
-            return;
-        }
+        if (!$data) return;
 
-        // Case 1: Bedroom Sync (Presence Tracking)
+        // Update Presence from Bedroom Sync
         if (isset($data['event_type']) && $data['event_type'] === 'BEDROOM_SYNC') {
             $this->WriteAttributeString("PresenceMap", json_encode($data['bedrooms']));
-            $this->LogMessage("Presence Map updated via BEDROOM_SYNC.", KL_MESSAGE);
-            $this->EvaluateState();
-            return;
         }
 
-        // Case 2: Standard Alarm / Reset Event
-        // Update the list of currently active groups
-        $activeGroups = isset($data['active_groups']) ? $data['active_groups'] : [];
+        // Update Active Groups
+        $activeGroups = $data['active_groups'] ?? [];
         $this->WriteAttributeString("ActiveAlarms", json_encode($activeGroups));
 
-        $this->LogMessage("Active Alarms updated. Primary Group: " . ($data['primary_group'] ?? 'None'), KL_MESSAGE);
-
-        // Trigger the state machine logic
         $this->EvaluateState();
     }
 
@@ -69,121 +64,55 @@ class PropertyStateManager extends IPSModule
         $mapping = json_decode($this->ReadPropertyString("GroupMapping"), true);
         $activeGroups = json_decode($this->ReadAttributeString("ActiveAlarms"), true);
         $presenceMap = json_decode($this->ReadAttributeString("PresenceMap"), true);
+        $decisionMap = json_decode($this->ReadPropertyString("DecisionMap"), true);
 
         $bits = 0;
 
-        // Bit 0: Front Door Lock, Bit 1: Front Door Contact, Bit 2: Basement Door
+        // Bits 0-3: Door/Lock Status (Structural Mapping)
         foreach ($mapping as $item) {
-            if (in_array($item['GroupName'], $activeGroups)) {
+            if (in_array($item['SourceKey'], $activeGroups)) {
                 switch ($item['LogicalRole']) {
-                    case 'bit0':
-                        $bits |= 1;
+                    case 'Front Door Lock':
+                        $bits |= (1 << 0);
                         break;
-                    case 'bit1':
-                        $bits |= 2;
+                    case 'Front Door Contact':
+                        $bits |= (1 << 1);
                         break;
-                    case 'bit2':
-                        $bits |= 4;
+                    case 'Basement Door Lock':
+                        $bits |= (1 << 2);
+                        break;
+                    case 'Basement Door Contact':
+                        $bits |= (1 << 3);
                         break;
                 }
             }
         }
 
-        // Bit 3: Presence (True if any bedroom SwitchState is true)
+        // Bit 4: Presence
         foreach ($presenceMap as $room) {
-            if (isset($room['SwitchState']) && $room['SwitchState']) {
-                $bits |= 8;
+            if ($room['SwitchState'] ?? false) {
+                $bits |= (1 << 4);
                 break;
             }
         }
 
-        // Bit 4: Delay Timer (True if IP-Symcon timer is active)
+        // Bit 5: Delay Timer (Corrected: Check if timer is actually running)
         if ($this->GetTimerInterval("DelayTimer") > 0) {
-            $bits |= 16;
+            $bits |= (1 << 5);
         }
 
-        // Bit 5: Alarm System (True if currently Armed in any way)
+        // Bit 6: Alarm System Feedback (Feedback bit)
         if ($this->GetValue("SystemState") > 0) {
-            $bits |= 32;
+            $bits |= (1 << 6);
         }
 
-        // The 64-Rule Matrix (Mapped to State IDs 0-6, -1 for Illogical)
-        $matrix = [
-            1,
-            -1,
-            1,
-            1,
-            1,
-            -1,
-            1,
-            3,
-            0,
-            -1,
-            0,
-            0,
-            0,
-            -1,
-            0,
-            0, // 0-15
-            -1,
-            -1,
-            -1,
-            0,
-            1,
-            1,
-            1,
-            2,
-            -1,
-            -1,
-            -1,
-            -1,
-            -1,
-            -1,
-            -1,
-            2, // 16-31
-            0,
-            -1,
-            0,
-            0,
-            -1,
-            -1,
-            0,
-            3,
-            -1,
-            -1,
-            -1,
-            -1,
-            -1,
-            -1,
-            -1,
-            6, // 32-47
-            -1,
-            -1,
-            -1,
-            -1,
-            -1,
-            -1,
-            -1,
-            -1,
-            -1,
-            -1,
-            -1,
-            -1,
-            -1,
-            -1,
-            -1,
-            -1  // 48-63
-        ];
+        // Safe Lookup: Convert integer $bits to string key for JSON array
+        $bitKey = (string)$bits;
+        $newState = $decisionMap[$bitKey] ?? 0;
 
-        $newState = $matrix[$bits];
-
-        if ($newState !== -1) {
-            if ($this->GetValue("SystemState") !== $newState) {
-                $this->SetValue("SystemState", $newState);
-                $this->LogMessage("System State transitioned to: " . $newState . " (Bitmask: $bits)", KL_MESSAGE);
-            }
-        } else {
-            $this->LogMessage("EvaluateState: Illogical condition detected (Bitmask: $bits). No state change.", KL_MESSAGE);
+        if ($this->GetValue("SystemState") !== $newState) {
+            $this->SetValue("SystemState", $newState);
+            $this->SendDebug("LogicEngine", "Bitmask: $bits -> New State: $newState", 0);
         }
     }
 
@@ -191,103 +120,59 @@ class PropertyStateManager extends IPSModule
     {
         $form = json_decode(file_get_contents(__DIR__ . "/form.json"), true);
 
+        // 1. DYNAMICALLY POPULATE SOURCE KEYS
         $sensorGroupId = $this->ReadPropertyInteger("SensorGroupInstanceID");
         $options = [];
-
         if ($sensorGroupId > 0 && IPS_InstanceExists($sensorGroupId)) {
-            // Fetch ALL configuration properties from Module 1
-            $rawConfig = IPS_GetConfiguration($sensorGroupId);
-            $settings = json_decode($rawConfig, true);
-
-            // We search for the list of groups. 
-            // It's likely named 'Groups', 'SensorList', 'List', or 'VariableList'.
-            $foundList = [];
-            foreach (['Groups', 'SensorList', 'List', 'VariableList'] as $key) {
-                if (isset($settings[$key]) && is_array($settings[$key])) {
-                    $foundList = $settings[$key];
-                    break;
-                }
-            }
-
-            if (!empty($foundList)) {
-                foreach ($foundList as $item) {
-                    // We look for a 'Name' or 'Caption' field in the list
-                    $name = $item['Name'] ?? $item['Caption'] ?? $item['GroupName'] ?? 'Unknown Item';
-                    $options[] = ["caption" => $name, "value" => $name];
-                }
-            } else {
-                // Fallback if we can't find the list automatically
-                $options[] = ["caption" => "No Groups found in Module 1", "value" => ""];
+            $config = json_decode(IPS_GetConfiguration($sensorGroupId), true);
+            // Search common list names
+            $list = $config['Groups'] ?? $config['SensorList'] ?? $config['List'] ?? [];
+            foreach ($list as $item) {
+                $name = $item['Name'] ?? $item['Caption'] ?? 'Unknown';
+                $options[] = ["caption" => $name, "value" => $name];
             }
         }
-
-        // Inject the found options into the "Source Key" column (column index 0)
-        if (isset($form['elements'][2]['columns'][0])) {
-            $form['elements'][2]['columns'][0]['edit']['options'] = $options;
-        }
+        $form['elements'][2]['columns'][0]['edit']['options'] = $options;
 
         return json_encode($form);
     }
 
-
-    /**
-     * Updated Metadata: Now includes both Basement Lock and Contact.
-     * Total: 7 Inputs = 128 possible logic states.
-     */
-    function getInputsMetadata(): array
+    public function ExportLogicForAI()
     {
-        return [
-            ['name' => 'Front Door Lock',    'trueText' => 'Locked',   'falseText' => 'Unlocked'],
-            ['name' => 'Front Door Contact', 'trueText' => 'Closed',   'falseText' => 'Open'],
-            ['name' => 'Basement Door Lock', 'trueText' => 'Locked',   'falseText' => 'Unlocked'],
-            ['name' => 'Basement Door Contact', 'trueText' => 'Closed', 'falseText' => 'Open'],
-            ['name' => 'Presence',           'trueText' => 'Somebody Home', 'falseText' => 'Nobody Home'],
-            ['name' => 'Delay Timer',        'trueText' => 'Active',   'falseText' => 'Inactive'],
-            ['name' => 'Alarm System',       'trueText' => 'Armed',    'falseText' => 'Disarmed']
-        ];
-    }
+        $mapping = json_decode($this->ReadPropertyString("GroupMapping"), true);
+        $decisionMap = json_decode($this->ReadPropertyString("DecisionMap"), true);
 
-    function getCurrentInputState(array $variableIds): array
-    {
-        // Important: The sequence here must perfectly match getInputsMetadata
-        return [
-            !GetValueBoolean($variableIds['Front Door Lock']),    // Inverted logic if 0=Locked
-            !GetValueBoolean($variableIds['Front Door Contact']),
-            !GetValueBoolean($variableIds['Basement Door Lock']),
-            !GetValueBoolean($variableIds['Basement Door Contact']),
-            GetValueBoolean($variableIds['Presence']),
-            GetValueBoolean($variableIds['Delay Timer']),
-            !GetValueBoolean($variableIds['Alarm System']),
-        ];
-    }
-    public function ApplyChanges()
-    {
-        // Never delete this line!
-        parent::ApplyChanges();
-    }
+        echo "ALARM SYSTEM LOGIC EXPORT\n";
+        echo "==========================\n\n";
 
+        echo "BIT DEFINITIONS:\n";
+        echo "0: Front Lock, 1: Front Contact, 2: Basement Lock, 3: Basement Contact,\n";
+        echo "4: Presence, 5: Delay Timer, 6: System Armed (Feedback)\n\n";
 
-    public function SyncFromSensorGroup()
-    {
-        $sensorGroupID = $this->ReadPropertyInteger("SensorGroupInstanceID");
-
-        // Option A: Log error and stop if ID is invalid
-        if ($sensorGroupID == 0 || !@IPS_InstanceExists($sensorGroupID)) {
-            $this->LogMessage("Sync failed: No valid SensorGroup Instance ID configured.", KL_MESSAGE);
-            return;
+        echo "INPUT MAPPING:\n";
+        foreach ($mapping as $m) {
+            echo "- Hardware '{$m['SourceKey']}' -> Role '{$m['LogicalRole']}'\n";
         }
 
-        // Request configuration from Module 1
-        $configJSON = @MYALARM_GetConfiguration($sensorGroupID);
+        echo "\nDECISION RULES (Only active/non-zero rules shown):\n";
+        // Iterate through all 128 possible states
+        for ($i = 0; $i < 128; $i++) {
+            $state = $decisionMap[(string)$i] ?? 0;
 
-        if ($configJSON === false) {
-            $this->LogMessage("Sync failed: Function MYALARM_GetConfiguration not found or returned an error for Instance " . $sensorGroupID, KL_MESSAGE);
-            return;
+            // We only show non-zero states to keep the AI output clean
+            if ($state !== 0) {
+                $details = [];
+                if ($i & (1 << 0)) $details[] = "Front Lock: LOCKED";
+                if ($i & (1 << 1)) $details[] = "Front Contact: CLOSED";
+                if ($i & (1 << 2)) $details[] = "Basement Lock: LOCKED";
+                if ($i & (1 << 3)) $details[] = "Basement Contact: CLOSED";
+                if ($i & (1 << 4)) $details[] = "Presence: SOMEONE HOME";
+                if ($i & (1 << 5)) $details[] = "Timer: ACTIVE";
+                if ($i & (1 << 6)) $details[] = "System: ALREADY ARMED";
+
+                $cond = !empty($details) ? implode(" AND ", $details) : "All False";
+                echo "Rule #$i: IF [$cond] THEN Result: State $state\n";
+            }
         }
-
-        // Store the result in the RAM Buffer (Attribute)
-        $this->WriteAttributeString("RuleConfiguration", $configJSON);
-
-        $this->LogMessage("Successfully synced configuration from SensorGroup " . $sensorGroupID, KL_MESSAGE);
     }
 }

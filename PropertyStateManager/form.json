@@ -7,13 +7,13 @@
         },
         {
             "type": "Label",
-            "caption": "Map the keys sent by Module 1 to the specific logical roles required by the Alarm Engine:"
+            "caption": "Step 1: Map Module 1 Keys to Logical Roles"
         },
         {
             "type": "List",
             "name": "GroupMapping",
-            "caption": "Mapping: Payload Key to Logical Role",
-            "rowCount": 10,
+            "caption": "Group Mapping",
+            "rowCount": 8,
             "add": true,
             "delete": true,
             "columns": [
@@ -28,20 +28,20 @@
                     }
                 },
                 {
-                    "caption": "Logical Role (Rule Engine Input)",
+                    "caption": "Logical Role",
                     "name": "LogicalRole",
-                    "width": "300px",
+                    "width": "250px",
                     "add": "Front Door Lock",
                     "edit": {
                         "type": "Select",
                         "options": [
-                            { "caption": "Front Door: Lock Status", "value": "Front Door Lock" },
+                            { "caption": "Front Door: Lock", "value": "Front Door Lock" },
                             { "caption": "Front Door: Contact", "value": "Front Door Contact" },
-                            { "caption": "Basement Door: Lock Status", "value": "Basement Door Lock" },
-                            { "caption": "Basement Door: Contact", "value": "Basement Door Contact" },
-                            { "caption": "Presence (Home/Away)", "value": "Presence" },
-                            { "caption": "Delay Timer (Active/Inactive)", "value": "Delay Timer" },
-                            { "caption": "Alarm Master Switch (Armed/Disarmed)", "value": "Alarm System" }
+                            { "caption": "Basement: Lock", "value": "Basement Door Lock" },
+                            { "caption": "Basement: Contact", "value": "Basement Door Contact" },
+                            { "caption": "Presence", "value": "Presence" },
+                            { "caption": "Delay Timer", "value": "Delay Timer" },
+                            { "caption": "Alarm System Master", "value": "Alarm System" }
                         ]
                     }
                 }
@@ -51,8 +51,13 @@
     "actions": [
         {
             "type": "Button",
-            "caption": "Refresh Keys from SensorGroup",
-            "onClick": "IPS_RequestConfigurationForm($id, []);"
+            "caption": "Refresh Keys from Module 1",
+            "onClick": "PSM_UI_Refresh($id);"
+        },
+        {
+            "type": "Button",
+            "caption": "🤖 Export Logic for AI",
+            "onClick": "echo PSM_ExportLogicForAI($id);"
         }
     ]
 }
