@@ -52,9 +52,25 @@ class PropertyStateManager extends IPSModule
             $this->WriteAttributeString("PresenceMap", json_encode($data['bedrooms']));
         }
 
-        // Update Active Groups
-        $activeGroups = $data['active_groups'] ?? [];
-        $this->WriteAttributeString("ActiveAlarms", json_encode($activeGroups));
+        // Update Active Sensors (Variable IDs)
+        $activeSensors = json_decode($this->ReadAttributeString("ActiveSensors"), true);
+
+        if (isset($data['trigger_details']['variable_id'])) {
+            $vID = $data['trigger_details']['variable_id'];
+            // If the sensor is tripped, add to list; otherwise, remove it
+            if ($data['trigger_details']['value_raw'] ?? false) {
+                if (!in_array($vID, $activeSensors)) $activeSensors[] = $vID;
+            } else {
+                $activeSensors = array_values(array_diff($activeSensors, [$vID]));
+            }
+        }
+
+        // Global Reset Logic: If no groups are active, clear the sensor list
+        if (empty($data['active_groups'] ?? [])) {
+            $activeSensors = [];
+        }
+
+        $this->WriteAttributeString("ActiveSensors", json_encode($activeSensors));
 
         $this->EvaluateState();
     }
@@ -62,15 +78,16 @@ class PropertyStateManager extends IPSModule
     private function EvaluateState()
     {
         $mapping = json_decode($this->ReadPropertyString("GroupMapping"), true);
-        $activeGroups = json_decode($this->ReadAttributeString("ActiveAlarms"), true);
+        $activeSensors = json_decode($this->ReadAttributeString("ActiveSensors"), true);
         $presenceMap = json_decode($this->ReadAttributeString("PresenceMap"), true);
         $decisionMap = json_decode($this->ReadPropertyString("DecisionMap"), true);
 
         $bits = 0;
 
-        // Bits 0-3: Door/Lock Status (Structural Mapping)
+        // Bits 0-3: Door/Lock Status (ID-based Mapping)
         foreach ($mapping as $item) {
-            if (in_array($item['SourceKey'], $activeGroups)) {
+            // Check if the mapped Variable ID (SourceKey) is in the active list
+            if (in_array($item['SourceKey'], $activeSensors)) {
                 switch ($item['LogicalRole']) {
                     case 'Front Door Lock':
                         $bits |= (1 << 0);
@@ -96,12 +113,12 @@ class PropertyStateManager extends IPSModule
             }
         }
 
-        // Bit 5: Delay Timer (Corrected: Check if timer is actually running)
+        // Bit 5: Delay Timer
         if ($this->GetTimerInterval("DelayTimer") > 0) {
             $bits |= (1 << 5);
         }
 
-        // Bit 6: Alarm System Feedback (Feedback bit)
+        // Bit 6: Alarm System Feedback
         if ($this->GetValue("SystemState") > 0) {
             $bits |= (1 << 6);
         }
@@ -123,33 +140,48 @@ class PropertyStateManager extends IPSModule
         $options = [];
 
         if ($sensorGroupId > 0 && @IPS_InstanceExists($sensorGroupId)) {
-            // Call the specific Discovery function from Module 1
+            // Retrieve configuration from Module 1
             $configJSON = @MYALARM_GetConfiguration($sensorGroupId);
             if ($configJSON !== false) {
                 $config = json_decode($configJSON, true);
+                $sensorList = $config['SensorList'] ?? [];
 
-                // Use 'GroupList' as per Interaction Specification
-                $list = $config['GroupList'] ?? [];
+                if (is_array($sensorList)) {
+                    foreach ($sensorList as $sensor) {
+                        $varID = $sensor['VariableID'] ?? 0;
+                        if ($varID > 0) {
+                            // Fetch the actual variable name from the system
+                            $name = @IPS_GetName($varID) ?: "Unknown Sensor";
+                            $parent = $sensor['ParentName'] ?? 'No Area';
+                            $grandparent = $sensor['GrandParentName'] ?? 'No Location';
 
-                if (is_array($list)) {
-                    foreach ($list as $item) {
-                        // Handle both simple strings or arrays with 'GroupName'
-                        $name = is_array($item) ? ($item['GroupName'] ?? 'Unnamed') : $item;
-                        $options[] = ["caption" => $name, "value" => $name];
+                            // Format: Grandparent > Parent > Name (ID)
+                            $caption = sprintf("%s > %s > %s (%d)", $grandparent, $parent, $name, $varID);
+
+                            $options[] = [
+                                "caption" => $caption,
+                                "value" => (string)$varID
+                            ];
+                        }
                     }
                 }
             }
         }
 
-        // Inject options into the SourceKey column of the GroupMapping list
+        // Inject options into the 'SourceKey' column of the 'GroupMapping' list
         foreach ($form['elements'] as &$element) {
             if (isset($element['name']) && $element['name'] === 'GroupMapping') {
-                $element['columns'][0]['edit']['options'] = $options;
+                foreach ($element['columns'] as &$column) {
+                    if ($column['name'] === 'SourceKey') {
+                        $column['edit']['options'] = $options;
+                    }
+                }
             }
         }
 
         return json_encode($form);
     }
+
     public function ExportLogicForAI()
     {
         $mapping = json_decode($this->ReadPropertyString("GroupMapping"), true);
