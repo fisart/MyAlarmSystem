@@ -119,45 +119,37 @@ class PropertyStateManager extends IPSModule
     public function GetConfigurationForm()
     {
         $form = json_decode(file_get_contents(__DIR__ . "/form.json"), true);
-
         $sensorGroupId = $this->ReadPropertyInteger("SensorGroupInstanceID");
         $options = [];
 
-        if ($sensorGroupId > 0 && IPS_InstanceExists($sensorGroupId)) {
-            // 1. Get the raw configuration of Module 1
-            $configJSON = IPS_GetConfiguration($sensorGroupId);
-            $config = json_decode($configJSON, true);
+        if ($sensorGroupId > 0 && @IPS_InstanceExists($sensorGroupId)) {
+            // Call the specific Discovery function from Module 1
+            $configJSON = @MYALARM_GetConfiguration($sensorGroupId);
+            if ($configJSON !== false) {
+                $config = json_decode($configJSON, true);
 
-            // 2. Identify the property that holds the list
-            // Common names: 'Groups', 'SensorList', 'List', 'VariableList'
-            $rawList = $config['Groups'] ?? $config['SensorList'] ?? $config['List'] ?? $config['VariableList'] ?? [];
+                // Use 'GroupList' as per Interaction Specification
+                $list = $config['GroupList'] ?? [];
 
-            // 3. FIX: If the list is a JSON string (common in Symcon), decode it again
-            $list = is_string($rawList) ? json_decode($rawList, true) : $rawList;
-
-            // 4. Populate the dropdown options
-            if (is_array($list)) {
-                foreach ($list as $item) {
-                    // Try to find a human-readable name in the array
-                    $name = $item['Name'] ?? $item['Caption'] ?? $item['GroupName'] ?? 'Unnamed Item';
-                    $options[] = ["caption" => $name, "value" => $name];
+                if (is_array($list)) {
+                    foreach ($list as $item) {
+                        // Handle both simple strings or arrays with 'GroupName'
+                        $name = is_array($item) ? ($item['GroupName'] ?? 'Unnamed') : $item;
+                        $options[] = ["caption" => $name, "value" => $name];
+                    }
                 }
             }
         }
 
-        // 5. Inject options into the SourceKey column (Index 0 of the List in form.json)
-        // We use a safety check to ensure we are pointing at the correct path in form.json
+        // Inject options into the SourceKey column of the GroupMapping list
         foreach ($form['elements'] as &$element) {
             if (isset($element['name']) && $element['name'] === 'GroupMapping') {
-                if (isset($element['columns'][0]['edit'])) {
-                    $element['columns'][0]['edit']['options'] = $options;
-                }
+                $element['columns'][0]['edit']['options'] = $options;
             }
         }
 
         return json_encode($form);
     }
-
     public function ExportLogicForAI()
     {
         $mapping = json_decode($this->ReadPropertyString("GroupMapping"), true);
