@@ -52,7 +52,7 @@
         {
             "type": "Button",
             "caption": "Refresh Keys from SensorGroup",
-            "onClick": "IPS_RequestConfigForm($id, []);"
+            "onClick": "IPS_RequestConfigurationForm($id, []);"
         }
     ]
 }
