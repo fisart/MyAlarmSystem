@@ -149,8 +149,33 @@ class PropertyStateManager extends IPSModule
             $this->SetValue("SystemState", $newState);
             $this->SendDebug("LogicEngine", "Bitmask: $bits -> New State: $newState", 0);
         }
+
+        // Timer Control Logic
+        if ($newState == 2) {
+            // Start timer if entering "Exit Delay" and it's not already running
+            if ($this->GetTimerInterval("DelayTimer") == 0) {
+                $duration = $this->ReadPropertyInteger("ArmingDelayDuration");
+                $this->SetTimerInterval("DelayTimer", $duration * 60 * 1000);
+            }
+        } else {
+            // Stop timer if state is no longer "Exit Delay" (e.g. Disarmed or Interrupted)
+            if ($this->GetTimerInterval("DelayTimer") > 0) {
+                $this->SetTimerInterval("DelayTimer", 0);
+            }
+        }
     }
 
+    public function GetSystemState(): string
+    {
+        $status = [
+            'StateID'       => $this->GetValue('SystemState'),
+            'PresenceMap'   => json_decode($this->ReadAttributeString('PresenceMap'), true),
+            'ActiveSensors' => json_decode($this->ReadAttributeString('ActiveSensors'), true),
+            'IsDelayActive' => ($this->GetTimerInterval('DelayTimer') > 0)
+        ];
+
+        return json_encode($status);
+    }
     public function GetConfigurationForm()
     {
         $form = json_decode(file_get_contents(__DIR__ . "/form.json"), true);
