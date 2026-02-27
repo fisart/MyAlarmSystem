@@ -22,6 +22,12 @@
             "options": []
         },
         {
+            "type": "NumberSpinner",
+            "name": "ArmingDelayDuration",
+            "caption": "Arming Delay (Minutes)",
+            "minimum": 0
+        },
+        {
             "type": "List",
             "name": "GroupMapping",
             "caption": "Group Mapping",

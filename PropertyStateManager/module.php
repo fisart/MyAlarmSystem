@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 class PropertyStateManager extends IPSModule
 {
-public function Create()
+    public function Create()
     {
         parent::Create();
 
@@ -14,7 +14,7 @@ public function Create()
         $this->RegisterPropertyString("GroupMapping", "[]");
         $this->RegisterPropertyString("DecisionMap", "[]");
         $this->RegisterPropertyInteger("SyncTimestamp", 0); // New property for Apply trigger
-
+        $this->RegisterPropertyInteger("ArmingDelayDuration", 1);
         // Attributes (ActiveSensors instead of ActiveAlarms as agreed)
         $this->RegisterAttributeString("ActiveSensors", "[]");
         $this->RegisterAttributeString("PresenceMap", "[]");
@@ -38,11 +38,23 @@ public function Create()
         parent::ApplyChanges();
     }
 
+    public function HandleTimer()
+    {
+        // Stop the timer
+        $this->SetTimerInterval("DelayTimer", 0);
+
+        // Log the event
+        $this->LogMessage("Arming delay finished. System is now transitioning to Armed state.", KL_MESSAGE);
+
+        // Re-evaluate state now that Bit 5 (Timer) will be 0
+        $this->EvaluateState();
+    }
+
     /**
      * This is called by the UI button. 
      * Simply calling it forces IP-Symcon to reload GetConfigurationForm.
      */
-public function UI_Refresh()
+    public function UI_Refresh()
     {
         // Update the property value in the UI to trigger the 'Apply' button
         $this->UpdateFormField("SyncTimestamp", "value", time());
@@ -177,9 +189,7 @@ public function UI_Refresh()
                             $name = IPS_ObjectExists($vid) ? IPS_GetName($vid) : "Unknown";
                             $caption = sprintf("%s > %s > %s (%d)", $sensor['GrandParentName'] ?? '?', $sensor['ParentName'] ?? '?', $name, $vid);
                             $options[] = ["caption" => $caption, "value" => (string)$vid];
-                            
                         } else {
-                            
                         }
                     }
                 }
