@@ -25,6 +25,7 @@ class PropertyStateManager extends IPSModule
         // Debug Attributes
         $this->RegisterAttributeString("LastPayload", "");
         $this->RegisterAttributeInteger("LastPayloadTime", 0);
+        $this->RegisterAttributeString("PayloadHistory", "[]"); // NEW: History Buffer
 
         // Variable Profiles
         if (!IPS_VariableProfileExists('PSM.State')) {
@@ -313,13 +314,28 @@ class PropertyStateManager extends IPSModule
                 throw new Exception("Invalid Ident: $Ident");
         }
     }
+    public function GetPayloadHistory()
+    {
+        return $this->ReadAttributeString("PayloadHistory");
+    }
 
     public function ReceivePayload(string $Payload)
     {
         $data = json_decode($Payload, true);
         if (!$data) return;
 
-        // Debug storage
+        // --- HISTORY LOGGING START ---
+        $history = json_decode($this->ReadAttributeString("PayloadHistory"), true);
+        if (!is_array($history)) $history = [];
+        array_unshift($history, [
+            'Time' => date('Y-m-d H:i:s'),
+            'Data' => $data
+        ]);
+        if (count($history) > 20) $history = array_slice($history, 0, 20); // Keep last 20
+        $this->WriteAttributeString("PayloadHistory", json_encode($history));
+        // --- HISTORY LOGGING END ---
+
+        // Debug storage (Legacy single value)
         $this->WriteAttributeString("LastPayload", $Payload);
         $this->WriteAttributeInteger("LastPayloadTime", time());
 
@@ -335,20 +351,12 @@ class PropertyStateManager extends IPSModule
             return;
         }
 
-        // Load current list
+        // Handle Sensor Events
         $activeSensors = json_decode($this->ReadAttributeString("ActiveSensors"), true);
         if (!is_array($activeSensors)) $activeSensors = [];
 
-        // 1. Global Reset Logic (Moved to TOP to prevent overwriting new events)
-        // If Module 1 says NO groups are active, we clear the slate first
-        if (isset($data['active_groups']) && empty($data['active_groups'])) {
-            $activeSensors = [];
-            $this->LogMessage("[PSM-Rx] Global Reset: All sensors cleared.", KL_MESSAGE);
-        }
-
-        // 2. Handle specific Sensor Event
         if (isset($data['trigger_details']['variable_id'])) {
-            $vID = (string)$data['trigger_details']['variable_id']; // Cast to string for safety
+            $vID = (string)$data['trigger_details']['variable_id'];
             $val = $data['trigger_details']['value_raw'] ?? false;
 
             // DIAGNOSTIC: Check mapping
@@ -373,9 +381,11 @@ class PropertyStateManager extends IPSModule
             }
         }
 
-        // Save and Log Status
-        $count = count($activeSensors);
-        $this->LogMessage("[PSM-Rx] Active Sensors Count: $count", KL_MESSAGE);
+        // Global Reset Logic
+        if (isset($data['active_groups']) && empty($data['active_groups'])) {
+            $activeSensors = [];
+            $this->LogMessage("[PSM-Rx] Global Reset: All sensors cleared.", KL_MESSAGE);
+        }
 
         $this->WriteAttributeString("ActiveSensors", json_encode($activeSensors));
         $this->EvaluateState();
