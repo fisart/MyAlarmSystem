@@ -331,11 +331,12 @@ class PropertyStateManager extends IPSModule
             'Time' => date('Y-m-d H:i:s'),
             'Data' => $data
         ]);
-        if (count($history) > 20) $history = array_slice($history, 0, 20); // Keep last 20
+        // Increased buffer from 20 to 100 to capture bursts
+        if (count($history) > 100) $history = array_slice($history, 0, 100);
         $this->WriteAttributeString("PayloadHistory", json_encode($history));
         // --- HISTORY LOGGING END ---
 
-        // Debug storage (Legacy single value)
+        // Debug storage
         $this->WriteAttributeString("LastPayload", $Payload);
         $this->WriteAttributeInteger("LastPayloadTime", time());
 
@@ -351,10 +352,17 @@ class PropertyStateManager extends IPSModule
             return;
         }
 
-        // Handle Sensor Events
+        // Load current list
         $activeSensors = json_decode($this->ReadAttributeString("ActiveSensors"), true);
         if (!is_array($activeSensors)) $activeSensors = [];
 
+        // 1. Global Reset Logic
+        if (isset($data['active_groups']) && empty($data['active_groups'])) {
+            $activeSensors = [];
+            $this->LogMessage("[PSM-Rx] Global Reset: All sensors cleared.", KL_MESSAGE);
+        }
+
+        // 2. Handle specific Sensor Event
         if (isset($data['trigger_details']['variable_id'])) {
             $vID = (string)$data['trigger_details']['variable_id'];
             $val = $data['trigger_details']['value_raw'] ?? false;
@@ -381,6 +389,9 @@ class PropertyStateManager extends IPSModule
             }
         }
 
+        // Save and Log Status
+        $count = count($activeSensors);
+        $this->LogMessage("[PSM-Rx] Active Sensors Count: $count", KL_MESSAGE);
 
         $this->WriteAttributeString("ActiveSensors", json_encode($activeSensors));
         $this->EvaluateState();
