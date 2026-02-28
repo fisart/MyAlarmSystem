@@ -399,10 +399,19 @@ class PropertyStateManager extends IPSModule
 
     public function ResetPayloadHistory()
     {
+        // Clear Debug Logs
         $this->WriteAttributeString("PayloadHistory", "[]");
         $this->WriteAttributeString("LastPayload", "");
         $this->WriteAttributeInteger("LastPayloadTime", 0);
-        $this->LogMessage("Payload history and debug buffers cleared.", KL_MESSAGE);
+
+        // Clear Active Sensor Memory (Fix for "Stale" sensors)
+        $this->WriteAttributeString("ActiveSensors", "[]");
+        $this->WriteAttributeString("PresenceMap", "[]");
+
+        // Reset State
+        $this->SetValue("SystemState", 0);
+
+        $this->LogMessage("System Reset: Logs, Sensor Memory, and State cleared.", KL_MESSAGE);
     }
 
     public function GetLastPayload()
