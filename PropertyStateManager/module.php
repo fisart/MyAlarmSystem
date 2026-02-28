@@ -188,7 +188,7 @@ class PropertyStateManager extends IPSModule
         $presenceMap = json_decode($this->ReadAttributeString("PresenceMap"), true);
 
         $bits = 0;
-        // Bits 0-3: Hardware Sensors
+        // Bits 0-4: Hardware Sensors & Presence Mapping
         foreach ($mapping as $item) {
             if (in_array($item['SourceKey'], $activeSensors)) {
                 switch ($item['LogicalRole']) {
@@ -204,10 +204,13 @@ class PropertyStateManager extends IPSModule
                     case 'Basement Door Contact':
                         $bits |= (1 << 3);
                         break;
+                    case 'Presence':
+                        $bits |= (1 << 4);
+                        break;
                 }
             }
         }
-        // Bit 4: Presence
+        // Bit 4: Presence (Bedroom Sync Check - OR logic)
         foreach ($presenceMap as $room) {
             if ($room['SwitchState'] ?? false) {
                 $bits |= (1 << 4);
