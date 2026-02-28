@@ -322,29 +322,111 @@ class PropertyStateManager extends IPSModule
     private function EvaluateState()
     {
         $decisionMap = json_decode($this->ReadPropertyString("DecisionMap"), true);
-
         $bits = $this->GetCurrentBitmask();
 
-        // Safe Lookup: Convert integer $bits to string key for JSON array
-        $bitKey = (string)$bits;
-        $newState = $decisionMap[$bitKey] ?? 0;
+        // Fallback: Use Default Logic (from Design Phase) if Configuration is empty
+        if (empty($decisionMap)) {
+            // Matrix from Turn #20 (0=Disarmed, 1=Intent, 2=Delay, 3=Away, 6=Night, -1=Illogical)
+            // This covers the first 64 states (System Disarmed)
+            $defaultMatrix = [
+                1,
+                -1,
+                1,
+                1,
+                1,
+                -1,
+                1,
+                3,
+                0,
+                -1,
+                0,
+                0,
+                0,
+                -1,
+                0,
+                0, // 0-15
+                -1,
+                -1,
+                -1,
+                0,
+                1,
+                1,
+                1,
+                2,
+                -1,
+                -1,
+                -1,
+                -1,
+                -1,
+                -1,
+                -1,
+                2, // 16-31
+                0,
+                -1,
+                0,
+                0,
+                -1,
+                -1,
+                0,
+                3,
+                -1,
+                -1,
+                -1,
+                -1,
+                -1,
+                -1,
+                -1,
+                6, // 32-47
+                -1,
+                -1,
+                -1,
+                -1,
+                -1,
+                -1,
+                -1,
+                -1,
+                -1,
+                -1,
+                -1,
+                -1,
+                -1,
+                -1,
+                -1,
+                -1  // 48-63
+            ];
+            // Only use fallback if we are in the lower 64 bits (System is Disarmed)
+            if ($bits < 64) {
+                $newState = $defaultMatrix[$bits] ?? 0;
+            } else {
+                $newState = 0;
+            }
+        } else {
+            $bitKey = (string)$bits;
+            $newState = $decisionMap[$bitKey] ?? 0;
+        }
+
+        // Handle "Illogical" (-1) by keeping current state or defaulting to 0
+        if ($newState === -1) {
+            $this->SendDebug("LogicEngine", "Illogical Condition (Bitmask: $bits). No State Change.", 0);
+            return;
+        }
 
         if ($this->GetValue("SystemState") !== $newState) {
             $this->SetValue("SystemState", $newState);
-            $this->SendDebug("LogicEngine", "Bitmask: $bits -> New State: $newState", 0);
+            $this->LogMessage("[PSM-Logic] State transitioned to ID $newState (Bitmask: $bits)", KL_MESSAGE);
         }
 
         // Timer Control Logic
         if ($newState == 2) {
-            // Start timer if entering "Exit Delay" and it's not already running
             if ($this->GetTimerInterval("DelayTimer") == 0) {
                 $duration = $this->ReadPropertyInteger("ArmingDelayDuration");
                 $this->SetTimerInterval("DelayTimer", $duration * 60 * 1000);
+                $this->LogMessage("[PSM-Timer] Exit Delay Started ($duration min)", KL_MESSAGE);
             }
         } else {
-            // Stop timer if state is no longer "Exit Delay" (e.g. Disarmed or Interrupted)
             if ($this->GetTimerInterval("DelayTimer") > 0) {
                 $this->SetTimerInterval("DelayTimer", 0);
+                $this->LogMessage("[PSM-Timer] Exit Delay Cancelled", KL_MESSAGE);
             }
         }
     }
