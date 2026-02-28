@@ -106,7 +106,6 @@ class PropertyStateManager extends IPSModule
     {
         $vaultID = $this->ReadPropertyInteger("VaultInstanceID");
         if ($vaultID > 0 && @IPS_InstanceExists($vaultID)) {
-            // Check if the SecretsManager function exists to prevent fatal errors
             if (function_exists('SEC_IsPortalAuthenticated')) {
                 if (!SEC_IsPortalAuthenticated($vaultID)) {
                     $currentUrl = $_SERVER['REQUEST_URI'] ?? '';
@@ -121,11 +120,18 @@ class PropertyStateManager extends IPSModule
         $decisionMap = json_decode($this->ReadPropertyString("DecisionMap"), true);
         $targetState = $decisionMap[(string)$bits] ?? 0;
 
+        // Diagnostic: Find Active Sensors that are NOT mapped to any logic
+        $activeSensors = json_decode($this->ReadAttributeString("ActiveSensors"), true);
+        $mapping = json_decode($this->ReadPropertyString("GroupMapping"), true);
+        $mappedIDs = array_column($mapping, 'SourceKey');
+        $unmappedSensors = array_diff($activeSensors, $mappedIDs);
+
         echo "<html><head><style>
                 body { font-family: sans-serif; background: #111; color: #eee; padding: 20px; }
                 .bit-row { display: flex; justify-content: space-between; padding: 10px; border-bottom: 1px solid #333; }
                 .active { color: #4caf50; font-weight: bold; }
                 .inactive { color: #f44336; }
+                .warning { color: #ffeb3b; font-weight: bold; margin-top: 20px; border: 1px solid #ffeb3b; padding: 10px; }
                 .header { font-size: 1.5em; margin-bottom: 20px; color: #2196f3; }
                 .footer { margin-top: 30px; padding: 20px; background: #222; border-radius: 8px; text-align: center; }
               </style></head><body>";
@@ -148,6 +154,15 @@ class PropertyStateManager extends IPSModule
             $status = $isActive ? "ON" : "OFF";
             $class = $isActive ? "active" : "inactive";
             echo "<div class='bit-row'><span>Bit $i: $labels[$i]</span><span class='$class'>$status</span></div>";
+        }
+
+        // Display Unmapped Sensors if any exist
+        if (!empty($unmappedSensors)) {
+            echo "<div class='warning'>⚠️ Unmapped Active Sensors Detected:<br>";
+            foreach ($unmappedSensors as $id) {
+                echo "ID: $id (Ignored by Logic)<br>";
+            }
+            echo "</div>";
         }
 
         echo "<div class='footer'>
