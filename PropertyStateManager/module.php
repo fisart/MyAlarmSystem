@@ -221,6 +221,17 @@ class PropertyStateManager extends IPSModule
 
         return $bits;
     }
+    public function RequestAction($Ident, $Value)
+    {
+        switch ($Ident) {
+            case 'ReceivePayload':
+                // Forward the generic action to the specific logic function
+                $this->ReceivePayload($Value);
+                break;
+            default:
+                throw new Exception("Invalid Ident: $Ident");
+        }
+    }
 
     public function ReceivePayload(string $Payload)
     {
