@@ -381,11 +381,6 @@ class PropertyStateManager extends IPSModule
             }
         }
 
-        // Global Reset Logic
-        if (isset($data['active_groups']) && empty($data['active_groups'])) {
-            $activeSensors = [];
-            $this->LogMessage("[PSM-Rx] Global Reset: All sensors cleared.", KL_MESSAGE);
-        }
 
         $this->WriteAttributeString("ActiveSensors", json_encode($activeSensors));
         $this->EvaluateState();
