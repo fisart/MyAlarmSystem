@@ -1726,6 +1726,7 @@ class SensorGroup extends IPSModule
                 ]));
             }
         }
+        }
 
         // === DISPATCH (Module 2 Routing) - load routing table ===
         // GroupDispatch rows: { GroupName, InstanceID }
@@ -1755,7 +1756,8 @@ class SensorGroup extends IPSModule
                 $readableActiveClasses[] = $classNameMap[$aid] ?? $aid;
             }
 
-            $payload = [
+$payload = [
+                'event_type' => 'ALARM',
                 'event_id' => uniqid(),
                 'timestamp' => time(),
                 'source_id' => $this->InstanceID,
@@ -1790,7 +1792,10 @@ class SensorGroup extends IPSModule
             }
         } else {
             // Explicit Reset Payload
+} else {
+            // Explicit Reset Payload
             $payload = [
+                'event_type' => 'ALARM', // ALARM type implies logic processing (Reset is just an empty alarm)
                 'event_id' => uniqid(),
                 'timestamp' => time(),
                 'source_id' => $this->InstanceID,
