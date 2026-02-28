@@ -349,7 +349,7 @@ class PropertyStateManager extends IPSModule
         return json_encode($status);
     }
 
-    public function GetConfigurationForm()
+public function GetConfigurationForm()
     {
         $form = json_decode(file_get_contents(__DIR__ . "/form.json"), true);
         $sensorGroupId = $this->ReadPropertyInteger("SensorGroupInstanceID");
@@ -368,29 +368,38 @@ class PropertyStateManager extends IPSModule
                 }
 
                 if ($targetID > 0) {
-                    $this->LogMessage("GF: Filtering for Target ID: " . $targetID, KL_MESSAGE);
-
+                    // Logic to populate options (unchanged)
                     $targetGroups = [];
                     foreach ($config['GroupDispatch'] ?? [] as $gd) {
                         if ((int)$gd['InstanceID'] === $targetID) $targetGroups[] = $gd['GroupName'];
                     }
-
                     $targetClasses = [];
                     foreach ($config['GroupMembers'] ?? [] as $gm) {
                         if (in_array($gm['GroupName'], $targetGroups)) $targetClasses[] = $gm['ClassID'];
                     }
-                    $this->LogMessage("GF: Allowed Classes: " . implode(", ", $targetClasses), KL_MESSAGE);
-
                     foreach ($config['SensorList'] ?? [] as $sensor) {
                         $vid = (int)$sensor['VariableID'];
                         if (in_array($sensor['ClassID'], $targetClasses)) {
                             $name = IPS_ObjectExists($vid) ? IPS_GetName($vid) : "Unknown";
                             $caption = sprintf("%s > %s > %s (%d)", $sensor['GrandParentName'] ?? '?', $sensor['ParentName'] ?? '?', $name, $vid);
                             $options[] = ["caption" => $caption, "value" => (string)$vid];
-                        } else {
                         }
                     }
                 }
+            }
+        }
+
+        // FIX: Add current Target ID to options if missing (prevents "Invalid configuration" error)
+        if ($targetID > 0) {
+            $found = false;
+            foreach ($targetOptions as $opt) {
+                if ($opt['value'] == $targetID) {
+                    $found = true;
+                    break;
+                }
+            }
+            if (!$found) {
+                $targetOptions[] = ["caption" => "⚠️ Unavailable / Old Target ($targetID)", "value" => $targetID];
             }
         }
 
@@ -402,4 +411,3 @@ class PropertyStateManager extends IPSModule
         }
         return json_encode($form);
     }
-}
