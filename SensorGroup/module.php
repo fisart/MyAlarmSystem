@@ -1726,7 +1726,7 @@ class SensorGroup extends IPSModule
                 ]));
             }
         }
-        }
+        
 
         // === DISPATCH (Module 2 Routing) - load routing table ===
         // GroupDispatch rows: { GroupName, InstanceID }
