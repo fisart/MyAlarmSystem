@@ -349,7 +349,7 @@ class PropertyStateManager extends IPSModule
         return json_encode($status);
     }
 
-public function GetConfigurationForm()
+    public function GetConfigurationForm()
     {
         $form = json_decode(file_get_contents(__DIR__ . "/form.json"), true);
         $sensorGroupId = $this->ReadPropertyInteger("SensorGroupInstanceID");
@@ -411,3 +411,4 @@ public function GetConfigurationForm()
         }
         return json_encode($form);
     }
+}
