@@ -1653,7 +1653,16 @@ class SensorGroup extends IPSModule
             foreach ($gClasses as $reqClassID) {
                 if (isset($activeClasses[$reqClassID])) {
                     $activeClassCount++;
-                    if ($primaryPayload === null) $primaryPayload = $activeClasses[$reqClassID];
+
+                    // FIX: Priority Check. If this class contains the specific TriggeringID, it overrides any previous "First Found" payload.
+                    $details = $activeClasses[$reqClassID];
+                    $isTrigger = ($TriggeringID > 0 && (int)($details['variable_id'] ?? 0) === (int)$TriggeringID);
+
+                    if ($isTrigger) {
+                        $primaryPayload = $details; // High Priority: This specific sensor caused the event
+                    } elseif ($primaryPayload === null) {
+                        $primaryPayload = $details; // Low Priority: First active sensor found (fallback)
+                    }
                 }
             }
 
