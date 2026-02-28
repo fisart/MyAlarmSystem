@@ -118,9 +118,85 @@ class PropertyStateManager extends IPSModule
 
         $bits = $this->GetCurrentBitmask();
         $decisionMap = json_decode($this->ReadPropertyString("DecisionMap"), true);
-        $targetState = $decisionMap[(string)$bits] ?? 0;
 
-        // Diagnostic: Find Active Sensors that are NOT mapped to any logic
+        // Calculate Target State
+        if (empty($decisionMap)) {
+            // Replicate default matrix logic for display
+            $defaultMatrix = [
+                1,
+                -1,
+                1,
+                1,
+                1,
+                -1,
+                1,
+                3,
+                0,
+                -1,
+                0,
+                0,
+                0,
+                -1,
+                0,
+                0,
+                -1,
+                -1,
+                -1,
+                0,
+                1,
+                1,
+                1,
+                2,
+                -1,
+                -1,
+                -1,
+                -1,
+                -1,
+                -1,
+                -1,
+                2,
+                0,
+                -1,
+                0,
+                0,
+                -1,
+                -1,
+                0,
+                3,
+                -1,
+                -1,
+                -1,
+                -1,
+                -1,
+                -1,
+                -1,
+                6,
+                -1,
+                -1,
+                -1,
+                -1,
+                -1,
+                -1,
+                -1,
+                -1,
+                -1,
+                -1,
+                -1,
+                -1,
+                -1,
+                -1,
+                -1,
+                -1
+            ];
+            $targetState = $defaultMatrix[$bits] ?? 0;
+        } else {
+            $targetState = $decisionMap[(string)$bits] ?? 0;
+        }
+
+        // Display -1 as Illogical
+        $displayState = ($targetState === -1) ? "Illogical (-1)" : $this->GetStateName($targetState);
+
+        // Diagnostic: Find Active Sensors that are NOT mapped
         $activeSensors = json_decode($this->ReadAttributeString("ActiveSensors"), true);
         $mapping = json_decode($this->ReadPropertyString("GroupMapping"), true);
         $mappedIDs = array_column($mapping, 'SourceKey');
@@ -139,24 +215,23 @@ class PropertyStateManager extends IPSModule
         echo "<div class='header'>Logic Analysis Dashboard</div>";
         echo "<h3>Current Sensor Status (Bitmask: $bits)</h3>";
 
+        // UPDATED LABELS TO MATCH 6-BIT LOGIC
         $labels = [
-            "Front Door Lock",
-            "Front Door Contact",
-            "Basement Door Lock",
-            "Basement Door Contact",
-            "Presence Detected",
-            "Delay Timer Active",
-            "System Currently Armed"
+            "Front Door Lock",       // Bit 0
+            "Front Door Contact",    // Bit 1
+            "Basement Door Lock",    // Bit 2
+            "Presence Detected",     // Bit 3
+            "Delay Timer Active",    // Bit 4
+            "System Currently Armed" // Bit 5
         ];
 
-        for ($i = 0; $i < 7; $i++) {
+        for ($i = 0; $i < 6; $i++) {
             $isActive = ($bits & (1 << $i));
             $status = $isActive ? "ON" : "OFF";
             $class = $isActive ? "active" : "inactive";
             echo "<div class='bit-row'><span>Bit $i: $labels[$i]</span><span class='$class'>$status</span></div>";
         }
 
-        // Display Unmapped Sensors if any exist
         if (!empty($unmappedSensors)) {
             echo "<div class='warning'>⚠️ Unmapped Active Sensors Detected:<br>";
             foreach ($unmappedSensors as $id) {
@@ -167,7 +242,7 @@ class PropertyStateManager extends IPSModule
 
         echo "<div class='footer'>
                 <strong>Resulting Decision:</strong><br>
-                <span style='font-size: 2em; color: #ff9800;'>" . $this->GetStateName($targetState) . "</span>
+                <span style='font-size: 2em; color: #ff9800;'>" . $displayState . "</span>
               </div>";
         echo "</body></html>";
     }
@@ -323,10 +398,8 @@ class PropertyStateManager extends IPSModule
         $decisionMap = json_decode($this->ReadPropertyString("DecisionMap"), true);
         $bits = $this->GetCurrentBitmask();
 
-        // Fallback: Use Default Logic (from Design Phase) if Configuration is empty
+        // Fallback: Use Default Logic if Configuration is empty
         if (empty($decisionMap)) {
-            // Matrix from Turn #20 (0=Disarmed, 1=Intent, 2=Delay, 3=Away, 6=Night, -1=Illogical)
-            // This covers the first 64 states (System Disarmed)
             $defaultMatrix = [
                 1,
                 -1,
@@ -393,21 +466,16 @@ class PropertyStateManager extends IPSModule
                 -1,
                 -1  // 48-63
             ];
-            // Only use fallback if we are in the lower 64 bits (System is Disarmed)
-            if ($bits < 64) {
-                $newState = $defaultMatrix[$bits] ?? 0;
-            } else {
-                $newState = 0;
-            }
+            $newState = $defaultMatrix[$bits] ?? 0;
         } else {
             $bitKey = (string)$bits;
             $newState = $decisionMap[$bitKey] ?? 0;
         }
 
-        // Handle "Illogical" (-1) by keeping current state or defaulting to 0
+        // Fix: If state is Illogical (-1), force Disarmed (0) to prevent deadlocks
         if ($newState === -1) {
-            $this->SendDebug("LogicEngine", "Illogical Condition (Bitmask: $bits). No State Change.", 0);
-            return;
+            $this->SendDebug("LogicEngine", "Illogical Condition (Bitmask: $bits). Defaulting to Disarmed.", 0);
+            $newState = 0;
         }
 
         if ($this->GetValue("SystemState") !== $newState) {
