@@ -224,38 +224,63 @@ class PropertyStateManager extends IPSModule
 
     public function ReceivePayload(string $Payload)
     {
-        // DEBUG: Capture input for diagnosis
-        $this->WriteAttributeString("LastPayload", $Payload);
-        $this->WriteAttributeInteger("LastPayloadTime", time());
-
         $data = json_decode($Payload, true);
         if (!$data) return;
 
-        // Update Presence from Bedroom Sync
-        if (isset($data['event_type']) && $data['event_type'] === 'BEDROOM_SYNC') {
-            $this->WriteAttributeString("PresenceMap", json_encode($data['bedrooms']));
+        // Debug storage
+        $this->WriteAttributeString("LastPayload", $Payload);
+        $this->WriteAttributeInteger("LastPayloadTime", time());
+
+        $type = $data['event_type'] ?? 'ALARM';
+        $source = $data['source_name'] ?? 'Unknown Source';
+
+        $this->LogMessage("Received '$type' from '$source'", KL_MESSAGE);
+
+        // Handle Bedroom Sync
+        if ($type === 'BEDROOM_SYNC') {
+            $this->WriteAttributeString("PresenceMap", json_encode($data['bedrooms'] ?? []));
+            $this->EvaluateState();
+            return;
         }
 
-        // Update Active Sensors (Variable IDs)
+        // Handle Sensor Events
         $activeSensors = json_decode($this->ReadAttributeString("ActiveSensors"), true);
+        if (!is_array($activeSensors)) $activeSensors = [];
 
         if (isset($data['trigger_details']['variable_id'])) {
             $vID = $data['trigger_details']['variable_id'];
-            // If the sensor is tripped, add to list; otherwise, remove it
-            if ($data['trigger_details']['value_raw'] ?? false) {
+            $val = $data['trigger_details']['value_raw'] ?? false;
+
+            // DIAGNOSTIC: Check mapping
+            $mapping = json_decode($this->ReadPropertyString("GroupMapping"), true);
+            $isMapped = false;
+            foreach ($mapping as $m) {
+                // Ensure loose comparison (string vs int)
+                if ($m['SourceKey'] == $vID) {
+                    $isMapped = true;
+                    $this->LogMessage("Diagnostic: Sensor $vID matched to Role '" . $m['LogicalRole'] . "'", KL_MESSAGE);
+                    break;
+                }
+            }
+            if (!$isMapped) {
+                $this->LogMessage("Diagnostic: WARNING - Sensor $vID received but NOT MAPPED in configuration.", KL_WARNING);
+            }
+
+            // Update Active List
+            if ($val) {
                 if (!in_array($vID, $activeSensors)) $activeSensors[] = $vID;
             } else {
                 $activeSensors = array_values(array_diff($activeSensors, [$vID]));
             }
         }
 
-        // Global Reset Logic: If no groups are active, clear the sensor list
-        if (empty($data['active_groups'] ?? [])) {
+        // Global Reset Logic
+        if (isset($data['active_groups']) && empty($data['active_groups'])) {
             $activeSensors = [];
+            $this->LogMessage("Global Reset: All sensors cleared.", KL_MESSAGE);
         }
 
         $this->WriteAttributeString("ActiveSensors", json_encode($activeSensors));
-
         $this->EvaluateState();
     }
 
