@@ -234,7 +234,7 @@ class PropertyStateManager extends IPSModule
         $type = $data['event_type'] ?? 'ALARM';
         $source = $data['source_name'] ?? 'Unknown Source';
 
-        $this->LogMessage("Received '$type' from '$source'", KL_MESSAGE);
+        $this->LogMessage("[PSM-Rx] Received '$type' from '$source'", KL_MESSAGE);
 
         // Handle Bedroom Sync
         if ($type === 'BEDROOM_SYNC') {
@@ -258,12 +258,12 @@ class PropertyStateManager extends IPSModule
                 // Ensure loose comparison (string vs int)
                 if ($m['SourceKey'] == $vID) {
                     $isMapped = true;
-                    $this->LogMessage("Diagnostic: Sensor $vID matched to Role '" . $m['LogicalRole'] . "'", KL_MESSAGE);
+                    $this->LogMessage("[PSM-Rx] Sensor $vID matched to Role '" . $m['LogicalRole'] . "'", KL_MESSAGE);
                     break;
                 }
             }
             if (!$isMapped) {
-                $this->LogMessage("Diagnostic: WARNING - Sensor $vID received but NOT MAPPED in configuration.", KL_WARNING);
+                $this->LogMessage("[PSM-Rx] WARNING - Sensor $vID received but NOT MAPPED in configuration.", KL_WARNING);
             }
 
             // Update Active List
@@ -277,7 +277,7 @@ class PropertyStateManager extends IPSModule
         // Global Reset Logic
         if (isset($data['active_groups']) && empty($data['active_groups'])) {
             $activeSensors = [];
-            $this->LogMessage("Global Reset: All sensors cleared.", KL_MESSAGE);
+            $this->LogMessage("[PSM-Rx] Global Reset: All sensors cleared.", KL_MESSAGE);
         }
 
         $this->WriteAttributeString("ActiveSensors", json_encode($activeSensors));
