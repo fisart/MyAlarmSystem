@@ -1466,6 +1466,7 @@ class SensorGroup extends IPSModule
         $tamperList = json_decode($this->ReadPropertyString('TamperList'), true);
         $groupList = json_decode($this->ReadPropertyString('GroupList'), true);
         $groupMembers = json_decode($this->ReadPropertyString('GroupMembers'), true);
+
         if ((int)$TriggeringID === 17847) {
             $rawClass = (string)$this->ReadPropertyString('ClassList');
             $rawSens  = (string)$this->ReadPropertyString('SensorList');
@@ -1477,7 +1478,6 @@ class SensorGroup extends IPSModule
             if ($this->ReadPropertyBoolean('DebugMode')) $this->LogMessage("RAW: GroupList(len=" . strlen($rawGroup) . ")=" . substr($rawGroup, 0, 500), KL_MESSAGE);
             if ($this->ReadPropertyBoolean('DebugMode')) $this->LogMessage("RAW: GroupMembers(len=" . strlen($rawMem) . ")=" . substr($rawMem, 0, 500), KL_MESSAGE);
 
-            // Also log exact IDs used for matching (first entries)
             if ($this->ReadPropertyBoolean('DebugMode')) $this->LogMessage(
                 "RAW: FirstIDs classID=" . json_encode($classList[0]['ClassID'] ?? null) .
                     " className=" . json_encode($classList[0]['ClassName'] ?? null) .
@@ -1488,6 +1488,7 @@ class SensorGroup extends IPSModule
                 KL_MESSAGE
             );
         }
+
         $trigVal = null;
         $trigType = 'n/a';
         if ($TriggeringID > 0 && IPS_VariableExists($TriggeringID)) {
@@ -1504,6 +1505,7 @@ class SensorGroup extends IPSModule
                 " maint=" . (int)$this->ReadPropertyBoolean('MaintenanceMode'),
             KL_MESSAGE
         );
+
         $classStates = json_decode($this->ReadAttributeString('ClassStateAttribute'), true);
         if (!is_array($classStates)) $classStates = [];
 
@@ -1542,14 +1544,7 @@ class SensorGroup extends IPSModule
                         }
                     }
                 }
-                if ($this->ReadPropertyBoolean('DebugMode')) $this->LogMessage(
-                    "CHK: CLASS className=" . json_encode($className) .
-                        " classID=" . json_encode($classID) .
-                        " sensorsInClass=" . count($classSensors) .
-                        " firstSensorClassID=" . json_encode($sensorList[0]['ClassID'] ?? null) .
-                        " firstSensorVID=" . json_encode($sensorList[0]['VariableID'] ?? null),
-                    KL_MESSAGE
-                );
+
                 $activeCount = 0;
                 $total = count($classSensors);
                 $triggerInClass = false;
@@ -1557,16 +1552,7 @@ class SensorGroup extends IPSModule
 
                 foreach ($classSensors as $s) {
                     $match = $this->CheckSensorRule($s);
-                    if ($this->ReadPropertyBoolean('DebugMode')) $this->LogMessage(
-                        "CHK: AND_EVAL class=" . json_encode($className) .
-                            " vid=" . (int)($s['VariableID'] ?? 0) .
-                            " curType=" . (IPS_VariableExists((int)($s['VariableID'] ?? 0)) ? gettype(GetValue((int)$s['VariableID'])) : 'NA') .
-                            " curVal=" . (IPS_VariableExists((int)($s['VariableID'] ?? 0)) ? json_encode(GetValue((int)$s['VariableID'])) : 'NA') .
-                            " op=" . json_encode($s['Operator'] ?? null) .
-                            " target=" . json_encode($s['ComparisonValue'] ?? null) .
-                            " match=" . (int)$match,
-                        KL_MESSAGE
-                    );
+
                     if ($TriggeringID > 0 && (int)($s['VariableID'] ?? 0) === (int)$TriggeringID) {
                         $curVal = null;
                         $curType = 'n/a';
@@ -1587,7 +1573,6 @@ class SensorGroup extends IPSModule
                     if ($match) {
                         $activeCount++;
 
-                        // === BUGFIX 1: Capture details for ANY active sensor, prioritize specific trigger ===
                         if ($lastTriggerDetails === null || ($s['VariableID'] ?? 0) == $TriggeringID) {
                             if (($s['VariableID'] ?? 0) == $TriggeringID) {
                                 $triggerInClass = true;
@@ -1677,29 +1662,17 @@ class SensorGroup extends IPSModule
                 if ($gLogic == 0) $groupActive = ($activeClassCount > 0);
                 elseif ($gLogic == 1) $groupActive = ($activeClassCount == $targetClassCount);
             }
-            if ($this->ReadPropertyBoolean('DebugMode')) $this->LogMessage(
-                "CHK: GROUP g=" . json_encode($gName) .
-                    " logic={$gLogic} activeClasses={$activeClassCount}/{$targetClassCount} active=" . (int)$groupActive,
-                KL_MESSAGE
-            );
+
             $ident = "Status_" . $this->SanitizeIdent($gName);
             if (@$this->GetIDForIdent($ident)) $this->SetValue($ident, $groupActive);
 
             if ($groupActive) {
                 $activeGroups[] = $gName;
-                // === BUGFIX 2: Global status is TRUE if ANY group is active ===
                 $mainStatus = true;
             }
         }
 
         $this->SetValue('Status', $mainStatus);
-        if ($this->ReadPropertyBoolean('DebugMode')) $this->LogMessage(
-            "CHK: RESULT main=" . (int)$mainStatus .
-                " activeGroups=" . json_encode($activeGroups) .
-                " activeClassIDs=" . json_encode(array_keys($activeClasses)) .
-                " primaryNull=" . (int)($primaryPayload === null),
-            KL_MESSAGE
-        );
 
         // === BEDROOM DISPATCH (Presence Sync) ===
         $bedTarget = (int)$this->ReadPropertyInteger('BedroomTarget');
@@ -1718,18 +1691,21 @@ class SensorGroup extends IPSModule
                 ];
             }
             if (count($bedStates) > 0) {
-                @IPS_RequestAction($bedTarget, 'ReceivePayload', json_encode([
+                $payloadJson = json_encode([
                     'event_type' => 'BEDROOM_SYNC',
                     'timestamp'  => time(),
                     'source_id'  => $this->InstanceID,
                     'bedrooms'   => $bedStates
-                ]));
+                ]);
+
+                // Update local debug variable so we can see what was sent
+                $this->SetValue('EventData', $payloadJson);
+
+                @IPS_RequestAction($bedTarget, 'ReceivePayload', $payloadJson);
             }
         }
-        
 
         // === DISPATCH (Module 2 Routing) - load routing table ===
-        // GroupDispatch rows: { GroupName, InstanceID }
         $groupDispatch = json_decode($this->ReadPropertyString('GroupDispatch'), true);
         if (!is_array($groupDispatch)) $groupDispatch = [];
 
@@ -1749,14 +1725,13 @@ class SensorGroup extends IPSModule
             $this->LogMessage("DEBUG [Dispatch]: Routing Table=" . json_encode($dispatchMap), KL_MESSAGE);
         }
 
-        // === BUGFIX 3: Removed strict check for $primaryPayload, relies cleanly on mainStatus ===
         if ($mainStatus) {
             $readableActiveClasses = [];
             foreach (array_keys($activeClasses) as $aid) {
                 $readableActiveClasses[] = $classNameMap[$aid] ?? $aid;
             }
 
-$payload = [
+            $payload = [
                 'event_type' => 'ALARM',
                 'event_id' => uniqid(),
                 'timestamp' => time(),
@@ -1770,7 +1745,7 @@ $payload = [
                 'trigger_details' => $primaryPayload
             ];
             $this->SetValue('EventData', json_encode($payload));
-            // === DISPATCH: Edge-triggered "ALARM" per active group ===
+
             $payloadJson = json_encode($payload);
 
             foreach ($activeGroups as $gName) {
@@ -1783,7 +1758,6 @@ $payload = [
                     if ($this->ReadPropertyBoolean('DebugMode')) $this->LogMessage("DEBUG [Dispatch]: Sending ALARM for '{$gName}' to Instance {$iid}", KL_MESSAGE);
                     if (!IPS_InstanceExists((int)$iid)) continue;
 
-                    // keep payload as-is; only send it
                     $sent = @IPS_RequestAction((int)$iid, 'ReceivePayload', $payloadJson);
                     if (!$sent && $this->ReadPropertyBoolean('DebugMode')) {
                         $this->LogMessage("DISPATCH ERROR: Target {$iid} refused payload. Missing ReceivePayload action?", KL_WARNING);
@@ -1792,10 +1766,8 @@ $payload = [
             }
         } else {
             // Explicit Reset Payload
-} else {
-            // Explicit Reset Payload
             $payload = [
-                'event_type' => 'ALARM', // ALARM type implies logic processing (Reset is just an empty alarm)
+                'event_type' => 'ALARM',
                 'event_id' => uniqid(),
                 'timestamp' => time(),
                 'source_id' => $this->InstanceID,
@@ -1808,8 +1780,7 @@ $payload = [
                 'trigger_details' => null
             ];
             $this->SetValue('EventData', json_encode($payload));
-            // === DISPATCH: Reset once on clear (recommended) ===
-            // Send reset and to targets of ALL configured groups (so Module2 can reliably clear state)
+
             $payloadJson = json_encode($payload);
 
             $allTargets = [];
