@@ -386,6 +386,14 @@ class PropertyStateManager extends IPSModule
         $this->EvaluateState();
     }
 
+    public function ResetPayloadHistory()
+    {
+        $this->WriteAttributeString("PayloadHistory", "[]");
+        $this->WriteAttributeString("LastPayload", "");
+        $this->WriteAttributeInteger("LastPayloadTime", 0);
+        $this->LogMessage("Payload history and debug buffers cleared.", KL_MESSAGE);
+    }
+
     public function GetLastPayload()
     {
         $payload = $this->ReadAttributeString("LastPayload");
