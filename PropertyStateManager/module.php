@@ -192,7 +192,7 @@ class PropertyStateManager extends IPSModule
         $presenceMap = json_decode($this->ReadAttributeString("PresenceMap"), true);
 
         $bits = 0;
-        // Bits 0-4: Hardware Sensors & Presence Mapping
+        // Bits 0-2: Hardware Sensors (Aligned to User's 64-Rule Table)
         foreach ($mapping as $item) {
             if (in_array($item['SourceKey'], $activeSensors)) {
                 switch ($item['LogicalRole']) {
@@ -205,26 +205,25 @@ class PropertyStateManager extends IPSModule
                     case 'Basement Door Lock':
                         $bits |= (1 << 2);
                         break;
-                    case 'Basement Door Contact':
-                        $bits |= (1 << 3);
-                        break;
+                    // Removed 'Basement Door Contact' to restore 6-bit alignment
                     case 'Presence':
-                        $bits |= (1 << 4);
+                        $bits |= (1 << 3); // Shifted from 4 to 3
                         break;
                 }
             }
         }
-        // Bit 4: Presence (Bedroom Sync Check - OR logic)
+        // Bit 3: Presence (Bedroom Sync)
         foreach ($presenceMap as $room) {
             if ($room['SwitchState'] ?? false) {
-                $bits |= (1 << 4);
+                $bits |= (1 << 3); // Shifted from 4 to 3
                 break;
             }
         }
-        // Bit 5: Timer
-        if ($this->GetTimerInterval("DelayTimer") > 0) $bits |= (1 << 5);
-        // Bit 6: Feedback
-        if ($this->GetValue("SystemState") > 0) $bits |= (1 << 6);
+        // Bit 4: Timer
+        if ($this->GetTimerInterval("DelayTimer") > 0) $bits |= (1 << 4); // Shifted from 5 to 4
+
+        // Bit 5: Feedback
+        if ($this->GetValue("SystemState") > 0) $bits |= (1 << 5); // Shifted from 6 to 5
 
         return $bits;
     }
