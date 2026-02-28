@@ -180,7 +180,11 @@ class PropertyStateManager extends IPSModule
         }
         return "Unknown State";
     }
-
+    public function GetActiveSensorList()
+    {
+        $list = json_decode($this->ReadAttributeString("ActiveSensors"), true);
+        return json_encode($list ?: []);
+    }
     protected function GetCurrentBitmask()
     {
         $mapping = json_decode($this->ReadPropertyString("GroupMapping"), true);
@@ -257,27 +261,34 @@ class PropertyStateManager extends IPSModule
             return;
         }
 
-        // Handle Sensor Events
+        // Load current list
         $activeSensors = json_decode($this->ReadAttributeString("ActiveSensors"), true);
         if (!is_array($activeSensors)) $activeSensors = [];
 
+        // 1. Global Reset Logic (Moved to TOP to prevent overwriting new events)
+        // If Module 1 says NO groups are active, we clear the slate first
+        if (isset($data['active_groups']) && empty($data['active_groups'])) {
+            $activeSensors = [];
+            $this->LogMessage("[PSM-Rx] Global Reset: All sensors cleared.", KL_MESSAGE);
+        }
+
+        // 2. Handle specific Sensor Event
         if (isset($data['trigger_details']['variable_id'])) {
-            $vID = $data['trigger_details']['variable_id'];
+            $vID = (string)$data['trigger_details']['variable_id']; // Cast to string for safety
             $val = $data['trigger_details']['value_raw'] ?? false;
 
             // DIAGNOSTIC: Check mapping
             $mapping = json_decode($this->ReadPropertyString("GroupMapping"), true);
             $isMapped = false;
             foreach ($mapping as $m) {
-                // Ensure loose comparison (string vs int)
                 if ($m['SourceKey'] == $vID) {
                     $isMapped = true;
-                    $this->LogMessage("[PSM-Rx] Sensor $vID matched to Role '" . $m['LogicalRole'] . "'", KL_MESSAGE);
+                    $this->LogMessage("[PSM-Rx] Diagnostic: Sensor $vID matched to Role '" . $m['LogicalRole'] . "'", KL_MESSAGE);
                     break;
                 }
             }
             if (!$isMapped) {
-                $this->LogMessage("[PSM-Rx] WARNING - Sensor $vID received but NOT MAPPED in configuration.", KL_WARNING);
+                $this->LogMessage("[PSM-Rx] Diagnostic: WARNING - Sensor $vID received but NOT MAPPED in configuration.", KL_WARNING);
             }
 
             // Update Active List
@@ -288,11 +299,9 @@ class PropertyStateManager extends IPSModule
             }
         }
 
-        // Global Reset Logic
-        if (isset($data['active_groups']) && empty($data['active_groups'])) {
-            $activeSensors = [];
-            $this->LogMessage("[PSM-Rx] Global Reset: All sensors cleared.", KL_MESSAGE);
-        }
+        // Save and Log Status
+        $count = count($activeSensors);
+        $this->LogMessage("[PSM-Rx] Active Sensors Count: $count", KL_MESSAGE);
 
         $this->WriteAttributeString("ActiveSensors", json_encode($activeSensors));
         $this->EvaluateState();
