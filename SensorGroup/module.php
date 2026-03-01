@@ -1553,6 +1553,25 @@ class SensorGroup extends IPSModule
                 foreach ($classSensors as $s) {
                     $match = $this->CheckSensorRule($s);
 
+                    // FIX: Capture the Specific Trigger Event (Even if Match is FALSE/OFF)
+                    // We need this because the "Group Loop" later only looks at Active classes.
+                    // If we don't capture this here, an "OFF" event is masked by other "ON" sensors.
+                    if ($TriggeringID > 0 && (int)($s['VariableID'] ?? 0) === (int)$TriggeringID) {
+                        $pID = IPS_GetParent($TriggeringID);
+                        $gpID = ($pID > 0) ? IPS_GetParent($pID) : 0;
+                        $specificTriggerEvent = [
+                            'variable_id' => $TriggeringID,
+                            'value_raw'   => GetValue($TriggeringID),
+                            'tag'         => $className,
+                            'class_id'    => $classID,
+                            'var_name'    => IPS_GetName($TriggeringID),
+                            'parent_name' => ($pID > 0) ? IPS_GetName($pID) : "Root",
+                            'grandparent_name' => ($gpID > 0) ? IPS_GetName($gpID) : "",
+                            'value_human' => GetValueFormatted($TriggeringID),
+                            'smart_label' => $this->GetSmartLabel($TriggeringID, $labelMode)
+                        ];
+                    }
+
                     if ($TriggeringID > 0 && (int)($s['VariableID'] ?? 0) === (int)$TriggeringID) {
                         $curVal = null;
                         $curType = 'n/a';
@@ -1740,18 +1759,24 @@ class SensorGroup extends IPSModule
                 $readableActiveClasses[] = $classNameMap[$aid] ?? $aid;
             }
 
+            // FIX: Prioritize the Specific Trigger Event if it exists (even if it was an OFF event)
+            // Otherwise fallback to the first active sensor found ($primaryPayload)
+            $finalTriggerDetails = (isset($specificTriggerEvent) && $specificTriggerEvent !== null)
+                ? $specificTriggerEvent
+                : $primaryPayload;
+
             $payload = [
                 'event_type' => 'ALARM',
                 'event_id' => uniqid(),
                 'timestamp' => time(),
                 'source_id' => $this->InstanceID,
                 'source_name' => IPS_GetName($this->InstanceID),
-                'primary_class' => $primaryPayload['tag'] ?? 'General',
+                'primary_class' => $finalTriggerDetails['tag'] ?? 'General',
                 'primary_group' => $activeGroups[0] ?? 'General',
                 'active_classes' => $readableActiveClasses,
                 'active_groups' => $activeGroups,
                 'is_maintenance' => $this->ReadPropertyBoolean('MaintenanceMode'),
-                'trigger_details' => $primaryPayload
+                'trigger_details' => $finalTriggerDetails
             ];
             $this->SetValue('EventData', json_encode($payload));
 
