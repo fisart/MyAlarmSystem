@@ -141,9 +141,17 @@ class PropertyStateManager extends IPSModule
 
         $bits = $this->GetCurrentBitmask();
 
-        // FIX: Do not calculate state from bits. Read the actual Logic State directly.
+        // State Display
         $targetState = $this->GetValue("SystemState");
         $displayState = $this->GetStateName($targetState);
+
+        // Timer Calculation
+        $timerID = $this->GetIDForIdent("DelayTimer");
+        $timerInfo = IPS_GetTimer($timerID);
+        $remainingSeconds = 0;
+        if ($timerInfo['Running']) {
+            $remainingSeconds = $timerInfo['NextRun'] - time();
+        }
 
         // Diagnostic: Find Active Sensors that are NOT mapped
         $activeSensors = json_decode($this->ReadAttributeString("ActiveSensors"), true);
@@ -157,11 +165,32 @@ class PropertyStateManager extends IPSModule
                 .active { color: #4caf50; font-weight: bold; }
                 .inactive { color: #f44336; }
                 .warning { color: #ffeb3b; font-weight: bold; margin-top: 20px; border: 1px solid #ffeb3b; padding: 10px; }
+                .timer { background: #e91e63; color: white; padding: 15px; text-align: center; font-size: 1.2em; font-weight: bold; border-radius: 5px; margin-bottom: 20px; }
                 .header { font-size: 1.5em; margin-bottom: 20px; color: #2196f3; }
                 .footer { margin-top: 30px; padding: 20px; background: #222; border-radius: 8px; text-align: center; }
               </style></head><body>";
 
         echo "<div class='header'>Logic Analysis Dashboard</div>";
+
+        // TIMER DISPLAY
+        if ($remainingSeconds > 0) {
+            // Round to nearest 10 for initial display
+            $displayTime = ceil($remainingSeconds / 10) * 10;
+            echo "<div id='timerBox' class='timer'>Arming in approx. $displayTime seconds</div>";
+            echo "<script>
+                    var seconds = $displayTime;
+                    setInterval(function() {
+                        seconds -= 10;
+                        if (seconds <= 0) { 
+                            document.getElementById('timerBox').innerText = 'Arming now...';
+                            setTimeout(function(){ location.reload(); }, 2000);
+                        } else {
+                            document.getElementById('timerBox').innerText = 'Arming in approx. ' + seconds + ' seconds';
+                        }
+                    }, 10000);
+                  </script>";
+        }
+
         echo "<h3>Current Sensor Status (Bitmask: $bits)</h3>";
 
         $labels = [
@@ -171,7 +200,7 @@ class PropertyStateManager extends IPSModule
             "Presence Detected",     // Bit 3
             "Delay Timer Active",    // Bit 4
             "System Currently Armed", // Bit 5
-            "Bedroom Door Open"      // Bit 6 (New)
+            "Bedroom Door Open"      // Bit 6
         ];
 
         for ($i = 0; $i < 7; $i++) {
