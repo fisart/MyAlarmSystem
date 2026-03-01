@@ -194,7 +194,8 @@ class PropertyStateManager extends IPSModule
               </style>
               <script>
                 function updateDashboard() {
-                    fetch('?api=1')
+                    // Fix: Add timestamp to prevent browser caching
+                    fetch('?api=1&t=' + Date.now())
                         .then(response => response.json())
                         .then(data => {
                             // Update State Text
@@ -409,8 +410,14 @@ class PropertyStateManager extends IPSModule
 
             // Update Active List
             if ($val) {
-                if (!in_array($vID, $activeSensors)) $activeSensors[] = $vID;
+                if (!in_array($vID, $activeSensors)) {
+                    $activeSensors[] = $vID;
+                    $this->LogMessage("[PSM-Rx] Added Sensor $vID to Active List.", KL_MESSAGE);
+                }
             } else {
+                if (in_array($vID, $activeSensors)) {
+                    $this->LogMessage("[PSM-Rx] Removed Sensor $vID from Active List.", KL_MESSAGE);
+                }
                 $activeSensors = array_values(array_diff($activeSensors, [$vID]));
             }
         }
