@@ -463,6 +463,7 @@ class PropertyStateManager extends IPSModule
         $frontLocked = false;
         $frontClosed = false;
         $baseLocked = false;
+        $baseClosed = false; // NEW
         $presence = false;
         $bedroomOpen = false;
 
@@ -479,6 +480,9 @@ class PropertyStateManager extends IPSModule
                 case 'Basement Door Lock':
                     if ($isActive) $baseLocked = true;
                     break;
+                case 'Basement Door Contact':
+                    if ($isActive) $baseClosed = true;
+                    break; // NEW
                 case 'Presence':
                     if ($isActive) $presence = true;
                     break;
@@ -491,17 +495,20 @@ class PropertyStateManager extends IPSModule
             if ($room['DoorTripped'] ?? false) $bedroomOpen = true;
         }
 
-        // Derived Conditions
-        $perimeterSecure = ($frontLocked && $frontClosed && $baseLocked);
+        // Derived Conditions (UPDATED)
+        // Now requires Basement Contact to be Closed as well
+        $perimeterSecure = ($frontLocked && $frontClosed && $baseLocked && $baseClosed);
+
         $readyToSleep = ($presence && !$bedroomOpen);
         $readyToLeave = (!$presence);
 
-        // DEBUG REPORTING (New)
+        // DEBUG REPORTING (Updated)
         $this->LogMessage(sprintf(
-            "[PSM-Logic] Inputs: F-Lock:%d F-Close:%d B-Lock:%d | Pres:%d BedOpen:%d || Secure:%s",
+            "[PSM-Logic] Inputs: F-Lock:%d F-Close:%d B-Lock:%d B-Close:%d | Pres:%d BedOpen:%d || Secure:%s",
             $frontLocked,
             $frontClosed,
             $baseLocked,
+            $baseClosed,
             $presence,
             $bedroomOpen,
             $perimeterSecure ? "YES" : "NO"
