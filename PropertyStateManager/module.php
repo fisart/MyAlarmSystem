@@ -86,15 +86,32 @@ class PropertyStateManager extends IPSModule
         // Stop the timer
         $this->SetTimerInterval("DelayTimer", 0);
 
-        // Determine Target: Presence(Bit 3) ? ArmedInternal(6) : ArmedExternal(3)
         $bits = $this->GetCurrentBitmask();
+
+        // VALIDATION 1: Perimeter Integrity
+        // We require Bits 0, 1, and 2 to be TRUE (1). Binary 111 = 7.
+        if (($bits & 7) !== 7) {
+            $this->LogMessage("[PSM-Timer] Arming ABORTED. Perimeter Fault detected (Bitmask: $bits).", KL_ERROR);
+            $this->SetValue("SystemState", 0);
+            $this->EvaluateState();
+            return;
+        }
+
+        // VALIDATION 2: Internal Constraint
+        // If Presence(Bit 3) is TRUE, BedroomOpen(Bit 6) must be FALSE.
+        if (($bits & 8) && ($bits & 64)) {
+            $this->LogMessage("[PSM-Timer] Internal Arming ABORTED. Bedroom Door Open.", KL_ERROR);
+            $this->SetValue("SystemState", 0);
+            $this->EvaluateState();
+            return;
+        }
+
+        // Success: Proceed to Arm
         $targetState = ($bits & 8) ? 6 : 3;
-
-        // Force transition to Armed State
         $this->SetValue("SystemState", $targetState);
-        $this->LogMessage("[PSM-Timer] Delay Finished. Auto-Arming to State $targetState.", KL_MESSAGE);
+        $this->LogMessage("[PSM-Timer] Validation Passed. System Armed (State $targetState).", KL_MESSAGE);
 
-        // Re-evaluate to stabilize logic (activates Bit 5 feedback)
+        // Re-evaluate to stabilize logic
         $this->EvaluateState();
     }
 
@@ -439,14 +456,12 @@ class PropertyStateManager extends IPSModule
     {
         $decisionMap = json_decode($this->ReadPropertyString("DecisionMap"), true);
         $bits = $this->GetCurrentBitmask();
+        $baseBits = $bits & 63; // Filter out bit 6 for standard matrix
 
-        // Base Logic uses 6 bits (0-63). Bit 6 is handled as a constraint.
-        $baseBits = $bits & 63;
-
-        // Fallback: Use Default Logic
+        // Fallback Logic
         if (empty($decisionMap)) {
             $defaultMatrix = [
-                // 0-15 (Disarmed Context) - Secure(7) & Secure+Presence(15) map to Delay(2)
+                // 0-15 (Disarmed): Secure(7) & Secure+Presence(15) -> Delay(2)
                 1,
                 -1,
                 1,
@@ -463,7 +478,7 @@ class PropertyStateManager extends IPSModule
                 -1,
                 0,
                 2,
-                // 16-31 (Timer Active Context) - Hold Delay(2)
+                // 16-31 (Timer): Hold Delay(2)
                 -1,
                 -1,
                 -1,
@@ -480,7 +495,7 @@ class PropertyStateManager extends IPSModule
                 -1,
                 -1,
                 2,
-                // 32-47 (Armed Context) - Hold Armed(3 or 6)
+                // 32-47 (Armed): Hold Armed(3 or 6)
                 0,
                 -1,
                 0,
@@ -517,8 +532,7 @@ class PropertyStateManager extends IPSModule
             ];
             $newState = $defaultMatrix[$baseBits] ?? 0;
 
-            // CONSTRAINT: If Presence (Bit 3) AND Bedroom Open (Bit 6) -> Force Wait/Disarm
-            // This handles "Wait for door" (Path B) and "Disarm on trigger"
+            // CONSTRAINT: Presence (Bit 3) + Bedroom Open (Bit 6) -> Wait/Disarm
             if (($bits & 8) && ($bits & 64)) {
                 $newState = 0;
             }
@@ -533,22 +547,27 @@ class PropertyStateManager extends IPSModule
             $newState = 0;
         }
 
-        if ($this->GetValue("SystemState") !== $newState) {
+        $currentState = $this->GetValue("SystemState");
+
+        if ($currentState !== $newState) {
             $this->SetValue("SystemState", $newState);
             $this->LogMessage("[PSM-Logic] State transitioned to ID $newState (Bitmask: $bits)", KL_MESSAGE);
         }
 
-        // Timer Control Logic
+        // --- TIMER CONTROL LOGIC ---
         if ($newState == 2) {
-            if ($this->GetTimerInterval("DelayTimer") == 0) {
+            // FIX: Only start timer if we are currently Disarmed (0).
+            // This prevents starting the timer if we are already Armed or skipping logic steps.
+            if ($currentState == 0 && $this->GetTimerInterval("DelayTimer") == 0) {
                 $duration = $this->ReadPropertyInteger("ArmingDelayDuration");
                 $this->SetTimerInterval("DelayTimer", $duration * 60 * 1000);
                 $this->LogMessage("[PSM-Timer] Exit Delay Started ($duration min)", KL_MESSAGE);
             }
         } else {
+            // ABORT: Stop timer if logic dictates any state other than 2 (e.g. Door Opened)
             if ($this->GetTimerInterval("DelayTimer") > 0) {
                 $this->SetTimerInterval("DelayTimer", 0);
-                $this->LogMessage("[PSM-Timer] Exit Delay Cancelled", KL_MESSAGE);
+                $this->LogMessage("[PSM-Timer] Exit Delay Aborted - Conditions changed.", KL_WARNING);
             }
         }
     }
