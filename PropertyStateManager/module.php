@@ -145,9 +145,20 @@ class PropertyStateManager extends IPSModule
         $targetState = $this->GetValue("SystemState");
         $displayState = $this->GetStateName($targetState);
 
-        // Timer Calculation (Client-Side)
-        $delayMinutes = $this->ReadPropertyInteger("ArmingDelayDuration");
-        $showTimer = ($targetState === 2); // Only show if in Exit Delay state
+        // Timer Calculation (Timestamp Based - Robust & Accurate)
+        $showTimer = ($targetState === 2);
+        $startSeconds = 0; // Default for JS
+
+        if ($showTimer) {
+            $varID = $this->GetIDForIdent("SystemState");
+            $varInfo = IPS_GetVariable($varID);
+            $lastUpdate = $varInfo['VariableUpdated'];
+            $durationSeconds = $this->ReadPropertyInteger("ArmingDelayDuration") * 60;
+
+            // Calculate true remaining time based on when the state changed
+            $startSeconds = ($lastUpdate + $durationSeconds) - time();
+            if ($startSeconds < 0) $startSeconds = 0;
+        }
 
         // Diagnostic: Find Active Sensors that are NOT mapped
         $activeSensors = json_decode($this->ReadAttributeString("ActiveSensors"), true);
@@ -170,12 +181,12 @@ class PropertyStateManager extends IPSModule
 
         // JS TIMER DISPLAY
         if ($showTimer) {
-            $totalSeconds = $delayMinutes * 60;
-            echo "<div id='timerBox' class='timer'>Initializing Timer...</div>";
+            // Round to nearest 10 for display cleanliness
+            $displayTime = ceil($startSeconds / 10) * 10;
+
+            echo "<div id='timerBox' class='timer'>Arming in approx. $displayTime seconds</div>";
             echo "<script>
-                    var seconds = $totalSeconds;
-                    // Initial update
-                    document.getElementById('timerBox').innerText = 'Arming in approx. ' + seconds + ' seconds';
+                    var seconds = $displayTime;
                     
                     var interval = setInterval(function() {
                         seconds -= 10;
@@ -186,7 +197,7 @@ class PropertyStateManager extends IPSModule
                         } else {
                             document.getElementById('timerBox').innerText = 'Arming in approx. ' + seconds + ' seconds';
                         }
-                    }, 10000); // 10 second decrement
+                    }, 10000);
                   </script>";
         }
 
