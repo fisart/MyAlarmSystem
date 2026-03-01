@@ -145,13 +145,9 @@ class PropertyStateManager extends IPSModule
         $targetState = $this->GetValue("SystemState");
         $displayState = $this->GetStateName($targetState);
 
-        // Timer Calculation
-        $timerID = $this->GetIDForIdent("DelayTimer");
-        $timerInfo = IPS_GetTimer($timerID);
-        $remainingSeconds = 0;
-        if ($timerInfo['Running']) {
-            $remainingSeconds = $timerInfo['NextRun'] - time();
-        }
+        // Timer Calculation (Client-Side)
+        $delayMinutes = $this->ReadPropertyInteger("ArmingDelayDuration");
+        $showTimer = ($targetState === 2); // Only show if in Exit Delay state
 
         // Diagnostic: Find Active Sensors that are NOT mapped
         $activeSensors = json_decode($this->ReadAttributeString("ActiveSensors"), true);
@@ -172,22 +168,25 @@ class PropertyStateManager extends IPSModule
 
         echo "<div class='header'>Logic Analysis Dashboard</div>";
 
-        // TIMER DISPLAY
-        if ($remainingSeconds > 0) {
-            // Round to nearest 10 for initial display
-            $displayTime = ceil($remainingSeconds / 10) * 10;
-            echo "<div id='timerBox' class='timer'>Arming in approx. $displayTime seconds</div>";
+        // JS TIMER DISPLAY
+        if ($showTimer) {
+            $totalSeconds = $delayMinutes * 60;
+            echo "<div id='timerBox' class='timer'>Initializing Timer...</div>";
             echo "<script>
-                    var seconds = $displayTime;
-                    setInterval(function() {
+                    var seconds = $totalSeconds;
+                    // Initial update
+                    document.getElementById('timerBox').innerText = 'Arming in approx. ' + seconds + ' seconds';
+                    
+                    var interval = setInterval(function() {
                         seconds -= 10;
                         if (seconds <= 0) { 
                             document.getElementById('timerBox').innerText = 'Arming now...';
-                            setTimeout(function(){ location.reload(); }, 2000);
+                            clearInterval(interval);
+                            setTimeout(function(){ location.reload(); }, 3000);
                         } else {
                             document.getElementById('timerBox').innerText = 'Arming in approx. ' + seconds + ' seconds';
                         }
-                    }, 10000);
+                    }, 10000); // 10 second decrement
                   </script>";
         }
 
