@@ -86,10 +86,15 @@ class PropertyStateManager extends IPSModule
         // Stop the timer
         $this->SetTimerInterval("DelayTimer", 0);
 
-        // Log the event
-        $this->LogMessage("Arming delay finished. System is now transitioning to Armed state.", KL_MESSAGE);
+        // Determine Target: Presence(Bit 3) ? ArmedInternal(6) : ArmedExternal(3)
+        $bits = $this->GetCurrentBitmask();
+        $targetState = ($bits & 8) ? 6 : 3;
 
-        // Re-evaluate state now that Bit 5 (Timer) will be 0
+        // Force transition to Armed State
+        $this->SetValue("SystemState", $targetState);
+        $this->LogMessage("[PSM-Timer] Delay Finished. Auto-Arming to State $targetState.", KL_MESSAGE);
+
+        // Re-evaluate to stabilize logic (activates Bit 5 feedback)
         $this->EvaluateState();
     }
 
@@ -268,38 +273,42 @@ class PropertyStateManager extends IPSModule
         $presenceMap = json_decode($this->ReadAttributeString("PresenceMap"), true);
 
         $bits = 0;
-        // Bits 0-2: Hardware Sensors (Aligned to User's 64-Rule Table)
+        // Bits 0-2: Hardware Sensors & Presence Mapping
         foreach ($mapping as $item) {
-            if (in_array($item['SourceKey'], $activeSensors)) {
-                switch ($item['LogicalRole']) {
-                    case 'Front Door Lock':
-                        $bits |= (1 << 0);
-                        break;
-                    case 'Front Door Contact':
-                        $bits |= (1 << 1);
-                        break;
-                    case 'Basement Door Lock':
-                        $bits |= (1 << 2);
-                        break;
-                    // Removed 'Basement Door Contact' to restore 6-bit alignment
-                    case 'Presence':
-                        $bits |= (1 << 3); // Shifted from 4 to 3
-                        break;
-                }
+            $isTripped = in_array($item['SourceKey'], $activeSensors);
+
+            switch ($item['LogicalRole']) {
+                case 'Front Door Lock':
+                    if ($isTripped) $bits |= (1 << 0);
+                    break;
+                case 'Front Door Contact':
+                    if ($isTripped) $bits |= (1 << 1);
+                    break;
+                case 'Basement Door Lock':
+                    if ($isTripped) $bits |= (1 << 2);
+                    break;
+                case 'Presence':
+                    if ($isTripped) $bits |= (1 << 3);
+                    break;
             }
         }
-        // Bit 3: Presence (Bedroom Sync)
+
+        // Bit 3: Presence (Intent) & Bit 6: Bedroom Door Open
         foreach ($presenceMap as $room) {
             if ($room['SwitchState'] ?? false) {
-                $bits |= (1 << 3); // Shifted from 4 to 3
-                break;
+                $bits |= (1 << 3);
+            }
+            // NEW: Set Bit 6 if any bedroom door is open
+            if ($room['DoorTripped'] ?? false) {
+                $bits |= (1 << 6);
             }
         }
+
         // Bit 4: Timer
-        if ($this->GetTimerInterval("DelayTimer") > 0) $bits |= (1 << 4); // Shifted from 5 to 4
+        if ($this->GetTimerInterval("DelayTimer") > 0) $bits |= (1 << 4);
 
         // Bit 5: Feedback
-        if ($this->GetValue("SystemState") > 0) $bits |= (1 << 5); // Shifted from 6 to 5
+        if ($this->GetValue("SystemState") > 0) $bits |= (1 << 5);
 
         return $bits;
     }
@@ -431,9 +440,13 @@ class PropertyStateManager extends IPSModule
         $decisionMap = json_decode($this->ReadPropertyString("DecisionMap"), true);
         $bits = $this->GetCurrentBitmask();
 
-        // Fallback: Use Default Logic if Configuration is empty
+        // Base Logic uses 6 bits (0-63). Bit 6 is handled as a constraint.
+        $baseBits = $bits & 63;
+
+        // Fallback: Use Default Logic
         if (empty($decisionMap)) {
             $defaultMatrix = [
+                // 0-15 (Disarmed Context) - Secure(7) & Secure+Presence(15) map to Delay(2)
                 1,
                 -1,
                 1,
@@ -441,7 +454,7 @@ class PropertyStateManager extends IPSModule
                 1,
                 -1,
                 1,
-                3,
+                2,
                 0,
                 -1,
                 0,
@@ -449,7 +462,8 @@ class PropertyStateManager extends IPSModule
                 0,
                 -1,
                 0,
-                0, // 0-15
+                2,
+                // 16-31 (Timer Active Context) - Hold Delay(2)
                 -1,
                 -1,
                 -1,
@@ -465,7 +479,8 @@ class PropertyStateManager extends IPSModule
                 -1,
                 -1,
                 -1,
-                2, // 16-31
+                2,
+                // 32-47 (Armed Context) - Hold Armed(3 or 6)
                 0,
                 -1,
                 0,
@@ -481,7 +496,8 @@ class PropertyStateManager extends IPSModule
                 -1,
                 -1,
                 -1,
-                6, // 32-47
+                6,
+                // 48-63 (Illogical)
                 -1,
                 -1,
                 -1,
@@ -497,15 +513,21 @@ class PropertyStateManager extends IPSModule
                 -1,
                 -1,
                 -1,
-                -1  // 48-63
+                -1
             ];
-            $newState = $defaultMatrix[$bits] ?? 0;
+            $newState = $defaultMatrix[$baseBits] ?? 0;
+
+            // CONSTRAINT: If Presence (Bit 3) AND Bedroom Open (Bit 6) -> Force Wait/Disarm
+            // This handles "Wait for door" (Path B) and "Disarm on trigger"
+            if (($bits & 8) && ($bits & 64)) {
+                $newState = 0;
+            }
         } else {
             $bitKey = (string)$bits;
             $newState = $decisionMap[$bitKey] ?? 0;
         }
 
-        // Fix: If state is Illogical (-1), force Disarmed (0) to prevent deadlocks
+        // Deadlock Prevention
         if ($newState === -1) {
             $this->SendDebug("LogicEngine", "Illogical Condition (Bitmask: $bits). Defaulting to Disarmed.", 0);
             $newState = 0;
@@ -530,7 +552,6 @@ class PropertyStateManager extends IPSModule
             }
         }
     }
-
     public function GetSystemState()
     {
         $status = [
