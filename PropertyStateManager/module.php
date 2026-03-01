@@ -127,11 +127,14 @@ class PropertyStateManager extends IPSModule
 
     protected function ProcessHookData()
     {
+        // 1. Authentication
         $vaultID = $this->ReadPropertyInteger("VaultInstanceID");
         if ($vaultID > 0 && @IPS_InstanceExists($vaultID)) {
             if (function_exists('SEC_IsPortalAuthenticated')) {
                 if (!SEC_IsPortalAuthenticated($vaultID)) {
                     $currentUrl = $_SERVER['REQUEST_URI'] ?? '';
+                    // Strip query params for clean return
+                    $currentUrl = strtok($currentUrl, '?');
                     $loginUrl = "/hook/secrets_" . $vaultID . "?portal=1&return=" . urlencode($currentUrl);
                     header("Location: " . $loginUrl);
                     exit;
@@ -139,98 +142,130 @@ class PropertyStateManager extends IPSModule
             }
         }
 
+        // 2. Logic Calculation (Shared by HTML and API)
         $bits = $this->GetCurrentBitmask();
-
-        // State Display
         $targetState = $this->GetValue("SystemState");
         $displayState = $this->GetStateName($targetState);
 
-        // Timer Calculation (Timestamp Based - Robust & Accurate)
-        $showTimer = ($targetState === 2);
-        $startSeconds = 0; // Default for JS
+        // Timer Calculation (Timestamp Based)
+        $remainingSeconds = 0;
+        $isDelayState = ($targetState === 2);
 
-        if ($showTimer) {
+        if ($isDelayState) {
             $varID = $this->GetIDForIdent("SystemState");
             $varInfo = IPS_GetVariable($varID);
             $lastUpdate = $varInfo['VariableUpdated'];
             $durationSeconds = $this->ReadPropertyInteger("ArmingDelayDuration") * 60;
-
-            // Calculate true remaining time based on when the state changed
-            $startSeconds = ($lastUpdate + $durationSeconds) - time();
-            if ($startSeconds < 0) $startSeconds = 0;
+            $remainingSeconds = ($lastUpdate + $durationSeconds) - time();
+            if ($remainingSeconds < 0) $remainingSeconds = 0;
         }
 
-        // Diagnostic: Find Active Sensors that are NOT mapped
+        // Diagnostic: Unmapped Sensors
         $activeSensors = json_decode($this->ReadAttributeString("ActiveSensors"), true);
         $mapping = json_decode($this->ReadPropertyString("GroupMapping"), true);
         $mappedIDs = array_column($mapping, 'SourceKey');
         $unmappedSensors = array_diff($activeSensors, $mappedIDs);
 
-        echo "<html><head><style>
+        // 3. API Mode (AJAX Request)
+        if (isset($_GET['api'])) {
+            header("Content-Type: application/json");
+            echo json_encode([
+                'bits' => $bits,
+                'state' => $displayState,
+                'timer' => $remainingSeconds,
+                'showTimer' => $isDelayState,
+                'unmapped' => array_values($unmappedSensors)
+            ]);
+            return; // Stop here for API requests
+        }
+
+        // 4. HTML Mode (Frontend)
+        echo "<html><head>
+              <meta name='viewport' content='width=device-width, initial-scale=1'>
+              <style>
                 body { font-family: sans-serif; background: #111; color: #eee; padding: 20px; }
                 .bit-row { display: flex; justify-content: space-between; padding: 10px; border-bottom: 1px solid #333; }
                 .active { color: #4caf50; font-weight: bold; }
                 .inactive { color: #f44336; }
-                .warning { color: #ffeb3b; font-weight: bold; margin-top: 20px; border: 1px solid #ffeb3b; padding: 10px; }
-                .timer { background: #e91e63; color: white; padding: 15px; text-align: center; font-size: 1.2em; font-weight: bold; border-radius: 5px; margin-bottom: 20px; }
+                .warning { color: #ffeb3b; font-weight: bold; margin-top: 20px; border: 1px solid #ffeb3b; padding: 10px; display: none; }
+                .timer { background: #e91e63; color: white; padding: 15px; text-align: center; font-size: 1.2em; font-weight: bold; border-radius: 5px; margin-bottom: 20px; display: none; }
                 .header { font-size: 1.5em; margin-bottom: 20px; color: #2196f3; }
                 .footer { margin-top: 30px; padding: 20px; background: #222; border-radius: 8px; text-align: center; }
-              </style></head><body>";
+              </style>
+              <script>
+                function updateDashboard() {
+                    fetch('?api=1')
+                        .then(response => response.json())
+                        .then(data => {
+                            // Update State Text
+                            document.getElementById('stateText').innerText = data.state;
+
+                            // Update Bits
+                            for (let i = 0; i < 7; i++) {
+                                let isActive = (data.bits & (1 << i));
+                                let el = document.getElementById('bit_' + i);
+                                el.innerText = isActive ? 'ON' : 'OFF';
+                                el.className = isActive ? 'active' : 'inactive';
+                            }
+
+                            // Update Timer
+                            let timerBox = document.getElementById('timerBox');
+                            if (data.showTimer && data.timer > 0) {
+                                timerBox.style.display = 'block';
+                                timerBox.innerText = 'Arming in ' + Math.ceil(data.timer) + ' seconds...';
+                            } else {
+                                timerBox.style.display = 'none';
+                            }
+
+                            // Update Unmapped Warning
+                            let warnBox = document.getElementById('warnBox');
+                            if (data.unmapped.length > 0) {
+                                warnBox.style.display = 'block';
+                                warnBox.innerHTML = '⚠️ Unmapped Sensors: ' + data.unmapped.join(', ');
+                            } else {
+                                warnBox.style.display = 'none';
+                            }
+                        })
+                        .catch(err => console.error('API Error:', err));
+                }
+                // Poll every 2 seconds
+                setInterval(updateDashboard, 2000);
+                // Run immediately on load
+                window.onload = updateDashboard;
+              </script>
+              </head><body>";
 
         echo "<div class='header'>Logic Analysis Dashboard</div>";
 
-        // JS TIMER DISPLAY
-        if ($showTimer) {
-            // Round to nearest 10 for display cleanliness
-            $displayTime = ceil($startSeconds / 10) * 10;
+        // Timer Container (Hidden by default, toggled by JS)
+        echo "<div id='timerBox' class='timer'></div>";
 
-            echo "<div id='timerBox' class='timer'>Arming in approx. $displayTime seconds</div>";
-            echo "<script>
-                    var seconds = $displayTime;
-                    
-                    var interval = setInterval(function() {
-                        seconds -= 10;
-                        if (seconds <= 0) { 
-                            document.getElementById('timerBox').innerText = 'Arming now...';
-                            clearInterval(interval);
-                            setTimeout(function(){ location.reload(); }, 3000);
-                        } else {
-                            document.getElementById('timerBox').innerText = 'Arming in approx. ' + seconds + ' seconds';
-                        }
-                    }, 10000);
-                  </script>";
-        }
-
-        echo "<h3>Current Sensor Status (Bitmask: $bits)</h3>";
+        echo "<h3>Sensor Status</h3>";
 
         $labels = [
-            "Front Door Lock",       // Bit 0
-            "Front Door Contact",    // Bit 1
-            "Basement Door Lock",    // Bit 2
-            "Presence Detected",     // Bit 3
-            "Delay Timer Active",    // Bit 4
-            "System Currently Armed", // Bit 5
-            "Bedroom Door Open"      // Bit 6
+            "Front Door Lock",
+            "Front Door Contact",
+            "Basement Door Lock",
+            "Presence Detected",
+            "Delay Timer Active",
+            "System Currently Armed",
+            "Bedroom Door Open"
         ];
 
         for ($i = 0; $i < 7; $i++) {
-            $isActive = ($bits & (1 << $i));
-            $status = $isActive ? "ON" : "OFF";
-            $class = $isActive ? "active" : "inactive";
-            echo "<div class='bit-row'><span>Bit $i: " . ($labels[$i] ?? "Bit $i") . "</span><span class='$class'>$status</span></div>";
+            // Initial render uses placeholders, JS updates them immediately
+            echo "<div class='bit-row'>
+                    <span>Bit $i: " . ($labels[$i] ?? "Bit $i") . "</span>
+                    <span id='bit_$i' class='inactive'>...</span>
+                  </div>";
         }
 
-        if (!empty($unmappedSensors)) {
-            echo "<div class='warning'>⚠️ Unmapped Active Sensors Detected:<br>";
-            foreach ($unmappedSensors as $id) {
-                echo "ID: $id (Ignored by Logic)<br>";
-            }
-            echo "</div>";
-        }
+        // Warning Container
+        echo "<div id='warnBox' class='warning'></div>";
 
         echo "<div class='footer'>
                 <strong>System State:</strong><br>
-                <span style='font-size: 2em; color: #ff9800;'>" . $displayState . "</span>
+                <span id='stateText' style='font-size: 2em; color: #ff9800;'>Loading...</span>
               </div>";
         echo "</body></html>";
     }
