@@ -466,7 +466,7 @@ class PropertyStateManager extends IPSModule
         $presence = false;
         $bedroomOpen = false;
 
-        // Parse Hardware Sensors (True = Secure/Active)
+        // Parse Hardware Sensors
         foreach ($mapping as $item) {
             $isActive = in_array($item['SourceKey'], $activeSensors);
             switch ($item['LogicalRole']) {
@@ -496,32 +496,53 @@ class PropertyStateManager extends IPSModule
         $readyToSleep = ($presence && !$bedroomOpen);
         $readyToLeave = (!$presence);
 
+        // DEBUG REPORTING (New)
+        $this->LogMessage(sprintf(
+            "[PSM-Logic] Inputs: F-Lock:%d F-Close:%d B-Lock:%d | Pres:%d BedOpen:%d || Secure:%s",
+            $frontLocked,
+            $frontClosed,
+            $baseLocked,
+            $presence,
+            $bedroomOpen,
+            $perimeterSecure ? "YES" : "NO"
+        ), KL_MESSAGE);
+
         // 2. State Machine Logic
         $currentState = $this->GetValue("SystemState");
-        $newState = $currentState; // Default to no change
+        $newState = $currentState;
 
         switch ($currentState) {
             case 0: // DISARMED
                 if ($perimeterSecure) {
                     if ($readyToLeave || $readyToSleep) {
-                        $newState = 2; // Start Exit Delay
+                        $newState = 2;
                     }
                 }
                 break;
 
             case 2: // EXIT DELAY
-                // Abort if conditions are lost
-                if (!$perimeterSecure) $newState = 0;
-                // If internal path, abort if bedroom opens
-                if ($presence && $bedroomOpen) $newState = 0;
+                if (!$perimeterSecure) {
+                    $newState = 0;
+                    $this->LogMessage("[PSM-Logic] Abort Delay: Perimeter Unsecure", KL_WARNING);
+                }
+                if ($presence && $bedroomOpen) {
+                    $newState = 0;
+                    $this->LogMessage("[PSM-Logic] Abort Delay: Bedroom Open", KL_WARNING);
+                }
                 break;
 
             case 3: // ARMED EXTERNAL
-                if (!$perimeterSecure) $newState = 0; // Trigger/Disarm
+                if (!$perimeterSecure) {
+                    $newState = 0;
+                    $this->LogMessage("[PSM-Logic] Alarm/Disarm: Perimeter Breach", KL_WARNING);
+                }
                 break;
 
             case 6: // ARMED INTERNAL
-                if (!$perimeterSecure || $bedroomOpen) $newState = 0; // Trigger/Disarm
+                if (!$perimeterSecure || $bedroomOpen) {
+                    $newState = 0;
+                    $this->LogMessage("[PSM-Logic] Alarm/Disarm: Security Breach", KL_WARNING);
+                }
                 break;
         }
 
@@ -533,14 +554,12 @@ class PropertyStateManager extends IPSModule
 
         // 4. Timer Management
         if ($newState == 2) {
-            // Only start timer if we just entered State 2
             if ($currentState != 2) {
                 $duration = $this->ReadPropertyInteger("ArmingDelayDuration");
                 $this->SetTimerInterval("DelayTimer", $duration * 60 * 1000);
                 $this->LogMessage("[PSM-Timer] Exit Delay Started ($duration min)", KL_MESSAGE);
             }
         } elseif ($this->GetTimerInterval("DelayTimer") > 0) {
-            // Stop timer if we leave State 2
             $this->SetTimerInterval("DelayTimer", 0);
             $this->LogMessage("[PSM-Timer] Exit Delay Cancelled", KL_MESSAGE);
         }
