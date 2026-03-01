@@ -454,121 +454,95 @@ class PropertyStateManager extends IPSModule
 
     private function EvaluateState()
     {
-        $decisionMap = json_decode($this->ReadPropertyString("DecisionMap"), true);
-        $bits = $this->GetCurrentBitmask();
-        $baseBits = $bits & 63; // Filter out bit 6 for standard matrix
+        // 1. Gather Inputs
+        $mapping = json_decode($this->ReadPropertyString("GroupMapping"), true);
+        $activeSensors = json_decode($this->ReadAttributeString("ActiveSensors"), true);
+        $presenceMap = json_decode($this->ReadAttributeString("PresenceMap"), true);
 
-        // Fallback Logic
-        if (empty($decisionMap)) {
-            $defaultMatrix = [
-                // 0-15 (Disarmed): Secure(7) & Secure+Presence(15) -> Delay(2)
-                1,
-                -1,
-                1,
-                1,
-                1,
-                -1,
-                1,
-                2,
-                0,
-                -1,
-                0,
-                0,
-                0,
-                -1,
-                0,
-                2,
-                // 16-31 (Timer): Hold Delay(2)
-                -1,
-                -1,
-                -1,
-                0,
-                1,
-                1,
-                1,
-                2,
-                -1,
-                -1,
-                -1,
-                -1,
-                -1,
-                -1,
-                -1,
-                2,
-                // 32-47 (Armed): Hold Armed(3 or 6)
-                0,
-                -1,
-                0,
-                0,
-                -1,
-                -1,
-                0,
-                3,
-                -1,
-                -1,
-                -1,
-                -1,
-                -1,
-                -1,
-                -1,
-                6,
-                // 48-63 (Illogical)
-                -1,
-                -1,
-                -1,
-                -1,
-                -1,
-                -1,
-                -1,
-                -1,
-                -1,
-                -1,
-                -1,
-                -1,
-                -1,
-                -1,
-                -1,
-                -1
-            ];
-            $newState = $defaultMatrix[$baseBits] ?? 0;
+        // Reset Flags
+        $frontLocked = false;
+        $frontClosed = false;
+        $baseLocked = false;
+        $presence = false;
+        $bedroomOpen = false;
 
-            // CONSTRAINT: Presence (Bit 3) + Bedroom Open (Bit 6) -> Wait/Disarm
-            if (($bits & 8) && ($bits & 64)) {
-                $newState = 0;
+        // Parse Hardware Sensors (True = Secure/Active)
+        foreach ($mapping as $item) {
+            $isActive = in_array($item['SourceKey'], $activeSensors);
+            switch ($item['LogicalRole']) {
+                case 'Front Door Lock':
+                    if ($isActive) $frontLocked = true;
+                    break;
+                case 'Front Door Contact':
+                    if ($isActive) $frontClosed = true;
+                    break;
+                case 'Basement Door Lock':
+                    if ($isActive) $baseLocked = true;
+                    break;
+                case 'Presence':
+                    if ($isActive) $presence = true;
+                    break;
             }
-        } else {
-            $bitKey = (string)$bits;
-            $newState = $decisionMap[$bitKey] ?? 0;
         }
 
-        // Deadlock Prevention
-        if ($newState === -1) {
-            $this->SendDebug("LogicEngine", "Illogical Condition (Bitmask: $bits). Defaulting to Disarmed.", 0);
-            $newState = 0;
+        // Parse Bedroom Metadata
+        foreach ($presenceMap as $room) {
+            if ($room['SwitchState'] ?? false) $presence = true;
+            if ($room['DoorTripped'] ?? false) $bedroomOpen = true;
         }
 
+        // Derived Conditions
+        $perimeterSecure = ($frontLocked && $frontClosed && $baseLocked);
+        $readyToSleep = ($presence && !$bedroomOpen);
+        $readyToLeave = (!$presence);
+
+        // 2. State Machine Logic
         $currentState = $this->GetValue("SystemState");
+        $newState = $currentState; // Default to no change
 
+        switch ($currentState) {
+            case 0: // DISARMED
+                if ($perimeterSecure) {
+                    if ($readyToLeave || $readyToSleep) {
+                        $newState = 2; // Start Exit Delay
+                    }
+                }
+                break;
+
+            case 2: // EXIT DELAY
+                // Abort if conditions are lost
+                if (!$perimeterSecure) $newState = 0;
+                // If internal path, abort if bedroom opens
+                if ($presence && $bedroomOpen) $newState = 0;
+                break;
+
+            case 3: // ARMED EXTERNAL
+                if (!$perimeterSecure) $newState = 0; // Trigger/Disarm
+                break;
+
+            case 6: // ARMED INTERNAL
+                if (!$perimeterSecure || $bedroomOpen) $newState = 0; // Trigger/Disarm
+                break;
+        }
+
+        // 3. Execute Transition
         if ($currentState !== $newState) {
             $this->SetValue("SystemState", $newState);
-            $this->LogMessage("[PSM-Logic] State transitioned to ID $newState (Bitmask: $bits)", KL_MESSAGE);
+            $this->LogMessage("[PSM-Logic] State change: $currentState -> $newState", KL_MESSAGE);
         }
 
-        // --- TIMER CONTROL LOGIC ---
+        // 4. Timer Management
         if ($newState == 2) {
-            // FIX: Only start timer if we are currently Disarmed (0).
-            // This prevents starting the timer if we are already Armed or skipping logic steps.
-            if ($currentState == 0 && $this->GetTimerInterval("DelayTimer") == 0) {
+            // Only start timer if we just entered State 2
+            if ($currentState != 2) {
                 $duration = $this->ReadPropertyInteger("ArmingDelayDuration");
                 $this->SetTimerInterval("DelayTimer", $duration * 60 * 1000);
                 $this->LogMessage("[PSM-Timer] Exit Delay Started ($duration min)", KL_MESSAGE);
             }
-        } else {
-            // ABORT: Stop timer if logic dictates any state other than 2 (e.g. Door Opened)
-            if ($this->GetTimerInterval("DelayTimer") > 0) {
-                $this->SetTimerInterval("DelayTimer", 0);
-                $this->LogMessage("[PSM-Timer] Exit Delay Aborted - Conditions changed.", KL_WARNING);
-            }
+        } elseif ($this->GetTimerInterval("DelayTimer") > 0) {
+            // Stop timer if we leave State 2
+            $this->SetTimerInterval("DelayTimer", 0);
+            $this->LogMessage("[PSM-Timer] Exit Delay Cancelled", KL_MESSAGE);
         }
     }
     public function GetSystemState()
