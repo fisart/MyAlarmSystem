@@ -27,6 +27,9 @@ class SensorGroup extends IPSModule
         $this->RegisterAttributeString('GroupMembersBuffer', '[]');
         $this->RegisterAttributeString('GroupDispatchBuffer', '[]');
 
+        // NEW: Export Buffers for the Dashboard
+        $this->RegisterAttributeString('ActiveClassesBuffer', '[]');
+        $this->RegisterAttributeString('ActiveSensorsBuffer', '[]');
 
         $this->RegisterAttributeString('ClassStateAttribute', '{}');
         $this->RegisterAttributeString('ScanCache', '[]');
@@ -1527,6 +1530,7 @@ class SensorGroup extends IPSModule
 
         $activeClasses = [];
         $classNameMap = [];
+        $engineActiveSensors = []; // NEW: Keep track of every individual sensor that matches its rule
 
         if (is_array($classList)) {
             foreach ($classList as $classDef) {
@@ -1595,7 +1599,10 @@ class SensorGroup extends IPSModule
                         );
                     }
                     if ($match) {
+                        $engineActiveSensors[] = $s['VariableID']; // Capture the sensor ID for the dashboard
                         $activeCount++;
+
+                        // === BUGFIX 1: Capture details for ANY active sensor, prioritize specific trigger ===
 
                         if ($lastTriggerDetails === null || ($s['VariableID'] ?? 0) == $TriggeringID) {
                             if (($s['VariableID'] ?? 0) == $TriggeringID) {
@@ -1643,6 +1650,10 @@ class SensorGroup extends IPSModule
             }
         }
         $this->WriteAttributeString('ClassStateAttribute', json_encode($classStates));
+
+        // EXPORT THE PATH TO THE DASHBOARD
+        $this->WriteAttributeString('ActiveClassesBuffer', json_encode(array_keys($activeClasses)));
+        $this->WriteAttributeString('ActiveSensorsBuffer', json_encode(array_values(array_unique($engineActiveSensors))));
 
         $primaryPayload = null;
         $mainStatus = false;
@@ -1939,15 +1950,9 @@ class SensorGroup extends IPSModule
         $groupMap = [];
         foreach ($conf['GroupList'] as $g) $groupMap[$g['GroupName']] = $g;
 
-        // PRE-CALCULATE ACTIVE CLASSES FOR STYLING
-        $activeClassIDs = [];
-        foreach ($conf['SensorList'] as $s) {
-            $vid = $s['VariableID'];
-            $val = IPS_VariableExists($vid) ? GetValue($vid) : null;
-            if ($this->EvaluateRule($val, $s['Operator'], $s['ComparisonValue'])) {
-                $activeClassIDs[$s['ClassID']] = true;
-            }
-        }
+        // PULL LIVE STATE FROM THE RULE ENGINE
+        $engineActiveClasses = json_decode($this->ReadAttributeString('ActiveClassesBuffer'), true) ?: [];
+        $engineActiveSensors = json_decode($this->ReadAttributeString('ActiveSensorsBuffer'), true) ?: [];
 
         // A. Dispatch Targets
         foreach ($conf['DispatchTargets'] as $t) {
@@ -1988,7 +1993,8 @@ class SensorGroup extends IPSModule
             $cLogic = ($cDef['LogicMode'] == 1) ? "AND" : "OR";
             $cLabel = $cDef['ClassName'] . "<br/>[$cLogic | " . $cDef['TimeWindow'] . "s]";
 
-            $isClassActive = isset($activeClassIDs[$cID]);
+            // Ask the engine if this class is active
+            $isClassActive = in_array($cID, $engineActiveClasses);
             $cStyle = $isClassActive ? "red" : "grey";
 
             $graph .= $cidNode . "[\"" . $cLabel . "\"]:::" . $cStyle . " --> " . $gid . "\n";
@@ -2004,8 +2010,8 @@ class SensorGroup extends IPSModule
             $vid = $s['VariableID'];
             $sid = "S_" . $vid;
 
-            $val = IPS_VariableExists($vid) ? GetValue($vid) : null;
-            $isActive = $this->EvaluateRule($val, $s['Operator'], $s['ComparisonValue']);
+            // Ask the engine if this sensor triggered
+            $isActive = in_array($vid, $engineActiveSensors);
             $style = $isActive ? "red" : "green";
 
             $opMap = ['=', '!=', '>', '<', '>=', '<='];
