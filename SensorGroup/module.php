@@ -2037,56 +2037,57 @@ class SensorGroup extends IPSModule
                 .header { text-align: center; margin-bottom: 20px; border-bottom: 1px solid #333; padding-bottom: 10px; }
                 .header h2 { margin: 0; color: #4CAF50; }
                 .container { background: #252526; padding: 20px; border-radius: 8px; height: 85vh; overflow: auto; display: flex; justify-content: center; align-items: flex-start; }
+                /* Force Mermaid SVG to stretch if needed */
+                #mermaid-container { width: 100%; height: 100%; display: flex; justify-content: center; }
                 #mermaid-container svg { max-width: none !important; width: auto !important; height: auto !important; }
             </style>
-<script type="module">
+            <script type="module">
                 import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs";
-                mermaid.initialize({ 
-                    startOnLoad: true, 
-                    theme: "dark", 
-                    flowchart: { curve: "basis" } 
-                });
+                mermaid.initialize({ startOnLoad: false, theme: "dark", flowchart: { curve: "basis" } });
 
                 let isRendering = false;
+                let lastGraphString = "";
 
                 async function fetchAndUpdateGraph() {
                     if (isRendering) return;
-                    isRendering = true;
+                    
                     try {
                         let response = await fetch("?api=1&t=" + Date.now());
                         let graphString = await response.text();
 
-                        let container = document.querySelector(".container");
-                        let mermaidDiv = document.getElementById("mermaid-container");
-                        
-                        // 1. Save Scroll Position
-                        let sTop = container.scrollTop;
-                        let sLeft = container.scrollLeft;
+                        // SMART RENDER: Only redraw if the data actually changed!
+                        if (graphString !== lastGraphString) {
+                            isRendering = true;
+                            lastGraphString = graphString;
 
-                        // 2. Safely replace text
-                        // We remove the data-processed attribute so Mermaid knows it needs to redraw this element
-                        mermaidDiv.removeAttribute("data-processed");
-                        mermaidDiv.innerHTML = graphString;
+                            let container = document.getElementById("mermaid-container");
+                            let parent = document.querySelector(".container");
+                            
+                            // Save Scroll Position
+                            let sTop = parent.scrollTop;
+                            let sLeft = parent.scrollLeft;
 
-                        // 3. Command Mermaid to re-scan and draw
-                        await mermaid.run({
-                            nodes: [mermaidDiv]
-                        });
+                            // Render strictly from memory to avoid HTML parsing bugs
+                            let renderId = "graph_" + Date.now();
+                            const { svg } = await mermaid.render(renderId, graphString);
+                            container.innerHTML = svg;
 
-                        // 4. Restore Scroll Position
-                        container.scrollTop = sTop;
-                        container.scrollLeft = sLeft;
-
+                            // Restore Scroll Position instantly
+                            parent.scrollTop = sTop;
+                            parent.scrollLeft = sLeft;
+                        }
                     } catch (error) {
                         console.error("Failed to render graph:", error);
+                    } finally {
+                        isRendering = false;
                     }
-                    isRendering = false;
                 }
 
-                // Initial setup: Wait 2 seconds for initial draw, then start loop
-                setTimeout(() => {
-                    setInterval(fetchAndUpdateGraph, 2500);
-                }, 2000);
+                // Initial load
+                fetchAndUpdateGraph();
+                
+                // Fast poll (runs every 1 second, but costs 0 CPU if nothing changed)
+                setInterval(fetchAndUpdateGraph, 1000);
             </script>
         </head>
         <body>
@@ -2095,15 +2096,12 @@ class SensorGroup extends IPSModule
                 <small>Instance ID: ' . $this->InstanceID . '</small>
             </div>
             <div class="container">
-                <!-- Start with the initial PHP string -->
-                <div class="mermaid" id="mermaid-container">
-' . $graph . '
-                </div>
+                <!-- Keep container empty. Javascript will inject the pure SVG here. -->
+                <div id="mermaid-container">Initializing Live View...</div>
             </div>
         </body>
         </html>';
     }
-
     public function GetConfigurationForm()
     {
         // === DEBUG: Enter GetConfigurationForm ===
