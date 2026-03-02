@@ -2093,6 +2093,93 @@ class SensorGroup extends IPSModule
                 
                 // Fast poll (runs every 1 second, but costs 0 CPU if nothing changed)
                 setInterval(fetchAndUpdateGraph, 1000);
+            <head>
+            <meta charset="utf-8">
+            <title>Sensor Flow</title>
+            <style>
+                body { background-color: #1e1e1e; color: #cfcfcf; font-family: "Segoe UI", sans-serif; margin: 0; padding: 20px; }
+                .header { text-align: center; margin-bottom: 20px; border-bottom: 1px solid #333; padding-bottom: 10px; }
+                .header h2 { margin: 0; color: #4CAF50; }
+                
+                /* Container must be a strict window for Pan/Zoom to work inside it */
+                .container { background: #252526; padding: 0; border-radius: 8px; height: 80vh; width: 100%; border: 1px solid #444; overflow: hidden; }
+                #mermaid-container { width: 100%; height: 100%; }
+            </style>
+            
+            <!-- 1. Load the SVG Pan/Zoom Library -->
+            <script src="https://cdn.jsdelivr.net/npm/svg-pan-zoom@3.6.1/dist/svg-pan-zoom.min.js"></script>
+            
+            <!-- 2. Load Mermaid -->
+            <script type="module">
+                import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs";
+                mermaid.initialize({ startOnLoad: false, theme: "dark", flowchart: { curve: "basis" } });
+
+                let isRendering = false;
+                let lastGraphString = "";
+                let pzInstance = null; // Holds the pan/zoom camera state
+
+                async function fetchAndUpdateGraph() {
+                    if (isRendering) return;
+                    
+                    try {
+                        let response = await fetch("?api=1&t=" + Date.now());
+                        let graphString = await response.text();
+
+                        if (graphString !== lastGraphString) {
+                            isRendering = true;
+                            lastGraphString = graphString;
+
+                            let container = document.getElementById("mermaid-container");
+                            
+                            // A. Save current camera position if a chart already exists
+                            let oldZoom = pzInstance ? pzInstance.getZoom() : null;
+                            let oldPan = pzInstance ? pzInstance.getPan() : null;
+
+                            // B. Destroy old camera
+                            if (pzInstance) {
+                                pzInstance.destroy();
+                                pzInstance = null;
+                            }
+
+                            // C. Render the new chart
+                            container.removeAttribute("data-processed");
+                            container.innerHTML = graphString;
+                            await mermaid.run({ nodes: [container] });
+
+                            // D. Re-attach the Pan/Zoom camera to the new SVG
+                            let svgEl = container.querySelector("svg");
+                            if (svgEl) {
+                                svgEl.style.width = "100%";
+                                svgEl.style.height = "100%";
+                                svgEl.style.maxWidth = "none";
+                                
+                                pzInstance = svgPanZoom(svgEl, {
+                                    zoomEnabled: true,
+                                    controlIconsEnabled: true,
+                                    fit: true,
+                                    center: true,
+                                    minZoom: 0.2,
+                                    maxZoom: 10
+                                });
+
+                                // E. Restore camera position exactly where you left it
+                                if (oldZoom !== null && oldPan !== null) {
+                                    pzInstance.zoom(oldZoom);
+                                    pzInstance.pan(oldPan);
+                                }
+                            }
+                        }
+                    } catch (error) {
+                        console.error("Failed to render graph:", error);
+                    } finally {
+                        isRendering = false;
+                    }
+                }
+
+                // Initial Load
+                setTimeout(fetchAndUpdateGraph, 500);
+                // Background Check
+                setInterval(fetchAndUpdateGraph, 2000);
             </script>
         </head>
         <body>
