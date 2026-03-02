@@ -2016,8 +2016,8 @@ class SensorGroup extends IPSModule
             $pName = $s['ParentName'] ?? 'Unknown';
             $gpName = $s['GrandParentName'] ?? 'Unknown';
 
-            // Format: Sensor Name, then [Grandparent / Parent], then the Logic Rule
-            $label = "$name<br/>[$gpName / $pName]<br/>$rule";
+            // FIX: Format: Sensor Name (Variable ID), then[Grandparent / Parent], then the Logic Rule
+            $label = "$name ($vid)<br/>[$gpName / $pName]<br/>$rule";
             $graph .= $sid . "[\"" . $label . "\"]:::" . $style . " --> " . $cidNode . "\n";
 
             $linkIdx = $this->linkCounter++;
