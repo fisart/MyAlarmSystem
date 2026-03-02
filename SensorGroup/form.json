@@ -68,8 +68,8 @@
   ],
   "values": []
 },
-        { "type": "Select", "name": "BedroomTarget", "caption": "Global Bedroom Target Server", "options": [] },
-
+{ "type": "Select", "name": "BedroomTarget", "caption": "Global Bedroom Target Server", "options": [] },
+        { "type": "SelectInstance", "name": "VaultInstanceID", "caption": "Security Vault (Webhook Protection)" },
         { "type": "CheckBox", "name": "MaintenanceMode", "caption": "Maintenance Mode" },
         { "type": "CheckBox", "name": "DebugMode", "caption": "Debug Logging" },
        {
