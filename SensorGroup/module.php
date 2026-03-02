@@ -2117,9 +2117,8 @@ class SensorGroup extends IPSModule
                 #mermaid-container svg { pointer-events: all !important; }
             </style>
             
-            <!-- 1. Load the SVG Pan/Zoom Library -->
-            <script src="https://cdn.jsdelivr.net/npm/svg-pan-zoom@3.6.1/dist/svg-pan-zoom.min.js"></script>
-            
+<!-- 1. Load the SVG Pan/Zoom Library -->
+            <script src="https://cdnjs.cloudflare.com/ajax/libs/svg-pan-zoom/3.6.1/svg-pan-zoom.min.js"></script>            
             <!-- 2. Load Mermaid -->
             <script type="module">
                 import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs";
