@@ -2118,8 +2118,7 @@ class SensorGroup extends IPSModule
             </style>
             
 <!-- 1. Load the SVG Pan/Zoom Library -->
-            <script src="https://cdnjs.cloudflare.com/ajax/libs/svg-pan-zoom/3.6.1/svg-pan-zoom.min.js"></script>            
-            <!-- 2. Load Mermaid -->
+<script src="https://unpkg.com/svg-pan-zoom@3.6.1/dist/svg-pan-zoom.min.js"></script>            <!-- 2. Load Mermaid -->
             <script type="module">
                 import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs";
                 mermaid.initialize({ startOnLoad: false, theme: "dark", flowchart: { curve: "basis" } });
