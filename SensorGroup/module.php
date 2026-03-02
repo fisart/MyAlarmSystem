@@ -1901,6 +1901,7 @@ class SensorGroup extends IPSModule
      */
     protected function ProcessHookData()
     {
+               $this->linkCounter = 0; // Initialize counter for link styling
         // 1. Authentication (Secrets / Vault)
         $vaultID = $this->ReadPropertyInteger("VaultInstanceID");
         if ($vaultID > 0 && @IPS_InstanceExists($vaultID)) {
@@ -1915,9 +1916,120 @@ class SensorGroup extends IPSModule
             }
         }
 
-        // 2. Render HTML & Mermaid Framework
+// 2. Build the Graph Data
+        $graph = "graph RL\n"; // Right-to-Left flow (Sensors on right, Targets on left) looks better for hierarchies
+        
+        // Define Styles
+        $graph .= "classDef red fill:#c62828,stroke:#ff8a80,stroke-width:2px,color:#fff;\n";
+        $graph .= "classDef green fill:#2e7d32,stroke:#a5d6a7,stroke-width:2px,color:#fff;\n";
+        $graph .= "classDef grey fill:#37474f,stroke:#546e7a,stroke-width:1px,color:#eee;\n";
+        $graph .= "classDef target fill:#1565c0,stroke:#90caf9,stroke-width:2px,color:#fff;\n";
+
+        // Load Config
+        $conf = json_decode($this->GetConfiguration(), true);
+        
+        // Lookup Tables
+        $classMap = []; 
+        foreach($conf['ClassList'] as $c) $classMap[$c['ClassID']] = $c;
+        
+        $groupMap = [];
+        foreach($conf['GroupList'] as $g) $groupMap[$g['GroupName']] = $g;
+
+        // A. Dispatch Targets (The Destinations)
+        foreach ($conf['DispatchTargets'] as $t) {
+            $tid = "T_" . $t['InstanceID'];
+            $label = $t['Name'] . "<br/>[" . $t['InstanceID'] . "]";
+            $graph .= "$tid($label):::target\n";
+        }
+
+        // B. Groups -> Targets
+        foreach ($conf['GroupDispatch'] as $d) {
+            $gName = $d['GroupName'];
+            $tid = "T_" . $d['InstanceID'];
+            $gid = "G_" . md5($gName);
+            
+            // Check Group Status
+            $ident = "Status_" . $this->SanitizeIdent($gName);
+            $isActive = (@$this->GetIDForIdent($ident) && GetValue($this->GetIDForIdent($ident)));
+            $style = $isActive ? "red" : "green";
+            
+            // Group Node
+            $gLogic = ($groupMap[$gName]['GroupLogic'] ?? 0) == 1 ? "AND" : "OR";
+            $label = "$gName<br/>[$gLogic]";
+            $graph .= "$gid{{$label}}:::$style --> $tid\n";
+            if ($isActive) $graph .= "linkStyle " . ($this->linkCounter++) . " stroke:#ff8a80,stroke-width:2px;\n";
+        }
+
+        // C. Classes -> Groups
+        // We iterate GroupMembers to draw the lines
+        foreach ($conf['GroupMembers'] as $m) {
+            $gName = $m['GroupName'];
+            $cID = $m['ClassID'];
+            $gid = "G_" . md5($gName);
+            $cidNode = "C_" . substr(md5($cID), 0, 8); // Short hash for ID
+            
+            if (!isset($classMap[$cID])) continue;
+            
+            $cDef = $classMap[$cID];
+            $cLogic = ($cDef['LogicMode'] == 1) ? "AND" : "OR";
+            $cLabel = $cDef['ClassName'] . "<br/>[$cLogic | " . $cDef['TimeWindow'] . "s]";
+            
+            // Class Node (Color is grey unless we determine active sensors below)
+            $graph .= "$cidNode($cLabel):::grey --> $gid\n";
+        }
+
+        // D. Sensors -> Classes
+        foreach ($conf['SensorList'] as $s) {
+            $cID = $s['ClassID'];
+            $cidNode = "C_" . substr(md5($cID), 0, 8);
+            $vid = $s['VariableID'];
+            $sid = "S_" . $vid;
+            
+            // Check Sensor State
+            $val = IPS_VariableExists($vid) ? GetValue($vid) : null;
+            $isActive = $this->EvaluateRule($val, $s['Operator'], $s['ComparisonValue']);
+            $style = $isActive ? "red" : "green";
+            
+            $opMap = ['=','!=','>','<','>=','<='];
+            $rule = $opMap[$s['Operator']] . " " . $s['ComparisonValue'];
+            $name = IPS_VariableExists($vid) ? IPS_GetName($vid) : "MISSING";
+            
+            $label = "$name<br/>$rule";
+            $graph .= "$sid[$label]::: $style --> $cidNode\n";
+            
+            if ($isActive) {
+                // If sensor is active, highlight the link red
+                $graph .= "linkStyle " . ($this->linkCounter++) . " stroke:#ff8a80,stroke-width:2px;\n";
+                // Also retroactively color the Class node red (simple approximation)
+                $graph .= "style $cidNode fill:#c62828,stroke:#ff8a80\n"; 
+            }
+        }
+
+        // 3. Output HTML
         echo '<!DOCTYPE html>
         <html>
+        <head>
+            <meta charset="utf-8">
+            <meta http-equiv="refresh" content="5"> <!-- Auto-Refresh every 5s -->
+            <title>Sensor Flow</title>
+            <style>
+                body { background-color: #1e1e1e; color: #cfcfcf; font-family: "Segoe UI", sans-serif; margin: 0; padding: 20px; }
+                .container { background: #252526; padding: 20px; border-radius: 8px; height: 90vh; text-align: center; }
+            </style>
+            <script type="module">
+                import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs";
+                mermaid.initialize({ startOnLoad: true, theme: "dark" });
+            </script>
+        </head>
+        <body>
+            <div class="container">
+                <div class="mermaid">
+' . $graph . '
+                </div>
+            </div>
+        </body>
+        </html>';
+    }
         <head>
             <meta charset="utf-8">
             <meta name="viewport" content="width=device-width, initial-scale=1">
