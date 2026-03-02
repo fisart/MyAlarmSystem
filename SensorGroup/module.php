@@ -1994,8 +1994,7 @@ class SensorGroup extends IPSModule
             $isClassActive = isset($activeClassIDs[$cID]);
             $cStyle = $isClassActive ? "red" : "grey";
 
-            // FIX: Pure string concatenation for the label to protect brackets
-            $graph .= $cidNode . "(\"" . $cLabel . "\"):::" . $cStyle . " --> " . $gid . "\n";
+            $graph .= "$cidNode(\"$cLabel\"):::$cStyle --> $gid\n";
 
             $linkIdx = $this->linkCounter++;
             if ($isClassActive) $graph .= "linkStyle $linkIdx stroke:#ff8a80,stroke-width:2px;\n";
