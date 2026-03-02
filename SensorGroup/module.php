@@ -1944,7 +1944,7 @@ class SensorGroup extends IPSModule
         foreach ($conf['DispatchTargets'] as $t) {
             $tid = "T_" . $t['InstanceID'];
             $label = $t['Name'] . "<br/>[" . $t['InstanceID'] . "]";
-            $graph .= "$tid($label):::target\n";
+            $graph .= "$tid(\"$label\"):::target\n";
         }
 
         // B. Groups -> Targets
@@ -1959,9 +1959,10 @@ class SensorGroup extends IPSModule
             $style = $isActive ? "red" : "green";
 
             // Group Node
+            // Group Node
             $gLogic = ($groupMap[$gName]['GroupLogic'] ?? 0) == 1 ? "AND" : "OR";
             $label = "$gName<br/>[$gLogic]";
-            $graph .= "$gid{{$label}}:::$style --> $tid\n";
+            $graph .= "$gid{{\"$label\"}}:::$style --> $tid\n";
             if ($isActive) $graph .= "linkStyle " . ($this->linkCounter++) . " stroke:#ff8a80,stroke-width:2px;\n";
         }
 
@@ -1980,7 +1981,7 @@ class SensorGroup extends IPSModule
             $cLabel = $cDef['ClassName'] . "<br/>[$cLogic | " . $cDef['TimeWindow'] . "s]";
 
             // Class Node (Color is grey unless we determine active sensors below)
-            $graph .= "$cidNode($cLabel):::grey --> $gid\n";
+            $graph .= "$cidNode(\"$cLabel\"):::grey --> $gid\n";
         }
 
         // D. Sensors -> Classes
@@ -2000,8 +2001,8 @@ class SensorGroup extends IPSModule
             $name = IPS_VariableExists($vid) ? IPS_GetName($vid) : "MISSING";
 
             $label = "$name<br/>$rule";
-            // FIX: Use concatenation to prevent PHP from interpreting brackets as array access
-            $graph .= $sid . "[" . $label . "]:::" . $style . " --> " . $cidNode . "\n";
+            // FIX: Use concatenation and wrap label in quotes so Mermaid ignores math operators
+            $graph .= $sid . "[\"" . $label . "\"]:::" . $style . " --> " . $cidNode . "\n";
 
             if ($isActive) {
                 // If sensor is active, highlight the link red
