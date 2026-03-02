@@ -2058,6 +2058,10 @@ class SensorGroup extends IPSModule
             mermaid.initialize({
               startOnLoad:false,
               theme:"dark",
+                themeVariables: {
+                fontSize: "24px",
+                  fontFamily: "sans-serif"
+              },
               flowchart:{ curve:"basis", nodeSpacing:120, rankSpacing:1000 }
             });
 
