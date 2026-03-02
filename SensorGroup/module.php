@@ -2022,64 +2022,76 @@ class SensorGroup extends IPSModule
             if ($isActive) $graph .= "linkStyle $linkIdx stroke:#ff8a80,stroke-width:2px;\n";
         }
 
-        // 3. Output HTML
+        // 3. API Mode (AJAX Request)
+        if (isset($_GET['api'])) {
+            header("Content-Type: text/plain");
+            echo $graph;
+            return;
+        }
+
+        // 4. Output HTML Framework
         echo '<!DOCTYPE html>
         <html>
         <head>
             <meta charset="utf-8">
-            <meta http-equiv="refresh" content="5"> <!-- Auto-Refresh every 5s -->
             <title>Sensor Flow</title>
             <style>
                 body { background-color: #1e1e1e; color: #cfcfcf; font-family: "Segoe UI", sans-serif; margin: 0; padding: 20px; }
                 .header { text-align: center; margin-bottom: 20px; border-bottom: 1px solid #333; padding-bottom: 10px; }
                 .header h2 { margin: 0; color: #4CAF50; }
-                .container { background: #252526; padding: 20px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); overflow: auto; text-align: center; height: 90vh; }
+                /* Fix: container needs to scroll, content needs to stretch */
+                .container { background: #252526; padding: 20px; border-radius: 8px; height: 85vh; overflow: auto; display: flex; justify-content: center; align-items: flex-start; }
+                /* Force Mermaid SVG to break out of bounds if needed */
+                #mermaid-container svg { max-width: none !important; width: auto !important; height: auto !important; }
             </style>
-<!-- Load Mermaid.js for Diagrams -->
             <script type="module">
                 import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs";
-                mermaid.initialize({ 
-                    startOnLoad: true, 
-                    theme: "dark",
-                    useMaxWidth: false, /* FIX: Allows chart to expand naturally beyond screen width */
-                    flowchart: { curve: "basis" }
-                });
-            </script>
-<!-- FIX: Preserve scroll position across auto-reloads (Async Aware) -->
-            <script>
-                window.addEventListener("beforeunload", function() {
-                    let container = document.querySelector(".container");
-                    if (container) {
-                        sessionStorage.setItem("chartScrollTop", container.scrollTop);
-                        sessionStorage.setItem("chartScrollLeft", container.scrollLeft);
+                mermaid.initialize({ startOnLoad: false, theme: "dark", flowchart: { curve: "basis" } });
+
+                let isRendering = false;
+
+                async function fetchAndUpdateGraph() {
+                    if (isRendering) return;
+                    isRendering = true;
+                    try {
+                        // Fetch the raw graph definition from PHP
+                        let response = await fetch("?api=1&t=" + Date.now());
+                        let graphString = await response.text();
+
+                        let container = document.getElementById("mermaid-container");
+                        
+                        // Capture scroll positions before replacing content
+                        let parent = document.querySelector(".container");
+                        let sTop = parent.scrollTop;
+                        let sLeft = parent.scrollLeft;
+
+                        // Render new SVG
+                        const { svg } = await mermaid.render("graphSvgObj", graphString);
+                        container.innerHTML = svg;
+
+                        // Instantly restore scroll position
+                        parent.scrollTop = sTop;
+                        parent.scrollLeft = sLeft;
+
+                    } catch (error) {
+                        console.error("Failed to render graph:", error);
                     }
-                });
-                
-                // Wait for Mermaid to actually draw the SVG before scrolling
-                let waitRender = setInterval(function() {
-                    let container = document.querySelector(".container");
-                    let svg = document.querySelector(".mermaid svg"); // Check if drawing is done
-                    
-                    if (container && svg) {
-                        let top = sessionStorage.getItem("chartScrollTop");
-                        let left = sessionStorage.getItem("chartScrollLeft");
-                        if (top) container.scrollTop = parseInt(top);
-                        if (left) container.scrollLeft = parseInt(left);
-                        clearInterval(waitRender); // Stop checking
-                    }
-                }, 50); // Check every 50ms
+                    isRendering = false;
+                }
+
+                // Initial load
+                window.onload = fetchAndUpdateGraph;
+                // Refresh silently every 3 seconds (No flicker)
+                setInterval(fetchAndUpdateGraph, 3000);
             </script>
         </head>
         <body>
             <div class="header">
-                <h2>System Hierarchy</h2>
+                <h2>System Hierarchy (Live)</h2>
                 <small>Instance ID: ' . $this->InstanceID . '</small>
             </div>
             <div class="container">
-                <!-- The Graph Definition goes here -->
-                <div class="mermaid">
-' . $graph . '
-                </div>
+                <div id="mermaid-container">Loading live architecture...</div>
             </div>
         </body>
         </html>';
