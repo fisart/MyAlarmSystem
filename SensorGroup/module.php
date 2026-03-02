@@ -2012,7 +2012,12 @@ class SensorGroup extends IPSModule
             $rule = $opMap[$s['Operator']] . " " . $s['ComparisonValue'];
             $name = IPS_VariableExists($vid) ? IPS_GetName($vid) : "MISSING";
 
-            $label = "$name<br/>$rule";
+            // Extract location data (fallback to 'Unknown' if missing)
+            $pName = $s['ParentName'] ?? 'Unknown';
+            $gpName = $s['GrandParentName'] ?? 'Unknown';
+
+            // Format: Sensor Name, then [Grandparent / Parent], then the Logic Rule
+            $label = "$name<br/>[$gpName / $pName]<br/>$rule";
             $graph .= $sid . "[\"" . $label . "\"]:::" . $style . " --> " . $cidNode . "\n";
 
             $linkIdx = $this->linkCounter++;
