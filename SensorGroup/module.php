@@ -1899,9 +1899,14 @@ class SensorGroup extends IPSModule
     /**
      * Webhook Entry Point: Renders the Hierarchy Chart
      */
+    /**
+     * Webhook Entry Point: Renders the Hierarchy Chart
+     */
     protected function ProcessHookData()
     {
-               $this->linkCounter = 0; // Initialize counter for link styling
+        // 0. Initialize Counters
+        $this->linkCounter = 0;
+
         // 1. Authentication (Secrets / Vault)
         $vaultID = $this->ReadPropertyInteger("VaultInstanceID");
         if ($vaultID > 0 && @IPS_InstanceExists($vaultID)) {
@@ -1916,9 +1921,9 @@ class SensorGroup extends IPSModule
             }
         }
 
-// 2. Build the Graph Data
-        $graph = "graph RL\n"; // Right-to-Left flow (Sensors on right, Targets on left) looks better for hierarchies
-        
+        // 2. Build the Graph Data
+        $graph = "graph RL\n"; // Right-to-Left flow looks better for hierarchies
+
         // Define Styles
         $graph .= "classDef red fill:#c62828,stroke:#ff8a80,stroke-width:2px,color:#fff;\n";
         $graph .= "classDef green fill:#2e7d32,stroke:#a5d6a7,stroke-width:2px,color:#fff;\n";
@@ -1927,13 +1932,13 @@ class SensorGroup extends IPSModule
 
         // Load Config
         $conf = json_decode($this->GetConfiguration(), true);
-        
+
         // Lookup Tables
-        $classMap = []; 
-        foreach($conf['ClassList'] as $c) $classMap[$c['ClassID']] = $c;
-        
+        $classMap = [];
+        foreach ($conf['ClassList'] as $c) $classMap[$c['ClassID']] = $c;
+
         $groupMap = [];
-        foreach($conf['GroupList'] as $g) $groupMap[$g['GroupName']] = $g;
+        foreach ($conf['GroupList'] as $g) $groupMap[$g['GroupName']] = $g;
 
         // A. Dispatch Targets (The Destinations)
         foreach ($conf['DispatchTargets'] as $t) {
@@ -1947,12 +1952,12 @@ class SensorGroup extends IPSModule
             $gName = $d['GroupName'];
             $tid = "T_" . $d['InstanceID'];
             $gid = "G_" . md5($gName);
-            
+
             // Check Group Status
             $ident = "Status_" . $this->SanitizeIdent($gName);
             $isActive = (@$this->GetIDForIdent($ident) && GetValue($this->GetIDForIdent($ident)));
             $style = $isActive ? "red" : "green";
-            
+
             // Group Node
             $gLogic = ($groupMap[$gName]['GroupLogic'] ?? 0) == 1 ? "AND" : "OR";
             $label = "$gName<br/>[$gLogic]";
@@ -1967,13 +1972,13 @@ class SensorGroup extends IPSModule
             $cID = $m['ClassID'];
             $gid = "G_" . md5($gName);
             $cidNode = "C_" . substr(md5($cID), 0, 8); // Short hash for ID
-            
+
             if (!isset($classMap[$cID])) continue;
-            
+
             $cDef = $classMap[$cID];
             $cLogic = ($cDef['LogicMode'] == 1) ? "AND" : "OR";
             $cLabel = $cDef['ClassName'] . "<br/>[$cLogic | " . $cDef['TimeWindow'] . "s]";
-            
+
             // Class Node (Color is grey unless we determine active sensors below)
             $graph .= "$cidNode($cLabel):::grey --> $gid\n";
         }
@@ -1984,24 +1989,24 @@ class SensorGroup extends IPSModule
             $cidNode = "C_" . substr(md5($cID), 0, 8);
             $vid = $s['VariableID'];
             $sid = "S_" . $vid;
-            
+
             // Check Sensor State
             $val = IPS_VariableExists($vid) ? GetValue($vid) : null;
             $isActive = $this->EvaluateRule($val, $s['Operator'], $s['ComparisonValue']);
             $style = $isActive ? "red" : "green";
-            
-            $opMap = ['=','!=','>','<','>=','<='];
+
+            $opMap = ['=', '!=', '>', '<', '>=', '<='];
             $rule = $opMap[$s['Operator']] . " " . $s['ComparisonValue'];
             $name = IPS_VariableExists($vid) ? IPS_GetName($vid) : "MISSING";
-            
+
             $label = "$name<br/>$rule";
             $graph .= "$sid[$label]::: $style --> $cidNode\n";
-            
+
             if ($isActive) {
                 // If sensor is active, highlight the link red
                 $graph .= "linkStyle " . ($this->linkCounter++) . " stroke:#ff8a80,stroke-width:2px;\n";
                 // Also retroactively color the Class node red (simple approximation)
-                $graph .= "style $cidNode fill:#c62828,stroke:#ff8a80\n"; 
+                $graph .= "style $cidNode fill:#c62828,stroke:#ff8a80\n";
             }
         }
 
@@ -2014,31 +2019,9 @@ class SensorGroup extends IPSModule
             <title>Sensor Flow</title>
             <style>
                 body { background-color: #1e1e1e; color: #cfcfcf; font-family: "Segoe UI", sans-serif; margin: 0; padding: 20px; }
-                .container { background: #252526; padding: 20px; border-radius: 8px; height: 90vh; text-align: center; }
-            </style>
-            <script type="module">
-                import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs";
-                mermaid.initialize({ startOnLoad: true, theme: "dark" });
-            </script>
-        </head>
-        <body>
-            <div class="container">
-                <div class="mermaid">
-' . $graph . '
-                </div>
-            </div>
-        </body>
-        </html>';
-    }
-        <head>
-            <meta charset="utf-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1">
-            <title>Sensor Flow</title>
-            <style>
-                body { background-color: #1e1e1e; color: #cfcfcf; font-family: "Segoe UI", sans-serif; margin: 0; padding: 20px; }
                 .header { text-align: center; margin-bottom: 20px; border-bottom: 1px solid #333; padding-bottom: 10px; }
                 .header h2 { margin: 0; color: #4CAF50; }
-                .container { background: #252526; padding: 20px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); overflow: auto; text-align: center; }
+                .container { background: #252526; padding: 20px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); overflow: auto; text-align: center; height: 90vh; }
             </style>
             <!-- Load Mermaid.js for Diagrams -->
             <script type="module">
@@ -2057,12 +2040,9 @@ class SensorGroup extends IPSModule
             </div>
             <div class="container">
                 <!-- The Graph Definition goes here -->
-                <pre class="mermaid">
-                    graph TD
-                    Start[Security Check Passed] -->|Success| Ready[Visualization Ready]
-                    Ready --> Step3[Waiting for Data Loop...]
-                    style Start fill:#2e7d32,stroke:#fff,stroke-width:2px
-                </pre>
+                <div class="mermaid">
+' . $graph . '
+                </div>
             </div>
         </body>
         </html>';
