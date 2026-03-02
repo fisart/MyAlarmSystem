@@ -2058,7 +2058,7 @@ class SensorGroup extends IPSModule
             mermaid.initialize({
               startOnLoad:false,
               theme:"dark",
-              flowchart:{ curve:"linear", nodeSpacing:120, rankSpacing:250 }
+              flowchart:{ curve:"basis", nodeSpacing:80, rankSpacing:600 }
             });
 
     let isRendering=false;
