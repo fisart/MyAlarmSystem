@@ -1923,7 +1923,7 @@ class SensorGroup extends IPSModule
             }
         }
 
-// 2. Build the Graph Data
+        // 2. Build the Graph Data
         $graph = "graph LR\n"; // Changed to Left-to-Right (Inputs on left, Targets on right)
 
         $graph .= "classDef red fill:#c62828,stroke:#ff8a80,stroke-width:2px,color:#fff;\n";
@@ -2058,7 +2058,6 @@ class SensorGroup extends IPSModule
             mermaid.initialize({
               startOnLoad:false,
               theme:"dark",
-              // FIX: Linear lines reduce 'spaghetti', larger spacing widens chart
               flowchart:{ curve:"linear", nodeSpacing:120, rankSpacing:250 }
             });
 
