@@ -1896,6 +1896,66 @@ class SensorGroup extends IPSModule
         }
     }
 
+    /**
+     * Webhook Entry Point: Renders the Hierarchy Chart
+     */
+    protected function ProcessHookData()
+    {
+        // 1. Authentication (Secrets / Vault)
+        $vaultID = $this->ReadPropertyInteger("VaultInstanceID");
+        if ($vaultID > 0 && @IPS_InstanceExists($vaultID)) {
+            if (function_exists('SEC_IsPortalAuthenticated')) {
+                if (!SEC_IsPortalAuthenticated($vaultID)) {
+                    $currentUrl = $_SERVER['REQUEST_URI'] ?? '';
+                    $currentUrl = strtok($currentUrl, '?'); // Strip params
+                    $loginUrl = "/hook/secrets_" . $vaultID . "?portal=1&return=" . urlencode($currentUrl);
+                    header("Location: " . $loginUrl);
+                    exit;
+                }
+            }
+        }
+
+        // 2. Render HTML & Mermaid Framework
+        echo '<!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <title>Sensor Flow</title>
+            <style>
+                body { background-color: #1e1e1e; color: #cfcfcf; font-family: "Segoe UI", sans-serif; margin: 0; padding: 20px; }
+                .header { text-align: center; margin-bottom: 20px; border-bottom: 1px solid #333; padding-bottom: 10px; }
+                .header h2 { margin: 0; color: #4CAF50; }
+                .container { background: #252526; padding: 20px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); overflow: auto; text-align: center; }
+            </style>
+            <!-- Load Mermaid.js for Diagrams -->
+            <script type="module">
+                import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs";
+                mermaid.initialize({ 
+                    startOnLoad: true, 
+                    theme: "dark",
+                    flowchart: { curve: "basis" }
+                });
+            </script>
+        </head>
+        <body>
+            <div class="header">
+                <h2>System Hierarchy</h2>
+                <small>Instance ID: ' . $this->InstanceID . '</small>
+            </div>
+            <div class="container">
+                <!-- The Graph Definition goes here -->
+                <pre class="mermaid">
+                    graph TD
+                    Start[Security Check Passed] -->|Success| Ready[Visualization Ready]
+                    Ready --> Step3[Waiting for Data Loop...]
+                    style Start fill:#2e7d32,stroke:#fff,stroke-width:2px
+                </pre>
+            </div>
+        </body>
+        </html>';
+    }
+
     public function GetConfigurationForm()
     {
         // === DEBUG: Enter GetConfigurationForm ===
