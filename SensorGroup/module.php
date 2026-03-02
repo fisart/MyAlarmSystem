@@ -1947,32 +1947,42 @@ class SensorGroup extends IPSModule
             $graph .= "$tid(\"$label\"):::target\n";
         }
 
+        // PRE-CALCULATE ACTIVE CLASSES FOR STYLING
+        $activeClassIDs = [];
+        foreach ($conf['SensorList'] as $s) {
+            $vid = $s['VariableID'];
+            $val = IPS_VariableExists($vid) ? GetValue($vid) : null;
+            if ($this->EvaluateRule($val, $s['Operator'], $s['ComparisonValue'])) {
+                $activeClassIDs[$s['ClassID']] = true;
+            }
+        }
+
         // B. Groups -> Targets
         foreach ($conf['GroupDispatch'] as $d) {
             $gName = $d['GroupName'];
             $tid = "T_" . $d['InstanceID'];
             $gid = "G_" . md5($gName);
 
-            // Check Group Status
             $ident = "Status_" . $this->SanitizeIdent($gName);
             $isActive = (@$this->GetIDForIdent($ident) && GetValue($this->GetIDForIdent($ident)));
             $style = $isActive ? "red" : "green";
 
-            // Group Node
-            // Group Node
             $gLogic = ($groupMap[$gName]['GroupLogic'] ?? 0) == 1 ? "AND" : "OR";
             $label = "$gName<br/>[$gLogic]";
+
             $graph .= "$gid{{\"$label\"}}:::$style --> $tid\n";
-            if ($isActive) $graph .= "linkStyle " . ($this->linkCounter++) . " stroke:#ff8a80,stroke-width:2px;\n";
+
+            // FIX: Counter MUST increment for every line drawn to stay in sync with Mermaid
+            $linkIdx = $this->linkCounter++;
+            if ($isActive) $graph .= "linkStyle $linkIdx stroke:#ff8a80,stroke-width:2px;\n";
         }
 
         // C. Classes -> Groups
-        // We iterate GroupMembers to draw the lines
         foreach ($conf['GroupMembers'] as $m) {
             $gName = $m['GroupName'];
             $cID = $m['ClassID'];
             $gid = "G_" . md5($gName);
-            $cidNode = "C_" . substr(md5($cID), 0, 8); // Short hash for ID
+            $cidNode = "C_" . substr(md5($cID), 0, 8);
 
             if (!isset($classMap[$cID])) continue;
 
@@ -1980,8 +1990,14 @@ class SensorGroup extends IPSModule
             $cLogic = ($cDef['LogicMode'] == 1) ? "AND" : "OR";
             $cLabel = $cDef['ClassName'] . "<br/>[$cLogic | " . $cDef['TimeWindow'] . "s]";
 
-            // Class Node (Color is grey unless we determine active sensors below)
-            $graph .= "$cidNode(\"$cLabel\"):::grey --> $gid\n";
+            // Apply active styling if any sensor in this class triggered it
+            $isClassActive = isset($activeClassIDs[$cID]);
+            $cStyle = $isClassActive ? "red" : "grey";
+
+            $graph .= "$cidNode(\"$cLabel\"):::$cStyle --> $gid\n";
+
+            $linkIdx = $this->linkCounter++;
+            if ($isClassActive) $graph .= "linkStyle $linkIdx stroke:#ff8a80,stroke-width:2px;\n";
         }
 
         // D. Sensors -> Classes
@@ -1991,7 +2007,6 @@ class SensorGroup extends IPSModule
             $vid = $s['VariableID'];
             $sid = "S_" . $vid;
 
-            // Check Sensor State
             $val = IPS_VariableExists($vid) ? GetValue($vid) : null;
             $isActive = $this->EvaluateRule($val, $s['Operator'], $s['ComparisonValue']);
             $style = $isActive ? "red" : "green";
@@ -2001,15 +2016,10 @@ class SensorGroup extends IPSModule
             $name = IPS_VariableExists($vid) ? IPS_GetName($vid) : "MISSING";
 
             $label = "$name<br/>$rule";
-            // FIX: Use concatenation and wrap label in quotes so Mermaid ignores math operators
             $graph .= $sid . "[\"" . $label . "\"]:::" . $style . " --> " . $cidNode . "\n";
 
-            if ($isActive) {
-                // If sensor is active, highlight the link red
-                $graph .= "linkStyle " . ($this->linkCounter++) . " stroke:#ff8a80,stroke-width:2px;\n";
-                // Also retroactively color the Class node red (simple approximation)
-                $graph .= "style $cidNode fill:#c62828,stroke:#ff8a80\n";
-            }
+            $linkIdx = $this->linkCounter++;
+            if ($isActive) $graph .= "linkStyle $linkIdx stroke:#ff8a80,stroke-width:2px;\n";
         }
 
         // 3. Output HTML
@@ -2025,12 +2035,13 @@ class SensorGroup extends IPSModule
                 .header h2 { margin: 0; color: #4CAF50; }
                 .container { background: #252526; padding: 20px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); overflow: auto; text-align: center; height: 90vh; }
             </style>
-            <!-- Load Mermaid.js for Diagrams -->
-    <script type="module">
+<!-- Load Mermaid.js for Diagrams -->
+            <script type="module">
                 import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs";
                 mermaid.initialize({ 
                     startOnLoad: true, 
                     theme: "dark",
+                    useMaxWidth: false, /* FIX: Allows chart to expand naturally beyond screen width */
                     flowchart: { curve: "basis" }
                 });
             </script>
