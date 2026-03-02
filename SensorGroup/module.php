@@ -1923,8 +1923,8 @@ class SensorGroup extends IPSModule
             }
         }
 
-        // 2. Build the Graph Data
-        $graph = "graph RL\n";
+// 2. Build the Graph Data
+        $graph = "graph LR\n"; // Changed to Left-to-Right (Inputs on left, Targets on right)
 
         $graph .= "classDef red fill:#c62828,stroke:#ff8a80,stroke-width:2px,color:#fff;\n";
         $graph .= "classDef green fill:#2e7d32,stroke:#a5d6a7,stroke-width:2px,color:#fff;\n";
@@ -2052,14 +2052,15 @@ class SensorGroup extends IPSModule
   <!-- Pan/Zoom lib (creates global svgPanZoom()) -->
   <script src="https://unpkg.com/svg-pan-zoom@3.6.1/dist/svg-pan-zoom.min.js"></script>
 
-  <script type="module">
-    import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs";
+<script type="module">
+            import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs";
 
-    mermaid.initialize({
-      startOnLoad:false,
-      theme:"dark",
-      flowchart:{ curve:"basis", nodeSpacing:60, rankSpacing:120 }
-    });
+            mermaid.initialize({
+              startOnLoad:false,
+              theme:"dark",
+              // FIX: Linear lines reduce 'spaghetti', larger spacing widens chart
+              flowchart:{ curve:"linear", nodeSpacing:120, rankSpacing:250 }
+            });
 
     let isRendering=false;
     let lastGraphString="";
