@@ -2046,7 +2046,7 @@ class SensorGroup extends IPSModule
             }
             /* FIX: Tighter container bounds and explicit block display for SVG */
             #mermaid-container { position:absolute; inset:0; overflow:hidden; }
-            #mermaid-container svg { width:100% !important; height:100% !important; max-width:none !important; display:block; }
+            #mermaid-container svg { width:100% !important; height:100% !important; max-width:none !important; display:block; min-width: 2400px; }
   </style>
 
   <!-- Pan/Zoom lib (creates global svgPanZoom()) -->
@@ -2091,7 +2091,7 @@ class SensorGroup extends IPSModule
 
           container.innerHTML = svg;
 
-const svgEl = container.querySelector("svg");
+            const svgEl = container.querySelector("svg");
                   if (svgEl) {
                     // Ensure a viewBox exists (svg-pan-zoom works best with it)
                     if (!svgEl.getAttribute("viewBox")) {
@@ -2116,8 +2116,8 @@ const svgEl = container.querySelector("svg");
                     pzInstance = svgPanZoom(svgEl, {
                       zoomEnabled: true,
                       controlIconsEnabled: true,
-                      fit: true,
-                      center: true,
+                      fit: false,
+                      center: false,
                       minZoom: 0.2,
                       maxZoom: 10,
                       eventsListenerElement: container
@@ -2125,8 +2125,7 @@ const svgEl = container.querySelector("svg");
 
                     // Important: force recalculation
                     pzInstance.resize();
-                    pzInstance.fit();
-                    pzInstance.center();
+ 
 
                     // Restore user view (after fit/center)
                     if (oldZoom !== null && oldPan !== null) {
