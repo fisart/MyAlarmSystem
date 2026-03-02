@@ -2113,25 +2113,30 @@ const svgEl = container.querySelector("svg");
                     svgEl.style.height = "100%";
                     svgEl.style.maxWidth = "none";
 
+  // Determine if this is the initial load or a live update
+                    let isFirstLoad = (oldZoom === null || oldPan === null);
+
                     pzInstance = svgPanZoom(svgEl, {
                       zoomEnabled: true,
                       controlIconsEnabled: true,
-                      fit: true,
-                      center: true,
+                      fit: isFirstLoad,       // Only auto-fit on initial load
+                      center: isFirstLoad,    // Only auto-center on initial load
                       minZoom: 0.2,
                       maxZoom: 10,
                       eventsListenerElement: container
                     });
 
-                    // Important: force recalculation
+                    // Important: force recalculation of container bounds
                     pzInstance.resize();
-                    pzInstance.fit();
-                    pzInstance.center();
 
-                    // Restore user view (after fit/center)
-                    if (oldZoom !== null && oldPan !== null) {
-                      pzInstance.pan(oldPan);
+                    if (isFirstLoad) {
+                      // First time seeing the chart -> center it beautifully
+                      pzInstance.fit();
+                      pzInstance.center();
+                    } else {
+                      // Live update -> freeze the camera exactly where the user left it
                       pzInstance.zoom(oldZoom);
+                      pzInstance.pan(oldPan);
                     }
                   }
         }
