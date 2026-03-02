@@ -2093,17 +2093,28 @@ class SensorGroup extends IPSModule
                 
                 // Fast poll (runs every 1 second, but costs 0 CPU if nothing changed)
                 setInterval(fetchAndUpdateGraph, 1000);
-            <head>
+ <head>
             <meta charset="utf-8">
             <title>Sensor Flow</title>
             <style>
-                body { background-color: #1e1e1e; color: #cfcfcf; font-family: "Segoe UI", sans-serif; margin: 0; padding: 20px; }
-                .header { text-align: center; margin-bottom: 20px; border-bottom: 1px solid #333; padding-bottom: 10px; }
+                /* FIX 1: App-like Layout. Lock the window height, prevent all native browser scrolling */
+                body { 
+                    background-color: #1e1e1e; color: #cfcfcf; font-family: "Segoe UI", sans-serif; 
+                    margin: 0; padding: 20px; height: 100vh; box-sizing: border-box; 
+                    overflow: hidden; display: flex; flex-direction: column; 
+                }
+                .header { flex-shrink: 0; text-align: center; margin-bottom: 20px; border-bottom: 1px solid #333; padding-bottom: 10px; }
                 .header h2 { margin: 0; color: #4CAF50; }
                 
-                /* Container must be a strict window for Pan/Zoom to work inside it */
-                .container { background: #252526; padding: 0; border-radius: 8px; height: 80vh; width: 100%; border: 1px solid #444; overflow: hidden; }
-                #mermaid-container { width: 100%; height: 100%; }
+                /* Container fills the exact remaining screen space */
+                .container { 
+                    flex-grow: 1; background: #252526; padding: 0; border-radius: 8px; 
+                    width: 100%; border: 1px solid #444; overflow: hidden; position: relative; 
+                }
+                #mermaid-container { width: 100%; height: 100%; position: absolute; top: 0; left: 0; }
+                
+                /* FIX 2: Force SVG to capture pointer events even on empty background spaces */
+                #mermaid-container svg { pointer-events: all !important; }
             </style>
             
             <!-- 1. Load the SVG Pan/Zoom Library -->
@@ -2116,7 +2127,7 @@ class SensorGroup extends IPSModule
 
                 let isRendering = false;
                 let lastGraphString = "";
-                let pzInstance = null; // Holds the pan/zoom camera state
+                let pzInstance = null; 
 
                 async function fetchAndUpdateGraph() {
                     if (isRendering) return;
@@ -2131,22 +2142,18 @@ class SensorGroup extends IPSModule
 
                             let container = document.getElementById("mermaid-container");
                             
-                            // A. Save current camera position if a chart already exists
                             let oldZoom = pzInstance ? pzInstance.getZoom() : null;
                             let oldPan = pzInstance ? pzInstance.getPan() : null;
 
-                            // B. Destroy old camera
                             if (pzInstance) {
                                 pzInstance.destroy();
                                 pzInstance = null;
                             }
 
-                            // C. Render the new chart
                             container.removeAttribute("data-processed");
                             container.innerHTML = graphString;
                             await mermaid.run({ nodes: [container] });
 
-                            // D. Re-attach the Pan/Zoom camera to the new SVG
                             let svgEl = container.querySelector("svg");
                             if (svgEl) {
                                 svgEl.style.width = "100%";
@@ -2159,10 +2166,11 @@ class SensorGroup extends IPSModule
                                     fit: true,
                                     center: true,
                                     minZoom: 0.2,
-                                    maxZoom: 10
+                                    maxZoom: 10,
+                                    // FIX 3: Attach wheel listener to the background Div, not just the drawing
+                                    eventsListenerElement: container 
                                 });
 
-                                // E. Restore camera position exactly where you left it
                                 if (oldZoom !== null && oldPan !== null) {
                                     pzInstance.zoom(oldZoom);
                                     pzInstance.pan(oldPan);
@@ -2176,9 +2184,7 @@ class SensorGroup extends IPSModule
                     }
                 }
 
-                // Initial Load
                 setTimeout(fetchAndUpdateGraph, 500);
-                // Background Check
                 setInterval(fetchAndUpdateGraph, 2000);
             </script>
         </head>
