@@ -1896,7 +1896,12 @@ class SensorGroup extends IPSModule
         }
     }
 
-
+    /**
+     * Webhook Entry Point: Renders the Hierarchy Chart
+     */
+    /**
+     * Webhook Entry Point: Renders the Hierarchy Chart
+     */
     /**
      * Webhook Entry Point: Renders the Hierarchy Chart
      */
@@ -2076,9 +2081,8 @@ class SensorGroup extends IPSModule
           const container = document.getElementById("mermaid-container");
 
           // preserve zoom/pan between rerenders
-            const oldZoom  = pzInstance ? pzInstance.getZoom()  : null;
-            const oldPan   = pzInstance ? pzInstance.getPan()   : null;
-            const oldSizes = pzInstance ? pzInstance.getSizes() : null;
+          const oldZoom = pzInstance ? pzInstance.getZoom() : null;
+          const oldPan  = pzInstance ? pzInstance.getPan()  : null;
 
           if(pzInstance){ pzInstance.destroy(); pzInstance=null; }
 
@@ -2119,20 +2123,17 @@ const svgEl = container.querySelector("svg");
                       eventsListenerElement: container
                     });
 
-// Important: force recalculation
-pzInstance.resize();
+                    // Important: force recalculation
+                    pzInstance.resize();
+                    pzInstance.fit();
+                    pzInstance.center();
 
-if (oldZoom !== null && oldPan !== null && oldSizes && oldSizes.viewBox) {
-  const nx = oldPan.x / oldSizes.viewBox.width;
-  const ny = oldPan.y / oldSizes.viewBox.height;
-
-  const newSizes = pzInstance.getSizes();
-  pzInstance.zoom(oldZoom);
-  pzInstance.pan({ x: nx * newSizes.viewBox.width, y: ny * newSizes.viewBox.height });
-} else {
-  pzInstance.fit();
-  pzInstance.center();
-}
+                    // Restore user view (after fit/center)
+                    if (oldZoom !== null && oldPan !== null) {
+                      pzInstance.pan(oldPan);
+                      pzInstance.zoom(oldZoom);
+                    }
+                  }
         }
       }catch(err){
         console.error("Failed to render graph:", err);
