@@ -2036,15 +2036,20 @@ class SensorGroup extends IPSModule
                 body { background-color: #1e1e1e; color: #cfcfcf; font-family: "Segoe UI", sans-serif; margin: 0; padding: 20px; }
                 .header { text-align: center; margin-bottom: 20px; border-bottom: 1px solid #333; padding-bottom: 10px; }
                 .header h2 { margin: 0; color: #4CAF50; }
-                .container { background: #252526; padding: 20px; border-radius: 8px; height: 85vh; overflow: auto; display: flex; justify-content: center; align-items: flex-start; }
-                /* Force Mermaid SVG to stretch if needed */
-                #mermaid-container { width: 100%; height: 100%; display: flex; justify-content: center; }
-                #mermaid-container svg { max-width: none !important; width: auto !important; height: auto !important; }
+                /* FIX: Removed flexbox constraints so the container allows infinite scrolling */
+                .container { background: #252526; padding: 20px; border-radius: 8px; height: 85vh; overflow: auto; text-align: center; }
+                #mermaid-container { display: inline-block; min-width: 100%; }
+                /* FIX: Force the SVG to draw massive (at least 1500px wide) so text is highly readable */
+                #mermaid-container svg { max-width: none !important; min-width: 1500px !important; width: 120% !important; height: auto !important; }
             </style>
             <script type="module">
                 import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs";
-                mermaid.initialize({ startOnLoad: false, theme: "dark", flowchart: { curve: "basis" } });
-
+                // FIX: Added nodeSpacing and rankSpacing to give the boxes more physical breathing room
+                mermaid.initialize({ 
+                    startOnLoad: false, 
+                    theme: "dark", 
+                    flowchart: { curve: "basis", nodeSpacing: 60, rankSpacing: 120 } 
+                });
                 let isRendering = false;
                 let lastGraphString = "";
 
