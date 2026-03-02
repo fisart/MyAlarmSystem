@@ -2040,12 +2040,13 @@ class SensorGroup extends IPSModule
     }
     .header{flex-shrink:0;text-align:center;margin-bottom:12px;border-bottom:1px solid #333;padding-bottom:10px;}
     .header h2{margin:0;color:#4CAF50;}
-    .container{
-      flex-grow:1;background:#252526;border-radius:8px;width:100%;
-      border:1px solid #444;overflow:hidden;position:relative;
-    }
-    #mermaid-container{width:100%;height:100%;position:absolute;top:0;left:0;}
-    #mermaid-container svg{width:100%;height:100%;max-width:none;}
+.container{
+              flex-grow:1;background:#252526;border-radius:8px;width:100%;
+              border:1px solid #444;overflow:hidden;position:relative;
+            }
+            /* FIX: Tighter container bounds and explicit block display for SVG */
+            #mermaid-container { position:absolute; inset:0; overflow:hidden; }
+            #mermaid-container svg { width:100% !important; height:100% !important; max-width:none !important; display:block; }
   </style>
 
   <!-- Pan/Zoom lib (creates global svgPanZoom()) -->
@@ -2090,23 +2091,49 @@ class SensorGroup extends IPSModule
 
           container.innerHTML = svg;
 
-          const svgEl = container.querySelector("svg");
-          if(svgEl){
-            pzInstance = svgPanZoom(svgEl, {
-              zoomEnabled:true,
-              controlIconsEnabled:true,
-              fit:true,
-              center:true,
-              minZoom:0.2,
-              maxZoom:10,
-              eventsListenerElement: container
-            });
+const svgEl = container.querySelector("svg");
+                  if (svgEl) {
+                    // Ensure a viewBox exists (svg-pan-zoom works best with it)
+                    if (!svgEl.getAttribute("viewBox")) {
+                      const wRaw = (svgEl.width && svgEl.width.baseVal && svgEl.width.baseVal.value) || svgEl.getAttribute("width") || 1000;
+                      const hRaw = (svgEl.height && svgEl.height.baseVal && svgEl.height.baseVal.value) || svgEl.getAttribute("height") || 1000;
 
-            if(oldZoom !== null && oldPan !== null){
-              pzInstance.zoom(oldZoom);
-              pzInstance.pan(oldPan);
-            }
-          }
+                      const w = Number(String(wRaw).replace(/[^0-9.]/g, "")) || 1000;
+                      const h = Number(String(hRaw).replace(/[^0-9.]/g, "")) || 1000;
+
+                      svgEl.setAttribute("viewBox", `0 0 ${w} ${h}`);
+                    }
+
+                    // Remove hard pixel sizing so CSS 100% can take over
+                    svgEl.removeAttribute("width");
+                    svgEl.removeAttribute("height");
+
+                    // Don’t nuke the entire style; just neutralize sizing constraints if present
+                    svgEl.style.width = "100%";
+                    svgEl.style.height = "100%";
+                    svgEl.style.maxWidth = "none";
+
+                    pzInstance = svgPanZoom(svgEl, {
+                      zoomEnabled: true,
+                      controlIconsEnabled: true,
+                      fit: true,
+                      center: true,
+                      minZoom: 0.2,
+                      maxZoom: 10,
+                      eventsListenerElement: container
+                    });
+
+                    // Important: force recalculation
+                    pzInstance.resize();
+                    pzInstance.fit();
+                    pzInstance.center();
+
+                    // Restore user view (after fit/center)
+                    if (oldZoom !== null && oldPan !== null) {
+                      pzInstance.pan(oldPan);
+                      pzInstance.zoom(oldZoom);
+                    }
+                  }
         }
       }catch(err){
         console.error("Failed to render graph:", err);
