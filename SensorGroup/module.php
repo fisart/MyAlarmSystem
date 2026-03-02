@@ -2026,12 +2026,31 @@ class SensorGroup extends IPSModule
                 .container { background: #252526; padding: 20px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); overflow: auto; text-align: center; height: 90vh; }
             </style>
             <!-- Load Mermaid.js for Diagrams -->
-            <script type="module">
+    <script type="module">
                 import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs";
                 mermaid.initialize({ 
                     startOnLoad: true, 
                     theme: "dark",
                     flowchart: { curve: "basis" }
+                });
+            </script>
+            <!-- FIX: Preserve scroll position across auto-reloads -->
+            <script>
+                window.addEventListener("beforeunload", function() {
+                    let container = document.querySelector(".container");
+                    if (container) {
+                        sessionStorage.setItem("chartScrollTop", container.scrollTop);
+                        sessionStorage.setItem("chartScrollLeft", container.scrollLeft);
+                    }
+                });
+                window.addEventListener("DOMContentLoaded", function() {
+                    let container = document.querySelector(".container");
+                    if (container) {
+                        let top = sessionStorage.getItem("chartScrollTop");
+                        let left = sessionStorage.getItem("chartScrollLeft");
+                        if (top) container.scrollTop = top;
+                        if (left) container.scrollLeft = left;
+                    }
                 });
             </script>
         </head>
