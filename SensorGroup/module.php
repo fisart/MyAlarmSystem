@@ -2000,7 +2000,8 @@ class SensorGroup extends IPSModule
             $name = IPS_VariableExists($vid) ? IPS_GetName($vid) : "MISSING";
 
             $label = "$name<br/>$rule";
-            $graph .= "$sid[$label]::: $style --> $cidNode\n";
+            // FIX: Use concatenation to prevent PHP from interpreting brackets as array access
+            $graph .= $sid . "[" . $label . "]:::" . $style . " --> " . $cidNode . "\n";
 
             if ($isActive) {
                 // If sensor is active, highlight the link red
