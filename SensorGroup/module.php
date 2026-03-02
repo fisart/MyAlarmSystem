@@ -2567,7 +2567,16 @@ class SensorGroup extends IPSModule
         $this->ScanRecursive($ImportRootID, $candidates);
         $values = [];
         foreach ($candidates as $id) {
-            $values[] = ['VariableID' => $id, 'Name' => IPS_GetName($id), 'Selected' => false];
+            $pID = IPS_GetParent($id);
+            $gpID = ($pID > 0) ? IPS_GetParent($pID) : 0;
+
+            $values[] = [
+                'VariableID'      => $id,
+                'Name'            => IPS_GetName($id),
+                'ParentName'      => ($pID > 0) ? IPS_GetName($pID) : "Root",
+                'GrandParentName' => ($gpID > 0) ? IPS_GetName($gpID) : "-",
+                'Selected'        => false
+            ];
         }
         $this->WriteAttributeString('ScanCache', json_encode($values));
         $this->UpdateFormField('WizardFilterText', 'value', '');

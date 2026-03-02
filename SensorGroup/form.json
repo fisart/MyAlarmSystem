@@ -105,15 +105,17 @@
                         { "type": "Button", "caption": "Filter", "onClick": "IPS_RequestAction($id, 'FilterWizard', $WizardFilterText);" }
                     ]
                 },
-                {
+{
                     "type": "List", "name": "ImportCandidates", "caption": "Found Variables", "visible": false, "rowCount": 8,
                     "onEdit": "IPS_RequestAction($id, 'UpdateWizardList', json_encode($ImportCandidates));",
-                    "columns": [
+                    "columns":[
                         { "caption": "ID", "name": "VariableID", "width": "70px", "edit": { "type": "Label" } },
-                        { "caption": "Name", "name": "Name", "width": "300px", "edit": { "type": "Label" } },
-                        { "caption": "Import", "name": "Selected", "width": "50px", "edit": { "type": "CheckBox" } }
+                        { "caption": "Name", "name": "Name", "width": "200px", "edit": { "type": "Label" } },
+                        { "caption": "Loc (P)", "name": "ParentName", "width": "150px", "edit": { "type": "Label" } },
+                        { "caption": "Area (GP)", "name": "GrandParentName", "width": "150px", "edit": { "type": "Label" } },
+                        { "caption": "Import", "name": "Selected", "width": "60px", "edit": { "type": "CheckBox" } }
                     ],
-                    "values": []
+                    "values":[]
                 },
                 {
                     "type": "RowLayout",
