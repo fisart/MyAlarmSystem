@@ -1902,9 +1902,11 @@ class SensorGroup extends IPSModule
     /**
      * Webhook Entry Point: Renders the Hierarchy Chart
      */
+    /**
+     * Webhook Entry Point: Renders the Hierarchy Chart
+     */
     protected function ProcessHookData()
     {
-        // 0. Initialize Counters
         $this->linkCounter = 0;
 
         // 1. Authentication (Secrets / Vault)
@@ -1913,7 +1915,7 @@ class SensorGroup extends IPSModule
             if (function_exists('SEC_IsPortalAuthenticated')) {
                 if (!SEC_IsPortalAuthenticated($vaultID)) {
                     $currentUrl = $_SERVER['REQUEST_URI'] ?? '';
-                    $currentUrl = strtok($currentUrl, '?'); // Strip params
+                    $currentUrl = strtok($currentUrl, '?');
                     $loginUrl = "/hook/secrets_" . $vaultID . "?portal=1&return=" . urlencode($currentUrl);
                     header("Location: " . $loginUrl);
                     exit;
@@ -1922,30 +1924,20 @@ class SensorGroup extends IPSModule
         }
 
         // 2. Build the Graph Data
-        $graph = "graph RL\n"; // Right-to-Left flow looks better for hierarchies
+        $graph = "graph RL\n";
 
-        // Define Styles
         $graph .= "classDef red fill:#c62828,stroke:#ff8a80,stroke-width:2px,color:#fff;\n";
         $graph .= "classDef green fill:#2e7d32,stroke:#a5d6a7,stroke-width:2px,color:#fff;\n";
         $graph .= "classDef grey fill:#37474f,stroke:#546e7a,stroke-width:1px,color:#eee;\n";
         $graph .= "classDef target fill:#1565c0,stroke:#90caf9,stroke-width:2px,color:#fff;\n";
 
-        // Load Config
         $conf = json_decode($this->GetConfiguration(), true);
 
-        // Lookup Tables
         $classMap = [];
         foreach ($conf['ClassList'] as $c) $classMap[$c['ClassID']] = $c;
 
         $groupMap = [];
         foreach ($conf['GroupList'] as $g) $groupMap[$g['GroupName']] = $g;
-
-        // A. Dispatch Targets (The Destinations)
-        foreach ($conf['DispatchTargets'] as $t) {
-            $tid = "T_" . $t['InstanceID'];
-            $label = $t['Name'] . "<br/>[" . $t['InstanceID'] . "]";
-            $graph .= "$tid(\"$label\"):::target\n";
-        }
 
         // PRE-CALCULATE ACTIVE CLASSES FOR STYLING
         $activeClassIDs = [];
@@ -1955,6 +1947,13 @@ class SensorGroup extends IPSModule
             if ($this->EvaluateRule($val, $s['Operator'], $s['ComparisonValue'])) {
                 $activeClassIDs[$s['ClassID']] = true;
             }
+        }
+
+        // A. Dispatch Targets
+        foreach ($conf['DispatchTargets'] as $t) {
+            $tid = "T_" . $t['InstanceID'];
+            $label = $t['Name'] . "<br/>[" . $t['InstanceID'] . "]";
+            $graph .= $tid . "[\"" . $label . "\"]:::target\n";
         }
 
         // B. Groups -> Targets
@@ -1970,9 +1969,8 @@ class SensorGroup extends IPSModule
             $gLogic = ($groupMap[$gName]['GroupLogic'] ?? 0) == 1 ? "AND" : "OR";
             $label = "$gName<br/>[$gLogic]";
 
-            $graph .= "$gid{{\"$label\"}}:::$style --> $tid\n";
+            $graph .= $gid . "[\"" . $label . "\"]:::" . $style . " --> " . $tid . "\n";
 
-            // FIX: Counter MUST increment for every line drawn to stay in sync with Mermaid
             $linkIdx = $this->linkCounter++;
             if ($isActive) $graph .= "linkStyle $linkIdx stroke:#ff8a80,stroke-width:2px;\n";
         }
@@ -1990,11 +1988,10 @@ class SensorGroup extends IPSModule
             $cLogic = ($cDef['LogicMode'] == 1) ? "AND" : "OR";
             $cLabel = $cDef['ClassName'] . "<br/>[$cLogic | " . $cDef['TimeWindow'] . "s]";
 
-            // Apply active styling if any sensor in this class triggered it
             $isClassActive = isset($activeClassIDs[$cID]);
             $cStyle = $isClassActive ? "red" : "grey";
 
-            $graph .= "$cidNode(\"$cLabel\"):::$cStyle --> $gid\n";
+            $graph .= $cidNode . "[\"" . $cLabel . "\"]:::" . $cStyle . " --> " . $gid . "\n";
 
             $linkIdx = $this->linkCounter++;
             if ($isClassActive) $graph .= "linkStyle $linkIdx stroke:#ff8a80,stroke-width:2px;\n";
@@ -2039,9 +2036,7 @@ class SensorGroup extends IPSModule
                 body { background-color: #1e1e1e; color: #cfcfcf; font-family: "Segoe UI", sans-serif; margin: 0; padding: 20px; }
                 .header { text-align: center; margin-bottom: 20px; border-bottom: 1px solid #333; padding-bottom: 10px; }
                 .header h2 { margin: 0; color: #4CAF50; }
-                /* Fix: container needs to scroll, content needs to stretch */
                 .container { background: #252526; padding: 20px; border-radius: 8px; height: 85vh; overflow: auto; display: flex; justify-content: center; align-items: flex-start; }
-                /* Force Mermaid SVG to break out of bounds if needed */
                 #mermaid-container svg { max-width: none !important; width: auto !important; height: auto !important; }
             </style>
             <script type="module">
@@ -2054,22 +2049,20 @@ class SensorGroup extends IPSModule
                     if (isRendering) return;
                     isRendering = true;
                     try {
-                        // Fetch the raw graph definition from PHP
                         let response = await fetch("?api=1&t=" + Date.now());
                         let graphString = await response.text();
 
                         let container = document.getElementById("mermaid-container");
-                        
-                        // Capture scroll positions before replacing content
                         let parent = document.querySelector(".container");
+                        
                         let sTop = parent.scrollTop;
                         let sLeft = parent.scrollLeft;
 
-                        // Render new SVG
-                        const { svg } = await mermaid.render("graphSvgObj", graphString);
+                        // FIX: Use a unique ID for every render to prevent Mermaid internal collisions
+                        let renderId = "graph_" + Date.now();
+                        const { svg } = await mermaid.render(renderId, graphString);
                         container.innerHTML = svg;
 
-                        // Instantly restore scroll position
                         parent.scrollTop = sTop;
                         parent.scrollLeft = sLeft;
 
@@ -2079,10 +2072,8 @@ class SensorGroup extends IPSModule
                     isRendering = false;
                 }
 
-                // Initial load
                 window.onload = fetchAndUpdateGraph;
-                // Refresh silently every 3 seconds (No flicker)
-                setInterval(fetchAndUpdateGraph, 3000);
+                setInterval(fetchAndUpdateGraph, 2000);
             </script>
         </head>
         <body>
