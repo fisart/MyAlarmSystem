@@ -2039,9 +2039,13 @@ class SensorGroup extends IPSModule
                 .container { background: #252526; padding: 20px; border-radius: 8px; height: 85vh; overflow: auto; display: flex; justify-content: center; align-items: flex-start; }
                 #mermaid-container svg { max-width: none !important; width: auto !important; height: auto !important; }
             </style>
-            <script type="module">
+<script type="module">
                 import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs";
-                mermaid.initialize({ startOnLoad: false, theme: "dark", flowchart: { curve: "basis" } });
+                mermaid.initialize({ 
+                    startOnLoad: true, 
+                    theme: "dark", 
+                    flowchart: { curve: "basis" } 
+                });
 
                 let isRendering = false;
 
@@ -2052,19 +2056,26 @@ class SensorGroup extends IPSModule
                         let response = await fetch("?api=1&t=" + Date.now());
                         let graphString = await response.text();
 
-                        let container = document.getElementById("mermaid-container");
-                        let parent = document.querySelector(".container");
+                        let container = document.querySelector(".container");
+                        let mermaidDiv = document.getElementById("mermaid-container");
                         
-                        let sTop = parent.scrollTop;
-                        let sLeft = parent.scrollLeft;
+                        // 1. Save Scroll Position
+                        let sTop = container.scrollTop;
+                        let sLeft = container.scrollLeft;
 
-                        // FIX: Use a unique ID for every render to prevent Mermaid internal collisions
-                        let renderId = "graph_" + Date.now();
-                        const { svg } = await mermaid.render(renderId, graphString);
-                        container.innerHTML = svg;
+                        // 2. Safely replace text
+                        // We remove the data-processed attribute so Mermaid knows it needs to redraw this element
+                        mermaidDiv.removeAttribute("data-processed");
+                        mermaidDiv.innerHTML = graphString;
 
-                        parent.scrollTop = sTop;
-                        parent.scrollLeft = sLeft;
+                        // 3. Command Mermaid to re-scan and draw
+                        await mermaid.run({
+                            nodes: [mermaidDiv]
+                        });
+
+                        // 4. Restore Scroll Position
+                        container.scrollTop = sTop;
+                        container.scrollLeft = sLeft;
 
                     } catch (error) {
                         console.error("Failed to render graph:", error);
@@ -2072,8 +2083,10 @@ class SensorGroup extends IPSModule
                     isRendering = false;
                 }
 
-                window.onload = fetchAndUpdateGraph;
-                setInterval(fetchAndUpdateGraph, 2000);
+                // Initial setup: Wait 2 seconds for initial draw, then start loop
+                setTimeout(() => {
+                    setInterval(fetchAndUpdateGraph, 2500);
+                }, 2000);
             </script>
         </head>
         <body>
@@ -2082,7 +2095,10 @@ class SensorGroup extends IPSModule
                 <small>Instance ID: ' . $this->InstanceID . '</small>
             </div>
             <div class="container">
-                <div id="mermaid-container">Loading live architecture...</div>
+                <!-- Start with the initial PHP string -->
+                <div class="mermaid" id="mermaid-container">
+' . $graph . '
+                </div>
             </div>
         </body>
         </html>';
