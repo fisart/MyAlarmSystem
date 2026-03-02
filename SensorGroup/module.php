@@ -2028,175 +2028,108 @@ class SensorGroup extends IPSModule
 
         // 4. Output HTML Framework
         echo '<!DOCTYPE html>
-        <html>
-        <head>
-            <meta charset="utf-8">
-            <title>Sensor Flow</title>
-            <style>
-                body { background-color: #1e1e1e; color: #cfcfcf; font-family: "Segoe UI", sans-serif; margin: 0; padding: 20px; }
-                .header { text-align: center; margin-bottom: 20px; border-bottom: 1px solid #333; padding-bottom: 10px; }
-                .header h2 { margin: 0; color: #4CAF50; }
-                /* FIX: Removed flexbox constraints so the container allows infinite scrolling */
-                .container { background: #252526; padding: 20px; border-radius: 8px; height: 85vh; overflow: auto; text-align: center; }
-                #mermaid-container { display: inline-block; min-width: 100%; }
-                /* FIX: Force the SVG to draw massive (at least 1500px wide) so text is highly readable */
-                #mermaid-container svg { max-width: none !important; min-width: 1500px !important; width: 120% !important; height: auto !important; }
-            </style>
-            <script type="module">
-                import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs";
-                // FIX: Added nodeSpacing and rankSpacing to give the boxes more physical breathing room
-                mermaid.initialize({ 
-                    startOnLoad: false, 
-                    theme: "dark", 
-                    flowchart: { curve: "basis", nodeSpacing: 60, rankSpacing: 120 } 
-                });
-                let isRendering = false;
-                let lastGraphString = "";
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Sensor Flow</title>
+  <style>
+    body{
+      background-color:#1e1e1e;color:#cfcfcf;font-family:"Segoe UI",sans-serif;
+      margin:0;padding:20px;height:100vh;box-sizing:border-box;
+      overflow:hidden;display:flex;flex-direction:column;
+    }
+    .header{flex-shrink:0;text-align:center;margin-bottom:12px;border-bottom:1px solid #333;padding-bottom:10px;}
+    .header h2{margin:0;color:#4CAF50;}
+    .container{
+      flex-grow:1;background:#252526;border-radius:8px;width:100%;
+      border:1px solid #444;overflow:hidden;position:relative;
+    }
+    #mermaid-container{width:100%;height:100%;position:absolute;top:0;left:0;}
+    #mermaid-container svg{width:100%;height:100%;max-width:none;}
+  </style>
 
-                async function fetchAndUpdateGraph() {
-                    if (isRendering) return;
-                    
-                    try {
-                        let response = await fetch("?api=1&t=" + Date.now());
-                        let graphString = await response.text();
+  <!-- Pan/Zoom lib (creates global svgPanZoom()) -->
+  <script src="https://unpkg.com/svg-pan-zoom@3.6.1/dist/svg-pan-zoom.min.js"></script>
 
-                        // SMART RENDER: Only redraw if the data actually changed!
-                        if (graphString !== lastGraphString) {
-                            isRendering = true;
-                            lastGraphString = graphString;
+  <script type="module">
+    import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs";
 
-                            let container = document.getElementById("mermaid-container");
-                            let parent = document.querySelector(".container");
-                            
-                            // Save Scroll Position
-                            let sTop = parent.scrollTop;
-                            let sLeft = parent.scrollLeft;
+    mermaid.initialize({
+      startOnLoad:false,
+      theme:"dark",
+      flowchart:{ curve:"basis", nodeSpacing:60, rankSpacing:120 }
+    });
 
-                            // Render strictly from memory to avoid HTML parsing bugs
-                            let renderId = "graph_" + Date.now();
-                            const { svg } = await mermaid.render(renderId, graphString);
-                            container.innerHTML = svg;
+    let isRendering=false;
+    let lastGraphString="";
+    let pzInstance=null;
 
-                            // Restore Scroll Position instantly
-                            parent.scrollTop = sTop;
-                            parent.scrollLeft = sLeft;
-                        }
-                    } catch (error) {
-                        console.error("Failed to render graph:", error);
-                    } finally {
-                        isRendering = false;
-                    }
-                }
+    async function fetchAndUpdateGraph(){
+      if(isRendering) return;
 
-                // Initial load
-                fetchAndUpdateGraph();
-                
-                // Fast poll (runs every 1 second, but costs 0 CPU if nothing changed)
-                setInterval(fetchAndUpdateGraph, 1000);
- <head>
-            <meta charset="utf-8">
-            <title>Sensor Flow</title>
-            <style>
-                /* FIX 1: App-like Layout. Lock the window height, prevent all native browser scrolling */
-                body { 
-                    background-color: #1e1e1e; color: #cfcfcf; font-family: "Segoe UI", sans-serif; 
-                    margin: 0; padding: 20px; height: 100vh; box-sizing: border-box; 
-                    overflow: hidden; display: flex; flex-direction: column; 
-                }
-                .header { flex-shrink: 0; text-align: center; margin-bottom: 20px; border-bottom: 1px solid #333; padding-bottom: 10px; }
-                .header h2 { margin: 0; color: #4CAF50; }
-                
-                /* Container fills the exact remaining screen space */
-                .container { 
-                    flex-grow: 1; background: #252526; padding: 0; border-radius: 8px; 
-                    width: 100%; border: 1px solid #444; overflow: hidden; position: relative; 
-                }
-                #mermaid-container { width: 100%; height: 100%; position: absolute; top: 0; left: 0; }
-                
-                /* FIX 2: Force SVG to capture pointer events even on empty background spaces */
-                #mermaid-container svg { pointer-events: all !important; }
-            </style>
-            
-<!-- 1. Load the SVG Pan/Zoom Library -->
-<script src="https://unpkg.com/svg-pan-zoom@3.6.1/dist/svg-pan-zoom.min.js"></script>            <!-- 2. Load Mermaid -->
-            <script type="module">
-                import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs";
-                mermaid.initialize({ startOnLoad: false, theme: "dark", flowchart: { curve: "basis" } });
+      try{
+        // IMPORTANT: keep this on the same hook URL; only add query params
+        const url = location.pathname + "?api=1&t=" + Date.now();
+        const response = await fetch(url);
+        const graphString = await response.text();
 
-                let isRendering = false;
-                let lastGraphString = "";
-                let pzInstance = null; 
+        if(graphString !== lastGraphString){
+          isRendering=true;
+          lastGraphString=graphString;
 
-                async function fetchAndUpdateGraph() {
-                    if (isRendering) return;
-                    
-                    try {
-                        let response = await fetch("?api=1&t=" + Date.now());
-                        let graphString = await response.text();
+          const container = document.getElementById("mermaid-container");
 
-                        if (graphString !== lastGraphString) {
-                            isRendering = true;
-                            lastGraphString = graphString;
+          // preserve zoom/pan between rerenders
+          const oldZoom = pzInstance ? pzInstance.getZoom() : null;
+          const oldPan  = pzInstance ? pzInstance.getPan()  : null;
 
-                            let container = document.getElementById("mermaid-container");
-                            
-                            let oldZoom = pzInstance ? pzInstance.getZoom() : null;
-                            let oldPan = pzInstance ? pzInstance.getPan() : null;
+          if(pzInstance){ pzInstance.destroy(); pzInstance=null; }
 
-                            if (pzInstance) {
-                                pzInstance.destroy();
-                                pzInstance = null;
-                            }
+          const renderId = "graph_" + Date.now();
+          const { svg } = await mermaid.render(renderId, graphString);
 
-                            container.removeAttribute("data-processed");
-                            container.innerHTML = graphString;
-                            await mermaid.run({ nodes: [container] });
+          container.innerHTML = svg;
 
-                            let svgEl = container.querySelector("svg");
-                            if (svgEl) {
-                                svgEl.style.width = "100%";
-                                svgEl.style.height = "100%";
-                                svgEl.style.maxWidth = "none";
-                                
-                                pzInstance = svgPanZoom(svgEl, {
-                                    zoomEnabled: true,
-                                    controlIconsEnabled: true,
-                                    fit: true,
-                                    center: true,
-                                    minZoom: 0.2,
-                                    maxZoom: 10,
-                                    // FIX 3: Attach wheel listener to the background Div, not just the drawing
-                                    eventsListenerElement: container 
-                                });
+          const svgEl = container.querySelector("svg");
+          if(svgEl){
+            pzInstance = svgPanZoom(svgEl, {
+              zoomEnabled:true,
+              controlIconsEnabled:true,
+              fit:true,
+              center:true,
+              minZoom:0.2,
+              maxZoom:10,
+              eventsListenerElement: container
+            });
 
-                                if (oldZoom !== null && oldPan !== null) {
-                                    pzInstance.zoom(oldZoom);
-                                    pzInstance.pan(oldPan);
-                                }
-                            }
-                        }
-                    } catch (error) {
-                        console.error("Failed to render graph:", error);
-                    } finally {
-                        isRendering = false;
-                    }
-                }
+            if(oldZoom !== null && oldPan !== null){
+              pzInstance.zoom(oldZoom);
+              pzInstance.pan(oldPan);
+            }
+          }
+        }
+      }catch(err){
+        console.error("Failed to render graph:", err);
+      }finally{
+        isRendering=false;
+      }
+    }
 
-                setTimeout(fetchAndUpdateGraph, 500);
-                setInterval(fetchAndUpdateGraph, 2000);
-            </script>
-        </head>
-        <body>
-            <div class="header">
-                <h2>System Hierarchy (Live)</h2>
-                <small>Instance ID: ' . $this->InstanceID . '</small>
-            </div>
-            <div class="container">
-                <!-- Keep container empty. Javascript will inject the pure SVG here. -->
-                <div id="mermaid-container">Initializing Live View...</div>
-            </div>
-        </body>
-        </html>';
+    fetchAndUpdateGraph();
+    setInterval(fetchAndUpdateGraph, 2000);
+  </script>
+</head>
+
+<body>
+  <div class="header">
+    <h2>System Hierarchy (Live)</h2>
+    <small>Instance ID: ' . $this->InstanceID . '</small>
+  </div>
+  <div class="container">
+    <div id="mermaid-container">Initializing Live View...</div>
+  </div>
+</body>
+</html>';
     }
     public function GetConfigurationForm()
     {
