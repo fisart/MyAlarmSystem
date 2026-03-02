@@ -1990,7 +1990,16 @@ class SensorGroup extends IPSModule
             if (!isset($classMap[$cID])) continue;
 
             $cDef = $classMap[$cID];
-            $cLogic = ($cDef['LogicMode'] == 1) ? "AND" : "OR";
+
+            $lMode = (int)($cDef['LogicMode'] ?? 0);
+            if ($lMode === 1) {
+                $cLogic = "AND";
+            } elseif ($lMode === 2) {
+                $cLogic = "COUNT:" . ($cDef['Threshold'] ?? 1);
+            } else {
+                $cLogic = "OR";
+            }
+
             $cLabel = $cDef['ClassName'] . "<br/>[$cLogic | " . $cDef['TimeWindow'] . "s]";
 
             // Ask the engine if this class is active
