@@ -2034,7 +2034,7 @@ class SensorGroup extends IPSModule
                     flowchart: { curve: "basis" }
                 });
             </script>
-            <!-- FIX: Preserve scroll position across auto-reloads -->
+<!-- FIX: Preserve scroll position across auto-reloads (Async Aware) -->
             <script>
                 window.addEventListener("beforeunload", function() {
                     let container = document.querySelector(".container");
@@ -2043,15 +2043,20 @@ class SensorGroup extends IPSModule
                         sessionStorage.setItem("chartScrollLeft", container.scrollLeft);
                     }
                 });
-                window.addEventListener("DOMContentLoaded", function() {
+                
+                // Wait for Mermaid to actually draw the SVG before scrolling
+                let waitRender = setInterval(function() {
                     let container = document.querySelector(".container");
-                    if (container) {
+                    let svg = document.querySelector(".mermaid svg"); // Check if drawing is done
+                    
+                    if (container && svg) {
                         let top = sessionStorage.getItem("chartScrollTop");
                         let left = sessionStorage.getItem("chartScrollLeft");
-                        if (top) container.scrollTop = top;
-                        if (left) container.scrollLeft = left;
+                        if (top) container.scrollTop = parseInt(top);
+                        if (left) container.scrollLeft = parseInt(left);
+                        clearInterval(waitRender); // Stop checking
                     }
-                });
+                }, 50); // Check every 50ms
             </script>
         </head>
         <body>
