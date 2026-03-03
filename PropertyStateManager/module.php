@@ -684,8 +684,23 @@ class PropertyStateManager extends IPSModule
                     break;
                 }
                 break;
-            case 9: // ALARM TRIGGERED (latched)
-                // Stay in alarm until manually reset (ResetPayloadHistory sets SystemState to 0)
+            case 9: // ALARM TRIGGERED (latched, but can be cleared by authorized actions)
+                // Authorized reset: unlocking any entrance lock always disarms (your rule)
+                if ($entranceUnlocked) {
+                    $newState = 0;
+                    $this->LogMessage("[PSM-Logic] Alarm Cleared: Entrance lock unlocked", KL_MESSAGE);
+                    break;
+                }
+
+                // Authorized reset in internal mode: opening a bedroom door disarms (your rule)
+                // (We use $presence as the indicator for internal/home context)
+                if ($presence && $bedroomOpen) {
+                    $newState = 0;
+                    $this->LogMessage("[PSM-Logic] Alarm Cleared: Bedroom door opened (Internal)", KL_MESSAGE);
+                    break;
+                }
+
+                // Otherwise remain in alarm
                 break;
         }
 
