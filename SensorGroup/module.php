@@ -1934,119 +1934,161 @@ class SensorGroup extends IPSModule
             }
         }
 
-        // 2. Build the Graph Data
-        $graph = "graph RL\n";
-
-        $graph .= "classDef red fill:#c62828,stroke:#ff8a80,stroke-width:2px,color:#fff;\n";
-        $graph .= "classDef green fill:#2e7d32,stroke:#a5d6a7,stroke-width:2px,color:#fff;\n";
-        $graph .= "classDef grey fill:#37474f,stroke:#546e7a,stroke-width:1px,color:#eee;\n";
-        $graph .= "classDef target fill:#1565c0,stroke:#90caf9,stroke-width:2px,color:#fff;\n";
-
         $conf = json_decode($this->GetConfiguration(), true);
 
-        $classMap = [];
-        foreach ($conf['ClassList'] as $c) $classMap[$c['ClassID']] = $c;
+        // 2. API Mode (AJAX Request)
+        if (isset($_GET['api'])) {
+            $graph = "graph LR\n";
 
-        $groupMap = [];
-        foreach ($conf['GroupList'] as $g) $groupMap[$g['GroupName']] = $g;
+            $graph .= "classDef red fill:#c62828,stroke:#ff8a80,stroke-width:2px,color:#fff;\n";
+            $graph .= "classDef green fill:#2e7d32,stroke:#a5d6a7,stroke-width:2px,color:#fff;\n";
+            $graph .= "classDef grey fill:#37474f,stroke:#546e7a,stroke-width:1px,color:#eee;\n";
+            $graph .= "classDef target fill:#1565c0,stroke:#90caf9,stroke-width:2px,color:#fff;\n";
 
-        // PULL LIVE STATE FROM THE RULE ENGINE
-        $engineActiveClasses = json_decode($this->ReadAttributeString('ActiveClassesBuffer'), true) ?: [];
-        $engineActiveSensors = json_decode($this->ReadAttributeString('ActiveSensorsBuffer'), true) ?: [];
+            // --- FILTERING LOGIC ---
+            $dispatchTargets = $conf['DispatchTargets'] ?? [];
+            $groupDispatch   = $conf['GroupDispatch'] ?? [];
+            $groupMembers    = $conf['GroupMembers'] ?? [];
+            $sensorList      = $conf['SensorList'] ?? [];
 
-        // A. Dispatch Targets
-        foreach ($conf['DispatchTargets'] as $t) {
-            $tid = "T_" . $t['InstanceID'];
-            $label = $t['Name'] . "<br/>[" . $t['InstanceID'] . "]";
-            $graph .= $tid . "[\"" . $label . "\"]:::target\n";
-        }
+            // Check if user requested a filter
+            $filterStr = $_GET['targetFilter'] ?? '';
+            if ($filterStr !== '') {
+                $allowedTargets = explode(',', $filterStr);
 
-        // B. Groups -> Targets
-        foreach ($conf['GroupDispatch'] as $d) {
-            $gName = $d['GroupName'];
-            $tid = "T_" . $d['InstanceID'];
-            $gid = "G_" . md5($gName);
+                // 1. Filter Targets
+                $dispatchTargets = array_filter($dispatchTargets, function ($t) use ($allowedTargets) {
+                    return in_array((string)$t['InstanceID'], $allowedTargets);
+                });
 
-            $ident = "Status_" . $this->SanitizeIdent($gName);
-            $isActive = (@$this->GetIDForIdent($ident) && GetValue($this->GetIDForIdent($ident)));
-            $style = $isActive ? "red" : "green";
+                // 2. Find Allowed Groups
+                $allowedGroups = [];
+                $groupDispatch = array_filter($groupDispatch, function ($d) use ($allowedTargets, &$allowedGroups) {
+                    if (in_array((string)$d['InstanceID'], $allowedTargets)) {
+                        $allowedGroups[$d['GroupName']] = true;
+                        return true;
+                    }
+                    return false;
+                });
 
-            $gLogic = ($groupMap[$gName]['GroupLogic'] ?? 0) == 1 ? "AND" : "OR";
-            $label = "$gName<br/>[$gLogic]";
+                // 3. Find Allowed Classes
+                $allowedClasses = [];
+                $groupMembers = array_filter($groupMembers, function ($m) use ($allowedGroups, &$allowedClasses) {
+                    if (isset($allowedGroups[$m['GroupName']])) {
+                        $allowedClasses[$m['ClassID']] = true;
+                        return true;
+                    }
+                    return false;
+                });
 
-            $graph .= $gid . "[\"" . $label . "\"]:::" . $style . " --> " . $tid . "\n";
-
-            $linkIdx = $this->linkCounter++;
-            if ($isActive) $graph .= "linkStyle $linkIdx stroke:#ff8a80,stroke-width:2px;\n";
-        }
-
-        // C. Classes -> Groups
-        foreach ($conf['GroupMembers'] as $m) {
-            $gName = $m['GroupName'];
-            $cID = $m['ClassID'];
-            $gid = "G_" . md5($gName);
-            $cidNode = "C_" . substr(md5($cID), 0, 8);
-
-            if (!isset($classMap[$cID])) continue;
-
-            $cDef = $classMap[$cID];
-
-            $lMode = (int)($cDef['LogicMode'] ?? 0);
-            if ($lMode === 1) {
-                $cLogic = "AND";
-            } elseif ($lMode === 2) {
-                $cLogic = "COUNT:" . ($cDef['Threshold'] ?? 1);
-            } else {
-                $cLogic = "OR";
+                // 4. Filter Sensors
+                $sensorList = array_filter($sensorList, function ($s) use ($allowedClasses) {
+                    return isset($allowedClasses[$s['ClassID']]);
+                });
             }
 
-            $cLabel = $cDef['ClassName'] . "<br/>[$cLogic | " . $cDef['TimeWindow'] . "s]";
+            // Lookups
+            $classMap = [];
+            foreach ($conf['ClassList'] as $c) $classMap[$c['ClassID']] = $c;
+            $groupMap = [];
+            foreach ($conf['GroupList'] as $g) $groupMap[$g['GroupName']] = $g;
 
-            // Ask the engine if this class is active
-            $isClassActive = in_array($cID, $engineActiveClasses);
-            $cStyle = $isClassActive ? "red" : "grey";
+            // States
+            $engineActiveClasses = json_decode($this->ReadAttributeString('ActiveClassesBuffer'), true) ?: [];
+            $engineActiveSensors = json_decode($this->ReadAttributeString('ActiveSensorsBuffer'), true) ?: [];
 
-            $graph .= $cidNode . "[\"" . $cLabel . "\"]:::" . $cStyle . " --> " . $gid . "\n";
+            // A. Draw Targets
+            foreach ($dispatchTargets as $t) {
+                $tid = "T_" . $t['InstanceID'];
+                $label = $t['Name'] . "<br/>[" . $t['InstanceID'] . "]";
+                $graph .= $tid . "[\"" . $label . "\"]:::target\n";
+            }
 
-            $linkIdx = $this->linkCounter++;
-            if ($isClassActive) $graph .= "linkStyle $linkIdx stroke:#ff8a80,stroke-width:2px;\n";
-        }
+            // B. Draw Groups
+            foreach ($groupDispatch as $d) {
+                $gName = $d['GroupName'];
+                $tid = "T_" . $d['InstanceID'];
+                $gid = "G_" . md5($gName);
 
-        // D. Sensors -> Classes
-        foreach ($conf['SensorList'] as $s) {
-            $cID = $s['ClassID'];
-            $cidNode = "C_" . substr(md5($cID), 0, 8);
-            $vid = $s['VariableID'];
-            $sid = "S_" . $vid;
+                $ident = "Status_" . $this->SanitizeIdent($gName);
+                $isActive = (@$this->GetIDForIdent($ident) && GetValue($this->GetIDForIdent($ident)));
+                $style = $isActive ? "red" : "green";
 
-            // Ask the engine if this sensor triggered
-            $isActive = in_array($vid, $engineActiveSensors);
-            $style = $isActive ? "red" : "green";
+                $gLogic = ($groupMap[$gName]['GroupLogic'] ?? 0) == 1 ? "AND" : "OR";
+                $label = "$gName<br/>[$gLogic]";
 
-            $opMap = ['=', '!=', '>', '<', '>=', '<='];
-            $rule = $opMap[$s['Operator']] . " " . $s['ComparisonValue'];
-            $name = IPS_VariableExists($vid) ? IPS_GetName($vid) : "MISSING";
+                $graph .= $gid . "[\"" . $label . "\"]:::" . $style . " --> " . $tid . "\n";
+                $linkIdx = $this->linkCounter++;
+                if ($isActive) $graph .= "linkStyle $linkIdx stroke:#ff8a80,stroke-width:2px;\n";
+            }
 
-            // Extract location data (fallback to 'Unknown' if missing)
-            $pName = $s['ParentName'] ?? 'Unknown';
-            $gpName = $s['GrandParentName'] ?? 'Unknown';
+            // C. Draw Classes
+            foreach ($groupMembers as $m) {
+                $gName = $m['GroupName'];
+                $cID = $m['ClassID'];
+                $gid = "G_" . md5($gName);
+                $cidNode = "C_" . substr(md5($cID), 0, 8);
 
-            // FIX: Format: Sensor Name (Variable ID), then[Grandparent / Parent], then the Logic Rule
-            $label = "$name ($vid)<br/>[$gpName / $pName]<br/>$rule";
-            $graph .= $sid . "[\"" . $label . "\"]:::" . $style . " --> " . $cidNode . "\n";
+                if (!isset($classMap[$cID])) continue;
+                $cDef = $classMap[$cID];
+                $lMode = (int)($cDef['LogicMode'] ?? 0);
+                if ($lMode === 1) {
+                    $cLogic = "AND";
+                } elseif ($lMode === 2) {
+                    $cLogic = "COUNT:" . ($cDef['Threshold'] ?? 1);
+                } else {
+                    $cLogic = "OR";
+                }
 
-            $linkIdx = $this->linkCounter++;
-            if ($isActive) $graph .= "linkStyle $linkIdx stroke:#ff8a80,stroke-width:2px;\n";
-        }
+                $cLabel = $cDef['ClassName'] . "<br/>[$cLogic | " . $cDef['TimeWindow'] . "s]";
+                $isClassActive = in_array($cID, $engineActiveClasses);
+                $cStyle = $isClassActive ? "red" : "grey";
 
-        // 3. API Mode (AJAX Request)
-        if (isset($_GET['api'])) {
+                $graph .= $cidNode . "[\"" . $cLabel . "\"]:::" . $cStyle . " --> " . $gid . "\n";
+                $linkIdx = $this->linkCounter++;
+                if ($isClassActive) $graph .= "linkStyle $linkIdx stroke:#ff8a80,stroke-width:2px;\n";
+            }
+
+            // D. Draw Sensors
+            foreach ($sensorList as $s) {
+                $cID = $s['ClassID'];
+                $cidNode = "C_" . substr(md5($cID), 0, 8);
+                $vid = $s['VariableID'];
+                $sid = "S_" . $vid;
+
+                $isActive = in_array($vid, $engineActiveSensors);
+                $style = $isActive ? "red" : "green";
+
+                $opMap = ['=', '!=', '>', '<', '>=', '<='];
+                $rule = $opMap[$s['Operator']] . " " . $s['ComparisonValue'];
+                $name = IPS_VariableExists($vid) ? IPS_GetName($vid) : "MISSING";
+                $pName = $s['ParentName'] ?? 'Unknown';
+                $gpName = $s['GrandParentName'] ?? 'Unknown';
+
+                $label = "$name ($vid)<br/>[$gpName / $pName]<br/>$rule";
+                $graph .= $sid . "[\"" . $label . "\"]:::" . $style . " --> " . $cidNode . "\n";
+                $linkIdx = $this->linkCounter++;
+                if ($isActive) $graph .= "linkStyle $linkIdx stroke:#ff8a80,stroke-width:2px;\n";
+            }
+
             header("Content-Type: text/plain");
             echo $graph;
             return;
         }
 
-        // 4. Output HTML Framework
+        // 3. HTML Framework & Checkboxes
+        $checkboxesHTML = '';
+        if (isset($conf['DispatchTargets']) && is_array($conf['DispatchTargets'])) {
+            foreach ($conf['DispatchTargets'] as $t) {
+                $iid = $t['InstanceID'];
+                $name = htmlspecialchars($t['Name']);
+                // Default all to checked
+                $checkboxesHTML .= "<label style='margin:0 10px; cursor:pointer;'>
+                    <input type='checkbox' class='target-filter' value='$iid' checked onchange='forceRefresh()'> $name
+                </label>";
+            }
+        }
+
         echo '<!DOCTYPE html>
 <html>
 <head>
@@ -2059,17 +2101,16 @@ class SensorGroup extends IPSModule
       overflow:hidden;display:flex;flex-direction:column;
     }
     .header{flex-shrink:0;text-align:center;margin-bottom:12px;border-bottom:1px solid #333;padding-bottom:10px;}
-    .header h2{margin:0;color:#4CAF50;}
-.container{
-              flex-grow:1;background:#252526;border-radius:8px;width:100%;
-              border:1px solid #444;overflow:hidden;position:relative;
-            }
-            /* FIX: Tighter container bounds and explicit block display for SVG */
-            #mermaid-container { position:absolute; inset:0; overflow:hidden; }
-            #mermaid-container svg { width:100% !important; height:100% !important; max-width:none !important; display:block; }
+    .header h2{margin:0 0 10px 0;color:#4CAF50;}
+    .filter-bar { background: #333; padding: 10px; border-radius: 5px; display: inline-block; }
+    .container{
+      flex-grow:1;background:#252526;border-radius:8px;width:100%;
+      border:1px solid #444;overflow:hidden;position:relative;
+    }
+    #mermaid-container { position:absolute; inset:0; overflow:hidden; }
+    #mermaid-container svg { width:100% !important; height:100% !important; max-width:none !important; display:block; }
   </style>
 
-  <!-- Pan/Zoom lib (creates global svgPanZoom()) -->
   <script src="https://unpkg.com/svg-pan-zoom@3.6.1/dist/svg-pan-zoom.min.js"></script>
 
   <script type="module">
@@ -2078,29 +2119,46 @@ class SensorGroup extends IPSModule
     mermaid.initialize({
       startOnLoad:false,
       theme:"dark",
-      flowchart:{ curve:"basis", nodeSpacing:60, rankSpacing:120 }
+      themeVariables: { fontSize: "24px", fontFamily: "sans-serif" },
+      flowchart:{ curve:"basis", nodeSpacing:100, rankSpacing:600 }
     });
 
     let isRendering=false;
     let lastGraphString="";
     let pzInstance=null;
 
+    // Helper to get checked boxes
+    function getFilterString() {
+        let boxes = document.querySelectorAll(".target-filter:checked");
+        let vals = Array.from(boxes).map(b => b.value);
+        return vals.join(",");
+    }
+
+    // Force instant redraw when a checkbox is clicked
+    window.forceRefresh = function() {
+        lastGraphString = ""; // Force bypass the "same data" check
+        fetchAndUpdateGraph();
+    }
+
     async function fetchAndUpdateGraph(){
       if(isRendering) return;
 
       try{
-        // IMPORTANT: keep this on the same hook URL; only add query params
-        const url = location.pathname + "?api=1&t=" + Date.now();
+        let filterArgs = getFilterString();
+        const url = location.pathname + "?api=1&t=" + Date.now() + "&targetFilter=" + filterArgs;
         const response = await fetch(url);
         const graphString = await response.text();
+
+        if (graphString.trim().startsWith("<!DOCTYPE") || graphString.trim().startsWith("<html")) {
+            console.error("API returned HTML. Auth session likely expired.");
+            return;
+        }
 
         if(graphString !== lastGraphString){
           isRendering=true;
           lastGraphString=graphString;
 
           const container = document.getElementById("mermaid-container");
-
-          // preserve zoom/pan between rerenders
           const oldZoom = pzInstance ? pzInstance.getZoom() : null;
           const oldPan  = pzInstance ? pzInstance.getPan()  : null;
 
@@ -2108,57 +2166,46 @@ class SensorGroup extends IPSModule
 
           const renderId = "graph_" + Date.now();
           const { svg } = await mermaid.render(renderId, graphString);
-
           container.innerHTML = svg;
 
-const svgEl = container.querySelector("svg");
-                  if (svgEl) {
-                    // Ensure a viewBox exists (svg-pan-zoom works best with it)
-                    if (!svgEl.getAttribute("viewBox")) {
-                      const wRaw = (svgEl.width && svgEl.width.baseVal && svgEl.width.baseVal.value) || svgEl.getAttribute("width") || 1000;
-                      const hRaw = (svgEl.height && svgEl.height.baseVal && svgEl.height.baseVal.value) || svgEl.getAttribute("height") || 1000;
+          const svgEl = container.querySelector("svg");
+          if (svgEl) {
+            if (!svgEl.getAttribute("viewBox")) {
+              const wRaw = (svgEl.width && svgEl.width.baseVal && svgEl.width.baseVal.value) || svgEl.getAttribute("width") || 1000;
+              const hRaw = (svgEl.height && svgEl.height.baseVal && svgEl.height.baseVal.value) || svgEl.getAttribute("height") || 1000;
+              const w = Number(String(wRaw).replace(/[^0-9.]/g, "")) || 1000;
+              const h = Number(String(hRaw).replace(/[^0-9.]/g, "")) || 1000;
+              svgEl.setAttribute("viewBox", `0 0 ${w} ${h}`);
+            }
 
-                      const w = Number(String(wRaw).replace(/[^0-9.]/g, "")) || 1000;
-                      const h = Number(String(hRaw).replace(/[^0-9.]/g, "")) || 1000;
+            svgEl.removeAttribute("width");
+            svgEl.removeAttribute("height");
+            svgEl.style.width = "100%";
+            svgEl.style.height = "100%";
+            svgEl.style.maxWidth = "none";
 
-                      svgEl.setAttribute("viewBox", `0 0 ${w} ${h}`);
-                    }
+            let isFirstLoad = (oldZoom === null || oldPan === null);
 
-                    // Remove hard pixel sizing so CSS 100% can take over
-                    svgEl.removeAttribute("width");
-                    svgEl.removeAttribute("height");
+            pzInstance = svgPanZoom(svgEl, {
+              zoomEnabled: true,
+              controlIconsEnabled: true,
+              fit: isFirstLoad,       
+              center: isFirstLoad,    
+              minZoom: 0.2,
+              maxZoom: 10,
+              eventsListenerElement: container
+            });
 
-                    // Don’t nuke the entire style; just neutralize sizing constraints if present
-                    svgEl.style.width = "100%";
-                    svgEl.style.height = "100%";
-                    svgEl.style.maxWidth = "none";
+            pzInstance.resize();
 
-  // Determine if this is the initial load or a live update
-                    let isFirstLoad = (oldZoom === null || oldPan === null);
-
-                    pzInstance = svgPanZoom(svgEl, {
-                      zoomEnabled: true,
-                      controlIconsEnabled: true,
-                      fit: isFirstLoad,       // Only auto-fit on initial load
-                      center: isFirstLoad,    // Only auto-center on initial load
-                      minZoom: 0.2,
-                      maxZoom: 10,
-                      eventsListenerElement: container
-                    });
-
-                    // Important: force recalculation of container bounds
-                    pzInstance.resize();
-
-                    if (isFirstLoad) {
-                      // First time seeing the chart -> center it beautifully
-                      pzInstance.fit();
-                      pzInstance.center();
-                    } else {
-                      // Live update -> freeze the camera exactly where the user left it
-                      pzInstance.zoom(oldZoom);
-                      pzInstance.pan(oldPan);
-                    }
-                  }
+            if (isFirstLoad) {
+              pzInstance.fit();
+              pzInstance.center();
+            } else {
+              pzInstance.pan(oldPan);
+              pzInstance.zoom(oldZoom);
+            }
+          }
         }
       }catch(err){
         console.error("Failed to render graph:", err);
@@ -2176,6 +2223,10 @@ const svgEl = container.querySelector("svg");
   <div class="header">
     <h2>System Hierarchy (Live)</h2>
     <small>Instance ID: ' . $this->InstanceID . '</small>
+    <br><br>
+    <div class="filter-bar">
+        ' . $checkboxesHTML . '
+    </div>
   </div>
   <div class="container">
     <div id="mermaid-container">Initializing Live View...</div>
@@ -2183,6 +2234,10 @@ const svgEl = container.querySelector("svg");
 </body>
 </html>';
     }
+
+
+
+
     public function GetConfigurationForm()
     {
         // === DEBUG: Enter GetConfigurationForm ===
