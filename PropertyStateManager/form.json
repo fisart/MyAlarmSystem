@@ -25,7 +25,7 @@
             "type": "NumberSpinner",
             "name": "ArmingDelayDuration",
             "caption": "Arming Delay (Minutes)",
-            "minimum": 0
+            "minimum": 1
         },
         {
             "type": "SelectInstance",
