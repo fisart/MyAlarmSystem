@@ -215,7 +215,8 @@ class PropertyStateManager extends IPSModule
                         .then(response => response.json())
                         .then(data => {
                             document.getElementById('stateText').innerText = data.state;
-                            for (let i = 0; i < 8; i++) {
+                            // Updated loop to 9 to include Window Bit
+                            for (let i = 0; i < 9; i++) {
                                 let isActive = (data.bits & (1 << i));
                                 let el = document.getElementById('bit_' + i);
                                 if(el) {
@@ -256,17 +257,19 @@ class PropertyStateManager extends IPSModule
         echo "<h3>Sensor Status</h3>";
 
         $labels = [
-            "Front Door Lock",
-            "Front Door Contact",
-            "Basement Door Lock",
-            "Presence Detected",
-            "Delay Timer Active",
-            "System Currently Armed",
-            "Bedroom Door Open",
-            "Basement Door Contact"
+            "Front Door Lock",       // Bit 0
+            "Front Door Contact",    // Bit 1
+            "Basement Door Lock",    // Bit 2
+            "Presence Detected",     // Bit 3
+            "Delay Timer Active",    // Bit 4
+            "System Currently Armed", // Bit 5
+            "Bedroom Door Open",     // Bit 6
+            "Basement Door Contact", // Bit 7
+            "Window Open"            // Bit 8 (NEW)
         ];
 
-        for ($i = 0; $i < 8; $i++) {
+        // Increased Loop to 9
+        for ($i = 0; $i < 9; $i++) {
             echo "<div class='bit-row'>
                     <span>Bit $i: " . ($labels[$i] ?? "Bit $i") . "</span>
                     <span id='bit_$i' class='inactive'>...</span>
@@ -485,7 +488,8 @@ class PropertyStateManager extends IPSModule
         $frontLocked = false;
         $frontClosed = false;
         $baseLocked = false;
-        $baseClosed = false; // NEW
+        $baseClosed = false;
+        $windowsClosed = true; // Default to Closed (Secure)
         $presence = false;
         $bedroomOpen = false;
 
@@ -504,7 +508,17 @@ class PropertyStateManager extends IPSModule
                     break;
                 case 'Basement Door Contact':
                     if ($isActive) $baseClosed = true;
-                    break; // NEW
+                    break;
+
+                // NEW: Generic Door and Window Logic
+                // If any sensor mapped to these roles is Active (Open), set flag to False
+                case 'Generic Door':
+                    if ($isActive) $windowsClosed = false;
+                    break;
+                case 'Window Contact':
+                    if ($isActive) $windowsClosed = false;
+                    break;
+
                 case 'Presence':
                     if ($isActive) $presence = true;
                     break;
@@ -518,19 +532,20 @@ class PropertyStateManager extends IPSModule
         }
 
         // Derived Conditions (UPDATED)
-        // Now requires Basement Contact to be Closed as well
-        $perimeterSecure = ($frontLocked && $frontClosed && $baseLocked && $baseClosed);
+        // Perimeter Secure requires specific doors LOCKED + Generic items CLOSED
+        $perimeterSecure = ($frontLocked && $frontClosed && $baseLocked && $baseClosed && $windowsClosed);
 
         $readyToSleep = ($presence && !$bedroomOpen);
         $readyToLeave = (!$presence);
 
-        // DEBUG REPORTING (Updated)
+        // DEBUG REPORTING
         $this->LogMessage(sprintf(
-            "[PSM-Logic] Inputs: F-Lock:%d F-Close:%d B-Lock:%d B-Close:%d | Pres:%d BedOpen:%d || Secure:%s",
+            "[PSM-Logic] Inputs: F-Lock:%d F-Close:%d B-Lock:%d B-Close:%d Win/GenClose:%d | Pres:%d BedOpen:%d || Secure:%s",
             $frontLocked,
             $frontClosed,
             $baseLocked,
             $baseClosed,
+            $windowsClosed,
             $presence,
             $bedroomOpen,
             $perimeterSecure ? "YES" : "NO"
@@ -593,6 +608,7 @@ class PropertyStateManager extends IPSModule
             $this->LogMessage("[PSM-Timer] Exit Delay Cancelled", KL_MESSAGE);
         }
     }
+
     public function GetSystemState()
     {
         $status = [

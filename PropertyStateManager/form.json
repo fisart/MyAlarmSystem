@@ -63,8 +63,9 @@
                             { "caption": "Front Door: Contact", "value": "Front Door Contact" },
                             { "caption": "Basement: Lock", "value": "Basement Door Lock" },
                             { "caption": "Basement: Contact", "value": "Basement Door Contact" },
+                            { "caption": "Perimeter: Generic Door", "value": "Generic Door" },
+                            { "caption": "Perimeter: Window", "value": "Window Contact" },
                             { "caption": "Presence", "value": "Presence" }
-
                         ]
                     }
                 }
