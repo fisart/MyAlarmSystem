@@ -52,6 +52,7 @@ class PropertyStateManager extends IPSModule
         IPS_SetVariableProfileAssociation('PSM.State', 2, "Exit Delay", "", -1);
         IPS_SetVariableProfileAssociation('PSM.State', 3, "Armed (External)", "", -1);
         IPS_SetVariableProfileAssociation('PSM.State', 6, "Armed (Internal)", "", -1);
+        IPS_SetVariableProfileAssociation('PSM.State', 9, "Alarm Triggered!", "", -1);
 
         // Optional but useful: keep 1 from showing misleading old meaning if it exists somewhere
         IPS_SetVariableProfileAssociation('PSM.State', 1, "Legacy/Unused", "", -1);
@@ -554,7 +555,9 @@ class PropertyStateManager extends IPSModule
 
         // Derived Conditions
         $perimeterSecure = ($frontLocked && $frontClosed && $baseLocked && $baseClosed && $windowsClosed);
-
+        // Derived Flags for ARMED behavior (per your guidance)
+        $entranceUnlocked = (!$frontLocked || !$baseLocked);   // unlocking any entrance lock disarms
+        $groupLevelOpen   = (!$windowsClosed);                 // opening any group-level window/door triggers alarm (when armed)
         $readyToSleep = ($presence && !$bedroomOpen);
         $readyToLeave = (!$presence);
 
@@ -605,17 +608,37 @@ class PropertyStateManager extends IPSModule
                 break;
 
             case 3: // ARMED EXTERNAL
-                if (!$perimeterSecure) {
+                if ($entranceUnlocked) {
                     $newState = 0;
-                    $this->LogMessage("[PSM-Logic] Alarm/Disarm: Perimeter Breach", KL_WARNING);
+                    $this->LogMessage("[PSM-Logic] Disarm: Entrance lock unlocked (External Armed)", KL_MESSAGE);
+                    break;
+                }
+                if ($groupLevelOpen) {
+                    $newState = 9;
+                    $this->LogMessage("[PSM-Logic] ALARM TRIGGERED: Group-level opening detected (External Armed)", KL_WARNING);
+                    break;
                 }
                 break;
 
             case 6: // ARMED INTERNAL
-                if (!$perimeterSecure || $bedroomOpen) {
+                if ($entranceUnlocked) {
                     $newState = 0;
-                    $this->LogMessage("[PSM-Logic] Alarm/Disarm: Security Breach", KL_WARNING);
+                    $this->LogMessage("[PSM-Logic] Disarm: Entrance lock unlocked (Internal Armed)", KL_MESSAGE);
+                    break;
                 }
+                if ($bedroomOpen) {
+                    $newState = 0;
+                    $this->LogMessage("[PSM-Logic] Disarm: Bedroom door opened (Internal Armed)", KL_MESSAGE);
+                    break;
+                }
+                if ($groupLevelOpen) {
+                    $newState = 9;
+                    $this->LogMessage("[PSM-Logic] ALARM TRIGGERED: Group-level opening detected (Internal Armed)", KL_WARNING);
+                    break;
+                }
+                break;
+            case 9: // ALARM TRIGGERED (latched)
+                // Stay in alarm until manually reset (ResetPayloadHistory sets SystemState to 0)
                 break;
         }
 
