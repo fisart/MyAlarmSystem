@@ -324,16 +324,15 @@ class PropertyStateManager extends IPSModule
                 case 'Presence':
                     if ($isTripped) $bits |= (1 << 3);
                     break;
-                // FIX: Add Basement Contact mapping for Dashboard (Bit 7)
                 case 'Basement Door Contact':
                     if ($isTripped) $bits |= (1 << 7);
                     break;
-                // NEW: Add Window Contact (Bit 8) and Generic Door (Bit 9)
+                // FIX: Removed '!' so Active (Closed) sensors set the bit to 1 (ON)
                 case 'Window Contact':
-                    if (!$isTripped) $bits |= (1 << 8);
+                    if ($isTripped) $bits |= (1 << 8);
                     break;
                 case 'Generic Door':
-                    if (!$isTripped) $bits |= (1 << 9);
+                    if ($isTripped) $bits |= (1 << 9);
                     break;
             }
         }
