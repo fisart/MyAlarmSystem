@@ -546,7 +546,12 @@ class PropertyStateManager extends IPSModule
         // Parse Bedroom Metadata
         foreach ($presenceMap as $room) {
             if ($room['SwitchState'] ?? false) $presence = true;
-            if ($room['DoorTripped'] ?? false) $bedroomOpen = true;
+
+            // FIX: Polarity Inversion (True = Closed/Secure)
+            // If DoorTripped is FALSE (Inactive), then the door is Open (Insecure).
+            // If DoorTripped is TRUE (Active), the door is Closed (Secure).
+            $isTripped = $room['DoorTripped'] ?? false;
+            if (!$isTripped) $bedroomOpen = true;
         }
 
         // Derived Conditions (UPDATED)
