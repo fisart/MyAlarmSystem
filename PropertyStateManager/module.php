@@ -17,6 +17,7 @@ class PropertyStateManager extends IPSModule
         $this->RegisterPropertyInteger("SyncTimestamp", 0);
         $this->RegisterPropertyInteger("ArmingDelayDuration", 1);
         $this->RegisterPropertyInteger("VaultInstanceID", 0);
+        $this->RegisterAttributeInteger("DelayExpired", 0);
 
         // Attributes (RAM Buffers)
         $this->RegisterAttributeString("ActiveSensors", "[]");
@@ -101,43 +102,17 @@ class PropertyStateManager extends IPSModule
         }
     }
 
-    public function HandleTimer()
-    {
-        // Stop the timer
-        $this->SetTimerInterval("DelayTimer", 0);
+public function HandleTimer()
+{
+    // Mark that the delay has actually expired (not cancelled)
+    $this->WriteAttributeInteger("DelayExpired", 1);
 
-        $bits = $this->GetCurrentBitmask();
+    // Stop timer (it has fired)
+    $this->SetTimerInterval("DelayTimer", 0);
 
-        // VALIDATION 1: Perimeter Integrity (must match EvaluateState perimeterSecure)
-        // Required ON: 0,1,2,7  | Required OFF: 8,9
-        $requiredOnMask  = (1 << 0) | (1 << 1) | (1 << 2) | (1 << 7);
-        $requiredOffMask = (1 << 8) | (1 << 9);
-
-        if ((($bits & $requiredOnMask) !== $requiredOnMask) || (($bits & $requiredOffMask) !== 0)) {
-            $this->LogMessage("[PSM-Timer] Arming ABORTED. Perimeter Fault detected (Bitmask: $bits).", KL_ERROR);
-            $this->SetValue("SystemState", 0);
-            $this->EvaluateState();
-            return;
-        }
-
-        // VALIDATION 2: Internal Constraint
-        // If Presence(Bit 3) is TRUE, BedroomOpen(Bit 6) must be FALSE.
-        if (($bits & 8) && ($bits & 64)) {
-            $this->LogMessage("[PSM-Timer] Internal Arming ABORTED. Bedroom Door Open.", KL_ERROR);
-            $this->SetValue("SystemState", 0);
-            $this->EvaluateState();
-            return;
-        }
-
-        // Success: Proceed to Arm
-        $targetState = ($bits & 8) ? 6 : 3;
-        $this->SetValue("SystemState", $targetState);
-        $this->LogMessage("[PSM-Timer] Validation Passed. System Armed (State $targetState).", KL_MESSAGE);
-
-        // Re-evaluate to stabilize logic
-        $this->EvaluateState();
-    }
-
+    // Single rules engine decides next state
+    $this->EvaluateState();
+}
     /**
      * This is called by the UI button. 
      * Simply calling it forces IP-Symcon to reload GetConfigurationForm.
@@ -507,140 +482,150 @@ class PropertyStateManager extends IPSModule
         ], JSON_PRETTY_PRINT);
     }
 
-    private function EvaluateState()
-    {
-        // 1. Gather Inputs
-        $mapping = json_decode($this->ReadPropertyString("GroupMapping"), true);
-        $activeSensors = json_decode($this->ReadAttributeString("ActiveSensors"), true);
-        $activeGroups = json_decode($this->ReadAttributeString("ActiveGroups"), true);
-        $presenceMap = json_decode($this->ReadAttributeString("PresenceMap"), true);
+private function EvaluateState()
+{
+    // 1. Gather Inputs
+    $mapping       = json_decode($this->ReadPropertyString("GroupMapping"), true);
+    $activeSensors = json_decode($this->ReadAttributeString("ActiveSensors"), true);
+    $activeGroups  = json_decode($this->ReadAttributeString("ActiveGroups"), true);
+    $presenceMap   = json_decode($this->ReadAttributeString("PresenceMap"), true);
 
-        // Reset Flags
-        $frontLocked = false;
-        $frontClosed = false;
-        $baseLocked = false;
-        $baseClosed = false;
-        $windowsClosed = true; // Default to Closed (Secure)
-        $presence = false;
-        $bedroomOpen = false;
+    // Reset Flags
+    $frontLocked   = false;
+    $frontClosed   = false;
+    $baseLocked    = false;
+    $baseClosed    = false;
+    $windowsClosed = true; // Default to Closed (Secure)
+    $presence      = false;
+    $bedroomOpen   = false;
 
-        // Parse Hardware Sensors
-        foreach ($mapping as $item) {
-            // Check if SourceKey is an Active Sensor ID OR an Active Group Name
-            $isActive = in_array($item['SourceKey'], $activeSensors) || in_array($item['SourceKey'], $activeGroups);
+    // Parse Hardware Sensors
+    foreach ($mapping as $item) {
+        // Check if SourceKey is an Active Sensor ID OR an Active Group Name
+        $isActive = in_array($item['SourceKey'], $activeSensors) || in_array($item['SourceKey'], $activeGroups);
 
-            switch ($item['LogicalRole']) {
-                case 'Front Door Lock':
-                    if ($isActive) $frontLocked = true;
-                    break;
-                case 'Front Door Contact':
-                    if ($isActive) $frontClosed = true;
-                    break;
-                case 'Basement Door Lock':
-                    if ($isActive) $baseLocked = true;
-                    break;
-                case 'Basement Door Contact':
-                    if ($isActive) $baseClosed = true;
-                    break;
-
-                // NEW: Generic Door and Window Logic
-                // If any sensor mapped to these roles is Active (Open), set flag to False
-                case 'Generic Door':
-                    if ($isActive) $windowsClosed = false;
-                    break;
-                case 'Window Contact':
-                    if ($isActive) $windowsClosed = false;
-                    break;
-
-                case 'Presence':
-                    if ($isActive) $presence = true;
-                    break;
-            }
-        }
-
-        // Parse Bedroom Metadata
-        foreach ($presenceMap as $room) {
-            if ($room['SwitchState'] ?? false) $presence = true;
-            if ($room['DoorTripped'] ?? false) $bedroomOpen = true;
-        }
-
-        // Derived Conditions (UPDATED)
-        // Perimeter Secure requires specific doors LOCKED + Generic items CLOSED
-        $perimeterSecure = ($frontLocked && $frontClosed && $baseLocked && $baseClosed && $windowsClosed);
-
-        $readyToSleep = ($presence && !$bedroomOpen);
-        $readyToLeave = (!$presence);
-
-        // DEBUG REPORTING
-        $this->LogMessage(sprintf(
-            "[PSM-Logic] Inputs: F-Lock:%d F-Close:%d B-Lock:%d B-Close:%d Win/GenClose:%d | Pres:%d BedOpen:%d || Secure:%s",
-            $frontLocked,
-            $frontClosed,
-            $baseLocked,
-            $baseClosed,
-            $windowsClosed,
-            $presence,
-            $bedroomOpen,
-            $perimeterSecure ? "YES" : "NO"
-        ), KL_MESSAGE);
-
-        // 2. State Machine Logic
-        $currentState = $this->GetValue("SystemState");
-        $newState = $currentState;
-
-        switch ($currentState) {
-            case 0: // DISARMED
-                if ($perimeterSecure) {
-                    if ($readyToLeave || $readyToSleep) {
-                        $newState = 2;
-                    }
-                }
+        switch ($item['LogicalRole']) {
+            case 'Front Door Lock':
+                if ($isActive) $frontLocked = true;
+                break;
+            case 'Front Door Contact':
+                if ($isActive) $frontClosed = true;
+                break;
+            case 'Basement Door Lock':
+                if ($isActive) $baseLocked = true;
+                break;
+            case 'Basement Door Contact':
+                if ($isActive) $baseClosed = true;
                 break;
 
-            case 2: // EXIT DELAY
-                if (!$perimeterSecure) {
-                    $newState = 0;
-                    $this->LogMessage("[PSM-Logic] Abort Delay: Perimeter Unsecure", KL_WARNING);
-                }
-                if ($presence && $bedroomOpen) {
-                    $newState = 0;
-                    $this->LogMessage("[PSM-Logic] Abort Delay: Bedroom Open", KL_WARNING);
-                }
+            // If any sensor mapped to these roles is Active (Open), set flag to False
+            case 'Generic Door':
+                if ($isActive) $windowsClosed = false;
+                break;
+            case 'Window Contact':
+                if ($isActive) $windowsClosed = false;
                 break;
 
-            case 3: // ARMED EXTERNAL
-                if (!$perimeterSecure) {
-                    $newState = 0;
-                    $this->LogMessage("[PSM-Logic] Alarm/Disarm: Perimeter Breach", KL_WARNING);
-                }
+            case 'Presence':
+                if ($isActive) $presence = true;
                 break;
-
-            case 6: // ARMED INTERNAL
-                if (!$perimeterSecure || $bedroomOpen) {
-                    $newState = 0;
-                    $this->LogMessage("[PSM-Logic] Alarm/Disarm: Security Breach", KL_WARNING);
-                }
-                break;
-        }
-
-        // 3. Execute Transition
-        if ($currentState !== $newState) {
-            $this->SetValue("SystemState", $newState);
-            $this->LogMessage("[PSM-Logic] State change: $currentState -> $newState", KL_MESSAGE);
-        }
-
-        // 4. Timer Management
-        if ($newState == 2) {
-            if ($currentState != 2) {
-                $duration = $this->ReadPropertyInteger("ArmingDelayDuration");
-                $this->SetTimerInterval("DelayTimer", $duration * 60 * 1000);
-                $this->LogMessage("[PSM-Timer] Exit Delay Started ($duration min)", KL_MESSAGE);
-            }
-        } elseif ($this->GetTimerInterval("DelayTimer") > 0) {
-            $this->SetTimerInterval("DelayTimer", 0);
-            $this->LogMessage("[PSM-Timer] Exit Delay Cancelled", KL_MESSAGE);
         }
     }
+
+    // Parse Bedroom Metadata
+    foreach ($presenceMap as $room) {
+        if ($room['SwitchState'] ?? false) $presence = true;
+        if ($room['DoorTripped'] ?? false) $bedroomOpen = true;
+    }
+
+    // Derived Conditions
+    $perimeterSecure = ($frontLocked && $frontClosed && $baseLocked && $baseClosed && $windowsClosed);
+
+    $readyToSleep = ($presence && !$bedroomOpen);
+    $readyToLeave = (!$presence);
+
+    // DEBUG REPORTING
+    $this->LogMessage(sprintf(
+        "[PSM-Logic] Inputs: F-Lock:%d F-Close:%d B-Lock:%d B-Close:%d Win/GenClose:%d | Pres:%d BedOpen:%d || Secure:%s",
+        $frontLocked,
+        $frontClosed,
+        $baseLocked,
+        $baseClosed,
+        $windowsClosed,
+        $presence,
+        $bedroomOpen,
+        $perimeterSecure ? "YES" : "NO"
+    ), KL_MESSAGE);
+
+    // 2. State Machine Logic
+    $currentState = $this->GetValue("SystemState");
+    $newState     = $currentState;
+
+    switch ($currentState) {
+        case 0: // DISARMED
+            if ($perimeterSecure) {
+                if ($readyToLeave || $readyToSleep) {
+                    $newState = 2;
+                }
+            }
+            break;
+
+        case 2: // EXIT DELAY
+            if (!$perimeterSecure) {
+                $newState = 0;
+                $this->LogMessage("[PSM-Logic] Abort Delay: Perimeter Unsecure", KL_WARNING);
+                break;
+            }
+
+            if ($presence && $bedroomOpen) {
+                $newState = 0;
+                $this->LogMessage("[PSM-Logic] Abort Delay: Bedroom Open", KL_WARNING);
+                break;
+            }
+
+            // Arm ONLY if the timer actually expired (not merely cancelled)
+            if ($this->ReadAttributeInteger("DelayExpired") === 1) {
+                $newState = $presence ? 6 : 3; // Presence=true => Armed Internal, else Armed External
+                $this->LogMessage("[PSM-Logic] Exit Delay Expired: System Armed", KL_MESSAGE);
+            }
+            break;
+
+        case 3: // ARMED EXTERNAL
+            if (!$perimeterSecure) {
+                $newState = 0;
+                $this->LogMessage("[PSM-Logic] Alarm/Disarm: Perimeter Breach", KL_WARNING);
+            }
+            break;
+
+        case 6: // ARMED INTERNAL
+            if (!$perimeterSecure || $bedroomOpen) {
+                $newState = 0;
+                $this->LogMessage("[PSM-Logic] Alarm/Disarm: Security Breach", KL_WARNING);
+            }
+            break;
+    }
+
+    // 3. Execute Transition
+    if ($currentState !== $newState) {
+        $this->SetValue("SystemState", $newState);
+        $this->LogMessage("[PSM-Logic] State change: $currentState -> $newState", KL_MESSAGE);
+    }
+
+    // 4. Timer Management
+    if ($newState == 2) {
+        if ($currentState != 2) {
+            $this->WriteAttributeInteger("DelayExpired", 0);
+            $duration = $this->ReadPropertyInteger("ArmingDelayDuration");
+            $this->SetTimerInterval("DelayTimer", $duration * 60 * 1000);
+            $this->LogMessage("[PSM-Timer] Exit Delay Started ($duration min)", KL_MESSAGE);
+        }
+    } elseif ($this->GetTimerInterval("DelayTimer") > 0) {
+        $this->WriteAttributeInteger("DelayExpired", 0);
+        $this->SetTimerInterval("DelayTimer", 0);
+        $this->LogMessage("[PSM-Timer] Exit Delay Cancelled", KL_MESSAGE);
+    }
+}
+
 
     public function GetSystemState()
     {
