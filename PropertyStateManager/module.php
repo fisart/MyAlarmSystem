@@ -21,6 +21,7 @@ class PropertyStateManager extends IPSModule
         // Attributes (RAM Buffers)
         $this->RegisterAttributeString("ActiveSensors", "[]");
         $this->RegisterAttributeString("PresenceMap", "[]");
+        $this->RegisterAttributeString("ActiveGroups", "[]");
 
         // Debug Attributes
         $this->RegisterAttributeString("LastPayload", "");
@@ -303,13 +304,13 @@ class PropertyStateManager extends IPSModule
     {
         $mapping = json_decode($this->ReadPropertyString("GroupMapping"), true);
         $activeSensors = json_decode($this->ReadAttributeString("ActiveSensors"), true);
+        $activeGroups = json_decode($this->ReadAttributeString("ActiveGroups"), true);
         $presenceMap = json_decode($this->ReadAttributeString("PresenceMap"), true);
 
         $bits = 0;
         // Bits 0-2: Hardware Sensors & Presence Mapping
         foreach ($mapping as $item) {
-            $isTripped = in_array($item['SourceKey'], $activeSensors);
-
+            $isTripped = in_array($item['SourceKey'], $activeSensors) || in_array($item['SourceKey'], $activeGroups);
             switch ($item['LogicalRole']) {
                 case 'Front Door Lock':
                     if ($isTripped) $bits |= (1 << 0);
@@ -455,6 +456,10 @@ class PropertyStateManager extends IPSModule
         $this->LogMessage("[PSM-Rx] Active Sensors Count: $count", KL_MESSAGE);
 
         $this->WriteAttributeString("ActiveSensors", json_encode($activeSensors));
+        // 3. Save Active Groups (For Group-Level Logic like "Windows")
+        if (isset($data['active_groups'])) {
+            $this->WriteAttributeString("ActiveGroups", json_encode($data['active_groups']));
+        }
         $this->EvaluateState();
     }
 
@@ -492,6 +497,7 @@ class PropertyStateManager extends IPSModule
         // 1. Gather Inputs
         $mapping = json_decode($this->ReadPropertyString("GroupMapping"), true);
         $activeSensors = json_decode($this->ReadAttributeString("ActiveSensors"), true);
+        $activeGroups = json_decode($this->ReadAttributeString("ActiveGroups"), true);
         $presenceMap = json_decode($this->ReadAttributeString("PresenceMap"), true);
 
         // Reset Flags
@@ -505,7 +511,9 @@ class PropertyStateManager extends IPSModule
 
         // Parse Hardware Sensors
         foreach ($mapping as $item) {
-            $isActive = in_array($item['SourceKey'], $activeSensors);
+            // Check if SourceKey is an Active Sensor ID OR an Active Group Name
+            $isActive = in_array($item['SourceKey'], $activeSensors) || in_array($item['SourceKey'], $activeGroups);
+
             switch ($item['LogicalRole']) {
                 case 'Front Door Lock':
                     if ($isActive) $frontLocked = true;
