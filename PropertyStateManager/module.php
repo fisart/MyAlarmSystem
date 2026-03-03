@@ -199,6 +199,9 @@ class PropertyStateManager extends IPSModule
                 .header { font-size: 1.5em; margin-bottom: 20px; color: #2196f3; }
                 .footer { margin-top: 30px; padding: 20px; background: #222; border-radius: 8px; text-align: center; }
                 .btn-sync { float: right; background: #2196f3; color: white; border: none; padding: 8px 15px; border-radius: 4px; cursor: pointer; text-decoration: none; font-size: 0.6em; vertical-align: middle; }
+                .panel { border: 1px solid #333; border-radius: 8px; padding: 12px; margin: 14px 0; background: #151515; }
+.panel-title { font-size: 1.05em; font-weight: 600; color: #9ecbff; margin-bottom: 8px; }
+.panel .bit-row:last-child { border-bottom: none; }
               </style>
               <script>
                 function updateDashboard() {
@@ -274,13 +277,57 @@ class PropertyStateManager extends IPSModule
             "Generic Door Open"       // Bit 9 (NEW)
         ];
 
-        // Increase Loop to 10
-        for ($i = 0; $i < 10; $i++) {
+        // Grouped Panels (display only; keeps bit_0..bit_9 IDs unchanged)
+
+        // Entrance Doors and Locks: 0,1,2,7
+        echo "<div class='panel'><div class='panel-title'>Entrance Doors and Locks</div>";
+        foreach ([0, 1, 2, 7] as $i) {
             echo "<div class='bit-row'>
-                    <span>Bit $i: " . ($labels[$i] ?? "Bit $i") . "</span>
-                    <span id='bit_$i' class='inactive'>...</span>
-                  </div>";
+            <span>Bit $i: " . ($labels[$i] ?? "Bit $i") . "</span>
+            <span id='bit_$i' class='inactive'>...</span>
+          </div>";
         }
+        echo "</div>";
+
+        // Presence: 3
+        echo "<div class='panel'><div class='panel-title'>Presence</div>";
+        foreach ([3] as $i) {
+            echo "<div class='bit-row'>
+            <span>Bit $i: " . ($labels[$i] ?? "Bit $i") . "</span>
+            <span id='bit_$i' class='inactive'>...</span>
+          </div>";
+        }
+        echo "</div>";
+
+        // Bedroom Doors: 6
+        echo "<div class='panel'><div class='panel-title'>Bedroom Doors</div>";
+        foreach ([6] as $i) {
+            echo "<div class='bit-row'>
+            <span>Bit $i: " . ($labels[$i] ?? "Bit $i") . "</span>
+            <span id='bit_$i' class='inactive'>...</span>
+          </div>";
+        }
+        echo "</div>";
+
+        // Generic Doors and Windows: 8,9
+        echo "<div class='panel'><div class='panel-title'>Generic Doors and Windows</div>";
+        foreach ([8, 9] as $i) {
+            echo "<div class='bit-row'>
+            <span>Bit $i: " . ($labels[$i] ?? "Bit $i") . "</span>
+            <span id='bit_$i' class='inactive'>...</span>
+          </div>";
+        }
+        echo "</div>";
+
+        // System: 4,5 (recommended so they don’t “float” ungrouped)
+        echo "<div class='panel'><div class='panel-title'>System</div>";
+        foreach ([4, 5] as $i) {
+            echo "<div class='bit-row'>
+            <span>Bit $i: " . ($labels[$i] ?? "Bit $i") . "</span>
+            <span id='bit_$i' class='inactive'>...</span>
+          </div>";
+        }
+        echo "</div>";
 
         echo "<div id='warnBox' class='warning'></div>";
 
