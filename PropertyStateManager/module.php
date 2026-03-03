@@ -136,7 +136,6 @@ class PropertyStateManager extends IPSModule
 
     protected function ProcessHookData()
     {
-        // 1. Authentication
         $vaultID = $this->ReadPropertyInteger("VaultInstanceID");
         if ($vaultID > 0 && @IPS_InstanceExists($vaultID)) {
             if (function_exists('SEC_IsPortalAuthenticated')) {
@@ -149,7 +148,7 @@ class PropertyStateManager extends IPSModule
             }
         }
 
-        // NEW: Handle Manual Sync
+        // NEW: Handle Manual Sync Request from HTML Button
         if (isset($_GET['sync'])) {
             $sensorGroupID = $this->ReadPropertyInteger("SensorGroupInstanceID");
             if ($sensorGroupID > 0 && @IPS_InstanceExists($sensorGroupID)) {
@@ -157,17 +156,17 @@ class PropertyStateManager extends IPSModule
                     @MYALARM_RequestStateSync($sensorGroupID);
                 }
             }
+            // Redirect to clear query parameter
             $cleanUrl = strtok($_SERVER['REQUEST_URI'], '?');
             header("Location: " . $cleanUrl);
             exit;
         }
 
-        // 2. Data Gathering
+        // ... (Existing Logic Calculation) ...
         $bits = $this->GetCurrentBitmask();
         $targetState = $this->GetValue("SystemState");
         $displayState = $this->GetStateName($targetState);
 
-        // 3. Timer Logic
         $isDelayState = ($targetState === 2);
         $remainingSeconds = 0;
 
@@ -198,7 +197,6 @@ class PropertyStateManager extends IPSModule
             return;
         }
 
-        // HTML Output
         echo "<html><head>
               <meta name='viewport' content='width=device-width, initial-scale=1'>
               <style>
@@ -218,6 +216,7 @@ class PropertyStateManager extends IPSModule
                         .then(response => response.json())
                         .then(data => {
                             document.getElementById('stateText').innerText = data.state;
+                            // Updated loop to 10 to include Generic Door Bit
                             for (let i = 0; i < 10; i++) {
                                 let isActive = (data.bits & (1 << i));
                                 let el = document.getElementById('bit_' + i);
@@ -243,11 +242,12 @@ class PropertyStateManager extends IPSModule
                         })
                         .catch(err => console.error('API Error:', err));
                 }
-                setInterval(updateDashboard, 1000); // Faster update (1s)
+                setInterval(updateDashboard, 2000);
                 window.onload = updateDashboard;
               </script>
               </head><body>";
 
+        // HEADER with Sync Button
         echo "<div class='header'>
                 Logic Analysis 
                 <a href='?sync=1' class='btn-sync'>↻ Sync</a>
@@ -257,20 +257,20 @@ class PropertyStateManager extends IPSModule
 
         echo "<h3>Sensor Status</h3>";
 
-        // FIX: Renamed Labels to match "Positive Security" (ON = Secure)
         $labels = [
-            "Front Door Lock",       // Bit 0
-            "Front Door Contact",    // Bit 1
-            "Basement Door Lock",    // Bit 2
-            "Presence Detected",     // Bit 3
-            "Delay Timer Active",    // Bit 4
+            "Front Door Lock",        // Bit 0
+            "Front Door Contact",     // Bit 1
+            "Basement Door Lock",     // Bit 2
+            "Presence Detected",      // Bit 3
+            "Delay Timer Active",     // Bit 4
             "System Currently Armed", // Bit 5
-            "Bedroom Door Closed",   // Bit 6 (Renamed)
-            "Basement Door Contact", // Bit 7
-            "Window Closed",         // Bit 8 (Renamed)
-            "Generic Door Closed"    // Bit 9 (Renamed)
+            "Bedroom Door Open",      // Bit 6
+            "Basement Door Contact",  // Bit 7
+            "Window Open",            // Bit 8
+            "Generic Door Open"       // Bit 9 (NEW)
         ];
 
+        // Increase Loop to 10
         for ($i = 0; $i < 10; $i++) {
             echo "<div class='bit-row'>
                     <span>Bit $i: " . ($labels[$i] ?? "Bit $i") . "</span>
@@ -324,32 +324,36 @@ class PropertyStateManager extends IPSModule
                 case 'Presence':
                     if ($isTripped) $bits |= (1 << 3);
                     break;
+                // FIX: Add Basement Contact mapping for Dashboard (Bit 7)
                 case 'Basement Door Contact':
                     if ($isTripped) $bits |= (1 << 7);
                     break;
+                // NEW: Add Window Contact (Bit 8) and Generic Door (Bit 9)
                 case 'Window Contact':
-                    if (!$isTripped) $bits |= (1 << 8); // Active = Secure
+                    if ($isTripped) $bits |= (1 << 8);
                     break;
                 case 'Generic Door':
-                    if (!$isTripped) $bits |= (1 << 9); // Active = Secure
+                    if ($isTripped) $bits |= (1 << 9);
                     break;
             }
         }
 
-        // Bit 3 & 6
+        // Bit 3: Presence (Intent) & Bit 6: Bedroom Door Open
         foreach ($presenceMap as $room) {
-            if ($room['SwitchState'] ?? false) $bits |= (1 << 3);
-            if (!($room['DoorTripped'] ?? false)) $bits |= (1 << 6); // True=Closed
+            if ($room['SwitchState'] ?? false) {
+                $bits |= (1 << 3);
+            }
+            // NEW: Set Bit 6 if any bedroom door is open
+            if ($room['DoorTripped'] ?? false) {
+                $bits |= (1 << 6);
+            }
         }
 
-        $state = $this->GetValue("SystemState");
+        // Bit 4: Timer
+        if ($this->GetTimerInterval("DelayTimer") > 0) $bits |= (1 << 4);
 
-        // Bit 4: Timer - Only if State 2 (Exit Delay)
-        if ($state == 2) $bits |= (1 << 4);
-
-        // Bit 5: Feedback - Only if Fully Armed (State 3 or 6)
-        // This prevents it from lighting up during Delay (State 2)
-        if ($state == 3 || $state == 6) $bits |= (1 << 5);
+        // Bit 5: Feedback
+        if ($this->GetValue("SystemState") > 0) $bits |= (1 << 5);
 
         return $bits;
     }
@@ -525,13 +529,13 @@ class PropertyStateManager extends IPSModule
                     if ($isActive) $baseClosed = true;
                     break;
 
-                // CHANGED: Generic Door and Window now use Positive Logic (Active = Secure)
-                // If a mapped sensor is NOT active (False), the perimeter is insecure.
+                // NEW: Generic Door and Window Logic
+                // If any sensor mapped to these roles is Active (Open), set flag to False
                 case 'Generic Door':
-                    if (!$isActive) $windowsClosed = false;
+                    if ($isActive) $windowsClosed = false;
                     break;
                 case 'Window Contact':
-                    if (!$isActive) $windowsClosed = false;
+                    if ($isActive) $windowsClosed = false;
                     break;
 
                 case 'Presence':
@@ -543,12 +547,7 @@ class PropertyStateManager extends IPSModule
         // Parse Bedroom Metadata
         foreach ($presenceMap as $room) {
             if ($room['SwitchState'] ?? false) $presence = true;
-
-            // FIX: Polarity Inversion (True = Closed/Secure)
-            // If DoorTripped is FALSE (Inactive), then the door is Open (Insecure).
-            // If DoorTripped is TRUE (Active), the door is Closed (Secure).
-            $isTripped = $room['DoorTripped'] ?? false;
-            if (!$isTripped) $bedroomOpen = true;
+            if ($room['DoorTripped'] ?? false) $bedroomOpen = true;
         }
 
         // Derived Conditions (UPDATED)
