@@ -472,6 +472,7 @@ class PropertyStateManager extends IPSModule
 
         // Clear Active Sensor Memory (Fix for "Stale" sensors)
         $this->WriteAttributeString("ActiveSensors", "[]");
+        $this->WriteAttributeString("ActiveGroups", "[]");
         $this->WriteAttributeString("PresenceMap", "[]");
 
         // Reset State
