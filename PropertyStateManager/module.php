@@ -29,13 +29,8 @@ class PropertyStateManager extends IPSModule
         $this->RegisterAttributeString("PayloadHistory", "[]"); // NEW: History Buffer
 
         // Variable Profiles
-        if (!IPS_VariableProfileExists('PSM.State')) {
-            IPS_CreateVariableProfile('PSM.State', 1);
-            IPS_SetVariableProfileAssociation('PSM.State', 0, "Disarmed", "", -1);
-            IPS_SetVariableProfileAssociation('PSM.State', 1, "Armed (Internal)", "", -1);
-            IPS_SetVariableProfileAssociation('PSM.State', 2, "Armed (External)", "", -1);
-            IPS_SetVariableProfileAssociation('PSM.State', 3, "Alarm Triggered!", "", -1);
-        }
+        // Variable Profiles
+        $this->EnsureStateProfile();
 
         // Variables
         $this->RegisterVariableInteger("SystemState", "System State", "PSM.State", 0);
@@ -44,11 +39,27 @@ class PropertyStateManager extends IPSModule
         $this->RegisterTimer("DelayTimer", 0, 'PSM_HandleTimer($_IPS[\'TARGET\']);');
     }
 
+
+    private function EnsureStateProfile(): void
+    {
+        if (!IPS_VariableProfileExists('PSM.State')) {
+            IPS_CreateVariableProfile('PSM.State', 1); // Integer
+        }
+
+        // Keep associations aligned with the logic engine: 0,2,3,6
+        IPS_SetVariableProfileAssociation('PSM.State', 0, "Disarmed", "", -1);
+        IPS_SetVariableProfileAssociation('PSM.State', 2, "Exit Delay", "", -1);
+        IPS_SetVariableProfileAssociation('PSM.State', 3, "Armed (External)", "", -1);
+        IPS_SetVariableProfileAssociation('PSM.State', 6, "Armed (Internal)", "", -1);
+
+        // Optional but useful: keep 1 from showing misleading old meaning if it exists somewhere
+        IPS_SetVariableProfileAssociation('PSM.State', 1, "Legacy/Unused", "", -1);
+    }
     public function ApplyChanges()
     {
         // Never delete this line!
         parent::ApplyChanges();
-
+        $this->EnsureStateProfile();
         // Register the Webhook using the manual helper
         $this->RegisterHook('/hook/psm_logic_' . $this->InstanceID);
 
@@ -97,9 +108,12 @@ class PropertyStateManager extends IPSModule
 
         $bits = $this->GetCurrentBitmask();
 
-        // VALIDATION 1: Perimeter Integrity
-        // We require Bits 0, 1, and 2 to be TRUE (1). Binary 111 = 7.
-        if (($bits & 7) !== 7) {
+        // VALIDATION 1: Perimeter Integrity (must match EvaluateState perimeterSecure)
+        // Required ON: 0,1,2,7  | Required OFF: 8,9
+        $requiredOnMask  = (1 << 0) | (1 << 1) | (1 << 2) | (1 << 7);
+        $requiredOffMask = (1 << 8) | (1 << 9);
+
+        if ((($bits & $requiredOnMask) !== $requiredOnMask) || (($bits & $requiredOffMask) !== 0)) {
             $this->LogMessage("[PSM-Timer] Arming ABORTED. Perimeter Fault detected (Bitmask: $bits).", KL_ERROR);
             $this->SetValue("SystemState", 0);
             $this->EvaluateState();
