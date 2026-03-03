@@ -327,32 +327,29 @@ class PropertyStateManager extends IPSModule
                 case 'Basement Door Contact':
                     if ($isTripped) $bits |= (1 << 7);
                     break;
-                // FIX: Removed '!' so Active (Closed) sensors set the bit to 1 (ON)
                 case 'Window Contact':
-                    if ($isTripped) $bits |= (1 << 8);
+                    if (!$isTripped) $bits |= (1 << 8); // Active = Secure
                     break;
                 case 'Generic Door':
-                    if ($isTripped) $bits |= (1 << 9);
+                    if (!$isTripped) $bits |= (1 << 9); // Active = Secure
                     break;
             }
         }
 
-        // Bit 3: Presence (Intent) & Bit 6: Bedroom Door Open
+        // Bit 3 & 6
         foreach ($presenceMap as $room) {
-            if ($room['SwitchState'] ?? false) {
-                $bits |= (1 << 3);
-            }
-            // NEW: Set Bit 6 if any bedroom door is open
-            if ($room['DoorTripped'] ?? false) {
-                $bits |= (1 << 6);
-            }
+            if ($room['SwitchState'] ?? false) $bits |= (1 << 3);
+            if (!($room['DoorTripped'] ?? false)) $bits |= (1 << 6); // True=Closed
         }
 
-        // Bit 4: Timer
-        if ($this->GetTimerInterval("DelayTimer") > 0) $bits |= (1 << 4);
+        $state = $this->GetValue("SystemState");
 
-        // Bit 5: Feedback
-        if ($this->GetValue("SystemState") > 0) $bits |= (1 << 5);
+        // Bit 4: Timer - Only if State 2 (Exit Delay)
+        if ($state == 2) $bits |= (1 << 4);
+
+        // Bit 5: Feedback - Only if Fully Armed (State 3 or 6)
+        // This prevents it from lighting up during Delay (State 2)
+        if ($state == 3 || $state == 6) $bits |= (1 << 5);
 
         return $bits;
     }
