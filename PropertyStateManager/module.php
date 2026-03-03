@@ -50,6 +50,14 @@ class PropertyStateManager extends IPSModule
 
         // Register the Webhook using the manual helper
         $this->RegisterHook('/hook/psm_logic_' . $this->InstanceID);
+
+        // SYNC: Request current sensor state from Module 1 on startup/change
+        $sensorGroupID = $this->ReadPropertyInteger("SensorGroupInstanceID");
+        if ($sensorGroupID > 0 && @IPS_InstanceExists($sensorGroupID)) {
+            if (function_exists('MYALARM_RequestStateSync')) {
+                @MYALARM_RequestStateSync($sensorGroupID);
+            }
+        }
     }
 
     private function RegisterHook($WebHook)
@@ -127,14 +135,11 @@ class PropertyStateManager extends IPSModule
 
     protected function ProcessHookData()
     {
-        // 1. Authentication
         $vaultID = $this->ReadPropertyInteger("VaultInstanceID");
         if ($vaultID > 0 && @IPS_InstanceExists($vaultID)) {
             if (function_exists('SEC_IsPortalAuthenticated')) {
                 if (!SEC_IsPortalAuthenticated($vaultID)) {
                     $currentUrl = $_SERVER['REQUEST_URI'] ?? '';
-                    // Strip query params for clean return
-                    $currentUrl = strtok($currentUrl, '?');
                     $loginUrl = "/hook/secrets_" . $vaultID . "?portal=1&return=" . urlencode($currentUrl);
                     header("Location: " . $loginUrl);
                     exit;
@@ -142,14 +147,27 @@ class PropertyStateManager extends IPSModule
             }
         }
 
-        // 2. Logic Calculation (Shared by HTML and API)
+        // NEW: Handle Manual Sync Request from HTML Button
+        if (isset($_GET['sync'])) {
+            $sensorGroupID = $this->ReadPropertyInteger("SensorGroupInstanceID");
+            if ($sensorGroupID > 0 && @IPS_InstanceExists($sensorGroupID)) {
+                if (function_exists('MYALARM_RequestStateSync')) {
+                    @MYALARM_RequestStateSync($sensorGroupID);
+                }
+            }
+            // Redirect to clear query parameter
+            $cleanUrl = strtok($_SERVER['REQUEST_URI'], '?');
+            header("Location: " . $cleanUrl);
+            exit;
+        }
+
+        // ... (Existing Logic Calculation) ...
         $bits = $this->GetCurrentBitmask();
         $targetState = $this->GetValue("SystemState");
         $displayState = $this->GetStateName($targetState);
 
-        // Timer Calculation (Timestamp Based)
-        $remainingSeconds = 0;
         $isDelayState = ($targetState === 2);
+        $remainingSeconds = 0;
 
         if ($isDelayState) {
             $varID = $this->GetIDForIdent("SystemState");
@@ -160,13 +178,12 @@ class PropertyStateManager extends IPSModule
             if ($remainingSeconds < 0) $remainingSeconds = 0;
         }
 
-        // Diagnostic: Unmapped Sensors
         $activeSensors = json_decode($this->ReadAttributeString("ActiveSensors"), true);
         $mapping = json_decode($this->ReadPropertyString("GroupMapping"), true);
         $mappedIDs = array_column($mapping, 'SourceKey');
         $unmappedSensors = array_diff($activeSensors, $mappedIDs);
 
-        // 3. API Mode (AJAX Request)
+        // API Mode
         if (isset($_GET['api'])) {
             header("Content-Type: application/json");
             echo json_encode([
@@ -176,10 +193,9 @@ class PropertyStateManager extends IPSModule
                 'showTimer' => $isDelayState,
                 'unmapped' => array_values($unmappedSensors)
             ]);
-            return; // Stop here for API requests
+            return;
         }
 
-        // 4. HTML Mode (Frontend)
         echo "<html><head>
               <meta name='viewport' content='width=device-width, initial-scale=1'>
               <style>
@@ -191,25 +207,22 @@ class PropertyStateManager extends IPSModule
                 .timer { background: #e91e63; color: white; padding: 15px; text-align: center; font-size: 1.2em; font-weight: bold; border-radius: 5px; margin-bottom: 20px; display: none; }
                 .header { font-size: 1.5em; margin-bottom: 20px; color: #2196f3; }
                 .footer { margin-top: 30px; padding: 20px; background: #222; border-radius: 8px; text-align: center; }
+                .btn-sync { float: right; background: #2196f3; color: white; border: none; padding: 8px 15px; border-radius: 4px; cursor: pointer; text-decoration: none; font-size: 0.6em; vertical-align: middle; }
               </style>
               <script>
                 function updateDashboard() {
-                    // Fix: Add timestamp to prevent browser caching
                     fetch('?api=1&t=' + Date.now())
                         .then(response => response.json())
                         .then(data => {
-                            // Update State Text
                             document.getElementById('stateText').innerText = data.state;
-
-                            // Update Bits
-                            for (let i = 0; i < 7; i++) {
+                            for (let i = 0; i < 8; i++) {
                                 let isActive = (data.bits & (1 << i));
                                 let el = document.getElementById('bit_' + i);
-                                el.innerText = isActive ? 'ON' : 'OFF';
-                                el.className = isActive ? 'active' : 'inactive';
+                                if(el) {
+                                    el.innerText = isActive ? 'ON' : 'OFF';
+                                    el.className = isActive ? 'active' : 'inactive';
+                                }
                             }
-
-                            // Update Timer
                             let timerBox = document.getElementById('timerBox');
                             if (data.showTimer && data.timer > 0) {
                                 timerBox.style.display = 'block';
@@ -217,8 +230,6 @@ class PropertyStateManager extends IPSModule
                             } else {
                                 timerBox.style.display = 'none';
                             }
-
-                            // Update Unmapped Warning
                             let warnBox = document.getElementById('warnBox');
                             if (data.unmapped.length > 0) {
                                 warnBox.style.display = 'block';
@@ -229,16 +240,17 @@ class PropertyStateManager extends IPSModule
                         })
                         .catch(err => console.error('API Error:', err));
                 }
-                // Poll every 2 seconds
                 setInterval(updateDashboard, 2000);
-                // Run immediately on load
                 window.onload = updateDashboard;
               </script>
               </head><body>";
 
-        echo "<div class='header'>Logic Analysis Dashboard</div>";
+        // HEADER with Sync Button
+        echo "<div class='header'>
+                Logic Analysis 
+                <a href='?sync=1' class='btn-sync'>↻ Sync</a>
+              </div>";
 
-        // Timer Container (Hidden by default, toggled by JS)
         echo "<div id='timerBox' class='timer'></div>";
 
         echo "<h3>Sensor Status</h3>";
@@ -250,18 +262,17 @@ class PropertyStateManager extends IPSModule
             "Presence Detected",
             "Delay Timer Active",
             "System Currently Armed",
-            "Bedroom Door Open"
+            "Bedroom Door Open",
+            "Basement Door Contact"
         ];
 
-        for ($i = 0; $i < 7; $i++) {
-            // Initial render uses placeholders, JS updates them immediately
+        for ($i = 0; $i < 8; $i++) {
             echo "<div class='bit-row'>
                     <span>Bit $i: " . ($labels[$i] ?? "Bit $i") . "</span>
                     <span id='bit_$i' class='inactive'>...</span>
                   </div>";
         }
 
-        // Warning Container
         echo "<div id='warnBox' class='warning'></div>";
 
         echo "<div class='footer'>
