@@ -319,6 +319,10 @@ class PropertyStateManager extends IPSModule
                 case 'Presence':
                     if ($isTripped) $bits |= (1 << 3);
                     break;
+                // FIX: Add Basement Contact mapping for Dashboard (Bit 7)
+                case 'Basement Door Contact':
+                    if ($isTripped) $bits |= (1 << 7);
+                    break;
             }
         }
 
