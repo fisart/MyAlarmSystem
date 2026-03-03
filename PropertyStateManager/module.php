@@ -330,10 +330,10 @@ class PropertyStateManager extends IPSModule
                     break;
                 // NEW: Add Window Contact (Bit 8) and Generic Door (Bit 9)
                 case 'Window Contact':
-                    if ($isTripped) $bits |= (1 << 8);
+                    if (!$isTripped) $bits |= (1 << 8);
                     break;
                 case 'Generic Door':
-                    if ($isTripped) $bits |= (1 << 9);
+                    if (!$isTripped) $bits |= (1 << 9);
                     break;
             }
         }
@@ -529,13 +529,13 @@ class PropertyStateManager extends IPSModule
                     if ($isActive) $baseClosed = true;
                     break;
 
-                // NEW: Generic Door and Window Logic
-                // If any sensor mapped to these roles is Active (Open), set flag to False
+                // CHANGED: Generic Door and Window now use Positive Logic (Active = Secure)
+                // If a mapped sensor is NOT active (False), the perimeter is insecure.
                 case 'Generic Door':
-                    if ($isActive) $windowsClosed = false;
+                    if (!$isActive) $windowsClosed = false;
                     break;
                 case 'Window Contact':
-                    if ($isActive) $windowsClosed = false;
+                    if (!$isActive) $windowsClosed = false;
                     break;
 
                 case 'Presence':
