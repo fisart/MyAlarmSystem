@@ -2670,6 +2670,21 @@ const svgEl = container.querySelector("svg");
         return json_encode($config);
     }
 
+    /**
+     * Public function for Module 2 to request an immediate state broadcast.
+     * Forces Module 1 to evaluate all sensors and push current ALARM/RESET and BEDROOM_SYNC payloads.
+     */
+    public function RequestStateSync()
+    {
+        if ($this->ReadPropertyBoolean('DebugMode')) {
+            $this->LogMessage("SYNC REQUEST: External module requested a state broadcast.", KL_MESSAGE);
+        }
+
+        // Running CheckLogic with no TriggeringID forces a full re-evaluation 
+        // and dispatches the current state to all configured targets.
+        $this->CheckLogic();
+    }
+
     public function UI_LoadBackup()
     {
         // 1. Load Data
