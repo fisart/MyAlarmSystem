@@ -215,8 +215,8 @@ class PropertyStateManager extends IPSModule
                         .then(response => response.json())
                         .then(data => {
                             document.getElementById('stateText').innerText = data.state;
-                            // Updated loop to 9 to include Window Bit
-                            for (let i = 0; i < 9; i++) {
+                            // Updated loop to 10 to include Generic Door Bit
+                            for (let i = 0; i < 10; i++) {
                                 let isActive = (data.bits & (1 << i));
                                 let el = document.getElementById('bit_' + i);
                                 if(el) {
@@ -257,19 +257,20 @@ class PropertyStateManager extends IPSModule
         echo "<h3>Sensor Status</h3>";
 
         $labels = [
-            "Front Door Lock",       // Bit 0
-            "Front Door Contact",    // Bit 1
-            "Basement Door Lock",    // Bit 2
-            "Presence Detected",     // Bit 3
-            "Delay Timer Active",    // Bit 4
+            "Front Door Lock",        // Bit 0
+            "Front Door Contact",     // Bit 1
+            "Basement Door Lock",     // Bit 2
+            "Presence Detected",      // Bit 3
+            "Delay Timer Active",     // Bit 4
             "System Currently Armed", // Bit 5
-            "Bedroom Door Open",     // Bit 6
-            "Basement Door Contact", // Bit 7
-            "Window Open"            // Bit 8 (NEW)
+            "Bedroom Door Open",      // Bit 6
+            "Basement Door Contact",  // Bit 7
+            "Window Open",            // Bit 8
+            "Generic Door Open"       // Bit 9 (NEW)
         ];
 
-        // Increased Loop to 9
-        for ($i = 0; $i < 9; $i++) {
+        // Increase Loop to 10
+        for ($i = 0; $i < 10; $i++) {
             echo "<div class='bit-row'>
                     <span>Bit $i: " . ($labels[$i] ?? "Bit $i") . "</span>
                     <span id='bit_$i' class='inactive'>...</span>
@@ -326,6 +327,13 @@ class PropertyStateManager extends IPSModule
                 case 'Basement Door Contact':
                     if ($isTripped) $bits |= (1 << 7);
                     break;
+                // NEW: Add Window Contact (Bit 8) and Generic Door (Bit 9)
+                case 'Window Contact':
+                    if ($isTripped) $bits |= (1 << 8);
+                    break;
+                case 'Generic Door':
+                    if ($isTripped) $bits |= (1 << 9);
+                    break;
             }
         }
 
@@ -348,6 +356,8 @@ class PropertyStateManager extends IPSModule
 
         return $bits;
     }
+
+
     public function RequestAction($Ident, $Value)
     {
         switch ($Ident) {
