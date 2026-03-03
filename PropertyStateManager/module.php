@@ -136,6 +136,7 @@ class PropertyStateManager extends IPSModule
 
     protected function ProcessHookData()
     {
+        // 1. Authentication
         $vaultID = $this->ReadPropertyInteger("VaultInstanceID");
         if ($vaultID > 0 && @IPS_InstanceExists($vaultID)) {
             if (function_exists('SEC_IsPortalAuthenticated')) {
@@ -148,7 +149,7 @@ class PropertyStateManager extends IPSModule
             }
         }
 
-        // NEW: Handle Manual Sync Request from HTML Button
+        // NEW: Handle Manual Sync
         if (isset($_GET['sync'])) {
             $sensorGroupID = $this->ReadPropertyInteger("SensorGroupInstanceID");
             if ($sensorGroupID > 0 && @IPS_InstanceExists($sensorGroupID)) {
@@ -156,17 +157,17 @@ class PropertyStateManager extends IPSModule
                     @MYALARM_RequestStateSync($sensorGroupID);
                 }
             }
-            // Redirect to clear query parameter
             $cleanUrl = strtok($_SERVER['REQUEST_URI'], '?');
             header("Location: " . $cleanUrl);
             exit;
         }
 
-        // ... (Existing Logic Calculation) ...
+        // 2. Data Gathering
         $bits = $this->GetCurrentBitmask();
         $targetState = $this->GetValue("SystemState");
         $displayState = $this->GetStateName($targetState);
 
+        // 3. Timer Logic
         $isDelayState = ($targetState === 2);
         $remainingSeconds = 0;
 
@@ -197,6 +198,7 @@ class PropertyStateManager extends IPSModule
             return;
         }
 
+        // HTML Output
         echo "<html><head>
               <meta name='viewport' content='width=device-width, initial-scale=1'>
               <style>
@@ -216,7 +218,6 @@ class PropertyStateManager extends IPSModule
                         .then(response => response.json())
                         .then(data => {
                             document.getElementById('stateText').innerText = data.state;
-                            // Updated loop to 10 to include Generic Door Bit
                             for (let i = 0; i < 10; i++) {
                                 let isActive = (data.bits & (1 << i));
                                 let el = document.getElementById('bit_' + i);
@@ -242,12 +243,11 @@ class PropertyStateManager extends IPSModule
                         })
                         .catch(err => console.error('API Error:', err));
                 }
-                setInterval(updateDashboard, 2000);
+                setInterval(updateDashboard, 1000); // Faster update (1s)
                 window.onload = updateDashboard;
               </script>
               </head><body>";
 
-        // HEADER with Sync Button
         echo "<div class='header'>
                 Logic Analysis 
                 <a href='?sync=1' class='btn-sync'>↻ Sync</a>
@@ -257,20 +257,20 @@ class PropertyStateManager extends IPSModule
 
         echo "<h3>Sensor Status</h3>";
 
+        // FIX: Renamed Labels to match "Positive Security" (ON = Secure)
         $labels = [
-            "Front Door Lock",        // Bit 0
-            "Front Door Contact",     // Bit 1
-            "Basement Door Lock",     // Bit 2
-            "Presence Detected",      // Bit 3
-            "Delay Timer Active",     // Bit 4
+            "Front Door Lock",       // Bit 0
+            "Front Door Contact",    // Bit 1
+            "Basement Door Lock",    // Bit 2
+            "Presence Detected",     // Bit 3
+            "Delay Timer Active",    // Bit 4
             "System Currently Armed", // Bit 5
-            "Bedroom Door Open",      // Bit 6
-            "Basement Door Contact",  // Bit 7
-            "Window Open",            // Bit 8
-            "Generic Door Open"       // Bit 9 (NEW)
+            "Bedroom Door Closed",   // Bit 6 (Renamed)
+            "Basement Door Contact", // Bit 7
+            "Window Closed",         // Bit 8 (Renamed)
+            "Generic Door Closed"    // Bit 9 (Renamed)
         ];
 
-        // Increase Loop to 10
         for ($i = 0; $i < 10; $i++) {
             echo "<div class='bit-row'>
                     <span>Bit $i: " . ($labels[$i] ?? "Bit $i") . "</span>
