@@ -2677,12 +2677,28 @@ const svgEl = container.querySelector("svg");
     public function RequestStateSync()
     {
         if ($this->ReadPropertyBoolean('DebugMode')) {
-            $this->LogMessage("SYNC REQUEST: External module requested a state broadcast.", KL_MESSAGE);
+            $this->LogMessage("SYNC REQUEST: Executing Full Active Iteration.", KL_MESSAGE);
         }
 
-        // Running CheckLogic with no TriggeringID forces a full re-evaluation 
-        // and dispatches the current state to all configured targets.
-        $this->CheckLogic();
+        $sensorList = json_decode($this->ReadPropertyString('SensorList'), true) ?: [];
+        $activeCount = 0;
+
+        // Iterate through ALL defined sensors
+        foreach ($sensorList as $s) {
+            if ($this->CheckSensorRule($s)) {
+                $vid = (int)($s['VariableID'] ?? 0);
+                if ($vid > 0) {
+                    // Simulate a direct trigger for every individual active sensor
+                    $this->CheckLogic($vid);
+                    $activeCount++;
+                }
+            }
+        }
+
+        // If absolutely nothing is active, send a standard evaluation (to trigger RESET and BEDROOM_SYNC)
+        if ($activeCount === 0) {
+            $this->CheckLogic(0);
+        }
     }
 
     public function UI_LoadBackup()
