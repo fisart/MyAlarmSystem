@@ -1907,12 +1907,7 @@ class SensorGroup extends IPSModule
         }
     }
 
-    /**
-     * Webhook Entry Point: Renders the Hierarchy Chart
-     */
-    /**
-     * Webhook Entry Point: Renders the Hierarchy Chart
-     */
+
     /**
      * Webhook Entry Point: Renders the Hierarchy Chart
      */
@@ -1943,6 +1938,59 @@ class SensorGroup extends IPSModule
         $graph .= "classDef target fill:#1565c0,stroke:#90caf9,stroke-width:2px,color:#fff;\n";
 
         $conf = json_decode($this->GetConfiguration(), true);
+
+        // --- OPTIONAL TARGET FILTER (API ONLY) ---
+        if (isset($_GET['api']) && isset($_GET['targetFilter'])) {
+            $filterStr = (string)$_GET['targetFilter'];
+            $allowedTargets = ($filterStr === '' || $filterStr === 'NONE') ? [] : array_filter(explode(',', $filterStr), 'strlen');
+
+            $dispatchTargets = $conf['DispatchTargets'] ?? [];
+            $groupDispatch   = $conf['GroupDispatch'] ?? [];
+            $groupMembers    = $conf['GroupMembers'] ?? [];
+            $sensorList      = $conf['SensorList'] ?? [];
+
+            // 1) Targets
+            $dispatchTargets = array_values(array_filter($dispatchTargets, function ($t) use ($allowedTargets) {
+                return in_array((string)($t['InstanceID'] ?? ''), $allowedTargets, true);
+            }));
+
+            // If nothing selected -> return a tiny placeholder graph
+            if (count($dispatchTargets) === 0) {
+                header("Content-Type: text/plain");
+                echo "graph RL\nEMPTY[\"No Targets Selected\"]:::grey\n";
+                return;
+            }
+
+            // 2) Groups routed to allowed targets
+            $allowedGroups = [];
+            $groupDispatch = array_values(array_filter($groupDispatch, function ($d) use ($allowedTargets, &$allowedGroups) {
+                $ok = in_array((string)($d['InstanceID'] ?? ''), $allowedTargets, true);
+                if ($ok) $allowedGroups[(string)($d['GroupName'] ?? '')] = true;
+                return $ok;
+            }));
+
+            // 3) Classes belonging to allowed groups
+            $allowedClasses = [];
+            $groupMembers = array_values(array_filter($groupMembers, function ($m) use ($allowedGroups, &$allowedClasses) {
+                $gName = (string)($m['GroupName'] ?? '');
+                if (isset($allowedGroups[$gName])) {
+                    $allowedClasses[(string)($m['ClassID'] ?? '')] = true;
+                    return true;
+                }
+                return false;
+            }));
+
+            // 4) Sensors belonging to allowed classes
+            $sensorList = array_values(array_filter($sensorList, function ($s) use ($allowedClasses) {
+                return isset($allowedClasses[(string)($s['ClassID'] ?? '')]);
+            }));
+
+            // Write back pruned arrays so your existing loops stay unchanged
+            $conf['DispatchTargets'] = $dispatchTargets;
+            $conf['GroupDispatch']   = $groupDispatch;
+            $conf['GroupMembers']    = $groupMembers;
+            $conf['SensorList']      = $sensorList;
+        }
 
         $classMap = [];
         foreach ($conf['ClassList'] as $c) $classMap[$c['ClassID']] = $c;
@@ -2047,6 +2095,16 @@ class SensorGroup extends IPSModule
         }
 
         // 4. Output HTML Framework
+        $checkboxesHTML = '';
+        if (isset($conf['DispatchTargets']) && is_array($conf['DispatchTargets'])) {
+            foreach ($conf['DispatchTargets'] as $t) {
+                $iid  = $t['InstanceID'];
+                $name = htmlspecialchars((string)($t['Name'] ?? ('Target ' . $iid)));
+                $checkboxesHTML .= "<label style=\"margin:0 12px; cursor:pointer;\">
+            <input type=\"checkbox\" class=\"target-filter\" value=\"{$iid}\" checked onchange=\"forceRefresh()\"> {$name}
+        </label>";
+            }
+        }
         echo '<!DOCTYPE html>
 <html>
 <head>
@@ -2060,6 +2118,8 @@ class SensorGroup extends IPSModule
     }
     .header{flex-shrink:0;text-align:center;margin-bottom:12px;border-bottom:1px solid #333;padding-bottom:10px;}
     .header h2{margin:0;color:#4CAF50;}
+.filter-bar{ background:#333; padding:10px; border-radius:6px; display:inline-block; margin-top:10px; }
+.filter-bar input{ transform:scale(1.15); margin-right:6px; }
 .container{
               flex-grow:1;background:#252526;border-radius:8px;width:100%;
               border:1px solid #444;overflow:hidden;position:relative;
@@ -2081,16 +2141,32 @@ class SensorGroup extends IPSModule
       flowchart:{ curve:"basis", nodeSpacing:60, rankSpacing:120 }
     });
 
-    let isRendering=false;
-    let lastGraphString="";
-    let pzInstance=null;
+let isRendering=false;
+let lastGraphString="";
+let pzInstance=null;
+
+window.getFilterString = function () {
+  const boxes = document.querySelectorAll(".target-filter:checked");
+  if (boxes.length === 0) return "NONE";
+  return Array.from(boxes).map(b => b.value).join(",");
+};
+
+window.forceRefresh = function () {
+  lastGraphString = "";
+  fetchAndUpdateGraph();
+};
+
+window.setAllTargets = function (checked) {
+  document.querySelectorAll(".target-filter").forEach(b => b.checked = checked);
+  window.forceRefresh();
+};
 
     async function fetchAndUpdateGraph(){
       if(isRendering) return;
 
       try{
         // IMPORTANT: keep this on the same hook URL; only add query params
-        const url = location.pathname + "?api=1&t=" + Date.now();
+        const url = location.pathname + "?api=1&t=" + Date.now() + "&targetFilter=" + encodeURIComponent(window.getFilterString());
         const response = await fetch(url);
         const graphString = await response.text();
 
@@ -2176,6 +2252,12 @@ const svgEl = container.querySelector("svg");
   <div class="header">
     <h2>System Hierarchy (Live)</h2>
     <small>Instance ID: ' . $this->InstanceID . '</small>
+<br>
+<div class="filter-bar">
+  <a href="#" onclick="setAllTargets(true); return false;" style="color:#9ecbff; margin-right:12px;">All</a>
+  <a href="#" onclick="setAllTargets(false); return false;" style="color:#9ecbff; margin-right:18px;">None</a>
+  ' . $checkboxesHTML . '
+</div>
   </div>
   <div class="container">
     <div id="mermaid-container">Initializing Live View...</div>
@@ -2183,6 +2265,10 @@ const svgEl = container.querySelector("svg");
 </body>
 </html>';
     }
+
+
+
+
     public function GetConfigurationForm()
     {
         // === DEBUG: Enter GetConfigurationForm ===
