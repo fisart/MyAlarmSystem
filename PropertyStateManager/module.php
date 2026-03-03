@@ -650,15 +650,29 @@ class PropertyStateManager extends IPSModule
                 }
 
                 if ($targetID > 0) {
-                    // Logic to populate options (unchanged)
-                    $targetGroups = [];
+                    $this->LogMessage("GF: Filtering for Target ID: " . $targetID, KL_MESSAGE);
+
+                    // 1. Identify Target Groups and Classes
+                    $targetGroups = []; // Names of groups sent to us
                     foreach ($config['GroupDispatch'] ?? [] as $gd) {
-                        if ((int)$gd['InstanceID'] === $targetID) $targetGroups[] = $gd['GroupName'];
+                        if ((int)$gd['InstanceID'] === $targetID) {
+                            $targetGroups[] = $gd['GroupName'];
+
+                            // ADD GROUP OPTION (New)
+                            // Allows mapping entire groups (e.g. "Windows")
+                            $options[] = [
+                                "caption" => "[GROUP] " . $gd['GroupName'],
+                                "value" => $gd['GroupName']
+                            ];
+                        }
                     }
+
                     $targetClasses = [];
                     foreach ($config['GroupMembers'] ?? [] as $gm) {
                         if (in_array($gm['GroupName'], $targetGroups)) $targetClasses[] = $gm['ClassID'];
                     }
+
+                    // 2. Add Sensor Options (Existing)
                     foreach ($config['SensorList'] ?? [] as $sensor) {
                         $vid = (int)$sensor['VariableID'];
                         if (in_array($sensor['ClassID'], $targetClasses)) {
@@ -671,7 +685,7 @@ class PropertyStateManager extends IPSModule
             }
         }
 
-        // FIX: Add current Target ID to options if missing (prevents "Invalid configuration" error)
+        // Fix: Add current Target ID if missing
         if ($targetID > 0) {
             $found = false;
             foreach ($targetOptions as $opt) {
@@ -680,9 +694,7 @@ class PropertyStateManager extends IPSModule
                     break;
                 }
             }
-            if (!$found) {
-                $targetOptions[] = ["caption" => "⚠️ Unavailable / Old Target ($targetID)", "value" => $targetID];
-            }
+            if (!$found) $targetOptions[] = ["caption" => "⚠️ Unavailable / Old Target ($targetID)", "value" => $targetID];
         }
 
         foreach ($form['elements'] as &$element) {
