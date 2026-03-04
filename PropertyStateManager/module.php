@@ -530,10 +530,35 @@ class PropertyStateManager extends IPSModule
                     if ($isOn) $bits |= (1 << 7);
                     break;
                 case 'Window Contact':
-                    if ($isOn) $bits |= (1 << 8);
+                    // Polarity-aware + group-level-aware
+                    $pol = (string)($item['Polarity'] ?? 'breach');
+
+                    // If SourceKey is a group-name, ActiveGroups usually means "breach active" (not "secure").
+                    // For secure polarity we invert for group-level entries.
+                    $src = (string)($item['SourceKey'] ?? '');
+                    $isGroupKey = ($src !== '' && !ctype_digit($src));
+
+                    $bitOn = $isTripped;
+                    if ($isGroupKey && $pol === 'secure') {
+                        $bitOn = !$isTripped;
+                    }
+
+                    if ($bitOn) $bits |= (1 << 8);
                     break;
+
                 case 'Generic Door':
-                    if ($isOn) $bits |= (1 << 9);
+                    // Polarity-aware + group-level-aware
+                    $pol = (string)($item['Polarity'] ?? 'breach');
+
+                    $src = (string)($item['SourceKey'] ?? '');
+                    $isGroupKey = ($src !== '' && !ctype_digit($src));
+
+                    $bitOn = $isTripped;
+                    if ($isGroupKey && $pol === 'secure') {
+                        $bitOn = !$isTripped;
+                    }
+
+                    if ($bitOn) $bits |= (1 << 9);
                     break;
             }
         }
