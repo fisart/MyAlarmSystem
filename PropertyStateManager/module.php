@@ -419,7 +419,7 @@ class PropertyStateManager extends IPSModule
                                     const lines = data.bedrooms.map(r => {
                                         const status = r.used ? (r.doorOpen ? 'BLOCKING (used + door open)' : 'OK (used + door closed)') : (r.doorOpen ? 'Bypassed (unused + door open)' : 'Bypassed (unused + door closed)');
                                         const icon = r.blocking ? '🚫' : (r.used ? '✅' : '➖');
-                                        return `${icon} ${r . name}: ${status}`;
+                                        return icon + ' ' + r.name + ': ' + status;
                                     });
                                     bd.innerHTML = '<strong>Bedrooms:</strong><br>' + lines.join('<br>');
                                 } else {
