@@ -23,6 +23,8 @@ class PropertyStateManager extends IPSModule
         $this->RegisterAttributeString("ActiveSensors", "[]");
         $this->RegisterAttributeString("PresenceMap", "[]");
         $this->RegisterAttributeString("ActiveGroups", "[]");
+        $this->RegisterAttributeString("ImportedConfig", "");   // raw config snapshot from Module 1 (json string)
+        $this->RegisterAttributeString("IgnoredSensors", "[]"); // variable IDs to ignore (handled via group-level mapping)
 
         // Debug Attributes
         $this->RegisterAttributeString("LastPayload", "");
@@ -62,6 +64,7 @@ class PropertyStateManager extends IPSModule
         // Never delete this line!
         parent::ApplyChanges();
         $this->EnsureStateProfile();
+
         // Register the Webhook using the manual helper
         $this->RegisterHook('/hook/psm_logic_' . $this->InstanceID);
 
@@ -72,6 +75,67 @@ class PropertyStateManager extends IPSModule
                 @MYALARM_RequestStateSync($sensorGroupID);
             }
         }
+
+        // --- Step 1: Import config snapshot + compute IgnoredSensors (no behavior change yet) ---
+        $this->WriteAttributeString("ImportedConfig", "");
+        $this->WriteAttributeString("IgnoredSensors", "[]");
+
+        if ($sensorGroupID > 0 && @IPS_InstanceExists($sensorGroupID) && function_exists('MYALARM_GetConfiguration')) {
+
+            $configJSON = @MYALARM_GetConfiguration($sensorGroupID);
+            if ($configJSON !== false && $configJSON !== "") {
+
+                $this->WriteAttributeString("ImportedConfig", (string)$configJSON);
+
+                $config = json_decode((string)$configJSON, true);
+                if (is_array($config)) {
+
+                    // Identify group-names that are handled on group-level in THIS module (SourceKey is a non-numeric string)
+                    $mapping = json_decode($this->ReadPropertyString("GroupMapping"), true);
+                    if (!is_array($mapping)) $mapping = [];
+
+                    $groupLevelNames = [];
+                    foreach ($mapping as $m) {
+                        $role = (string)($m['LogicalRole'] ?? '');
+                        $src  = (string)($m['SourceKey'] ?? '');
+
+                        // Group-level mapping: SourceKey is group-name (not a numeric VariableID)
+                        if (($role === 'Generic Door' || $role === 'Window Contact') && $src !== '' && !ctype_digit($src)) {
+                            $groupLevelNames[$src] = true;
+                        }
+                    }
+                    $groupLevelNames = array_keys($groupLevelNames);
+
+                    // Build IgnoredSensors = member sensors of those group-level groups
+                    $ignored = [];
+
+                    if (count($groupLevelNames) > 0) {
+
+                        // Collect ClassIDs that belong to those groups
+                        $classIDs = [];
+                        foreach (($config['GroupMembers'] ?? []) as $gm) {
+                            $gName = (string)($gm['GroupName'] ?? '');
+                            if (in_array($gName, $groupLevelNames, true)) {
+                                $cid = (string)($gm['ClassID'] ?? '');
+                                if ($cid !== '') $classIDs[$cid] = true;
+                            }
+                        }
+
+                        // Collect VariableIDs of sensors whose ClassID is in those ClassIDs
+                        foreach (($config['SensorList'] ?? []) as $s) {
+                            $cid = (string)($s['ClassID'] ?? '');
+                            if ($cid !== '' && isset($classIDs[$cid])) {
+                                $vid = (string)($s['VariableID'] ?? '');
+                                if ($vid !== '') $ignored[$vid] = true;
+                            }
+                        }
+                    }
+
+                    $this->WriteAttributeString("IgnoredSensors", json_encode(array_values(array_keys($ignored))));
+                }
+            }
+        }
+        // --- Step 1 end ---
     }
 
     private function RegisterHook($WebHook)
@@ -170,9 +234,19 @@ class PropertyStateManager extends IPSModule
         }
 
         $activeSensors = json_decode($this->ReadAttributeString("ActiveSensors"), true);
+        if (!is_array($activeSensors)) $activeSensors = [];
+
         $mapping = json_decode($this->ReadPropertyString("GroupMapping"), true);
+        if (!is_array($mapping)) $mapping = [];
+
         $mappedIDs = array_column($mapping, 'SourceKey');
         $unmappedSensors = array_diff($activeSensors, $mappedIDs);
+
+        // NEW: Hide ignored member-sensors (handled via group-level mapping) from "unmapped"
+        $ignoredSensors = json_decode($this->ReadAttributeString("IgnoredSensors"), true);
+        if (is_array($ignoredSensors) && count($ignoredSensors) > 0) {
+            $unmappedSensors = array_diff($unmappedSensors, $ignoredSensors);
+        }
         // Dashboard ON/OFF texts (polarity-aware for Window/Generic)
         $bitText = [
             0 => ['on' => 'Locked',       'off' => 'Unlocked'],
