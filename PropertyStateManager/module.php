@@ -262,23 +262,45 @@ class PropertyStateManager extends IPSModule
         ];
 
         // Decide label meaning for bit 8/9 based on mapping polarity.
+        // IMPORTANT: Prefer GROUP-level rows (SourceKey is non-numeric) because those define group-level handling.
         // Default: current convention (active means breach => ON=Open)
         $windowPolarity  = 'breach';
         $genericPolarity = 'breach';
 
+        // 1) First pass: prefer group-level mapping rows (SourceKey is group-name, not numeric)
         foreach ($mapping as $m) {
             $role = (string)($m['LogicalRole'] ?? '');
             $pol  = (string)($m['Polarity'] ?? '');
-            if ($pol === '') continue;
+            $src  = (string)($m['SourceKey'] ?? '');
+            if ($pol === '' || $src === '') continue;
 
-            if ($role === 'Window Contact' && $pol === 'secure')  $windowPolarity  = 'secure';
-            if ($role === 'Generic Door'   && $pol === 'secure')  $genericPolarity = 'secure';
+            if (!ctype_digit($src)) {
+                if ($role === 'Window Contact') $windowPolarity  = $pol;   // 'secure' or 'breach'
+                if ($role === 'Generic Door')   $genericPolarity = $pol;   // 'secure' or 'breach'
+            }
+        }
+
+        // 2) Fallback: if no group-level row exists for a role, allow any row to define it
+        if ($windowPolarity !== 'secure') {
+            foreach ($mapping as $m) {
+                if ((string)($m['LogicalRole'] ?? '') === 'Window Contact' && (string)($m['Polarity'] ?? '') === 'secure') {
+                    $windowPolarity = 'secure';
+                    break;
+                }
+            }
+        }
+        if ($genericPolarity !== 'secure') {
+            foreach ($mapping as $m) {
+                if ((string)($m['LogicalRole'] ?? '') === 'Generic Door' && (string)($m['Polarity'] ?? '') === 'secure') {
+                    $genericPolarity = 'secure';
+                    break;
+                }
+            }
         }
 
         // If polarity is "secure", then ON means Closed (secure)
         if ($windowPolarity === 'secure')  $bitText[8] = ['on' => 'Closed', 'off' => 'Open'];
-        if ($genericPolarity === 'secure') $bitText[9] = ['on' => 'Closed', 'off' => 'Open'];
-        // API Mode
+        if ($genericPolarity === 'secure') $bitText[9] = ['on' => 'Closed', 'off' => 'Open'];       // API Mode
         if (isset($_GET['api'])) {
             header("Content-Type: application/json");
             echo json_encode([
