@@ -245,17 +245,18 @@ class PropertyStateManager extends IPSModule
                                 let isActive = (data.bits & (1 << i));
                                 let el = document.getElementById('bit_' + i);
                                 if (el) {
+                                    // Prefer server-provided bitText (polarity-aware), fallback to local defaults
                                     const fallback = {
-                                        0: { on: 'Locked',        off: 'Unlocked'     },
-                                        1: { on: 'Closed',        off: 'Open'         },
-                                        2: { on: 'Locked',        off: 'Unlocked'     },
-                                        3: { on: 'Someone Home',  off: 'Nobody Home'  },
-                                        4: { on: 'Running',       off: 'Inactive'     },
-                                        5: { on: 'Not Disarmed',  off: 'Disarmed'     },
-                                        6: { on: 'Open',          off: 'Closed'       },
-                                        7: { on: 'Closed',        off: 'Open'         },
-                                        8: { on: 'Open',          off: 'Closed'       },
-                                        9: { on: 'Open',          off: 'Closed'       }
+                                    0: { on: 'Locked',       off: 'Unlocked' },
+                                    1: { on: 'Closed',       off: 'Open'     },
+                                    2: { on: 'Locked',       off: 'Unlocked' },
+                                    3: { on: 'Someone Home', off: 'Nobody Home' },
+                                    4: { on: 'Running',      off: 'Inactive' },
+                                    5: { on: 'Not Disarmed', off: 'Disarmed' },
+                                    6: { on: 'Open',         off: 'Closed'   },
+                                    7: { on: 'Closed',       off: 'Open'     },
+                                    8: { on: 'Open',         off: 'Closed'   },
+                                    9: { on: 'Open',         off: 'Closed'   }
                                     };
 
                                     const txt = (data.bitText && data.bitText[i]) ? data.bitText[i] : (fallback[i] || { on: 'ON', off: 'OFF' });
