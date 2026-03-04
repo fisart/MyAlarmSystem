@@ -241,7 +241,23 @@ class PropertyStateManager extends IPSModule
 
         $mappedIDs = array_column($mapping, 'SourceKey');
         $unmappedSensors = array_diff($activeSensors, $mappedIDs);
+        // Bedroom details for UI (display only; does not change logic)
+        $presenceMap = json_decode($this->ReadAttributeString("PresenceMap"), true);
+        if (!is_array($presenceMap)) $presenceMap = [];
 
+        $bedrooms = [];
+        foreach ($presenceMap as $room) {
+            $name      = (string)($room['GroupName'] ?? 'Unknown');
+            $roomUsed  = (bool)($room['SwitchState'] ?? false);
+            $doorTrip  = (bool)($room['DoorTripped'] ?? false);
+
+            $bedrooms[] = [
+                'name'      => $name,
+                'used'      => $roomUsed,
+                'doorOpen'  => $doorTrip,
+                'blocking'  => ($roomUsed && $doorTrip) // Option A gating
+            ];
+        }
         // NEW: Hide ignored member-sensors (handled via group-level mapping) from "unmapped"
         $ignoredSensors = json_decode($this->ReadAttributeString("IgnoredSensors"), true);
         if (is_array($ignoredSensors) && count($ignoredSensors) > 0) {
@@ -324,13 +340,14 @@ class PropertyStateManager extends IPSModule
         if (isset($_GET['api'])) {
             header("Content-Type: application/json");
             echo json_encode([
-                'bits'     => $bits,
-                'state'    => $displayState,
-                'timer'    => $remainingSeconds,
+                'bits' => $bits,
+                'state' => $displayState,
+                'timer' => $remainingSeconds,
                 'showTimer' => $isDelayState,
                 'unmapped' => array_values($unmappedSensors),
-                'bitText'  => $bitText,   // keep for backwards compatibility while migrating
-                'uiBits'   => $uiBits     // NEW: semantic display result
+                'bitText' => $bitText,
+                'uiBits' => $uiBits,
+                'bedrooms' => $bedrooms
             ]);
             return;
         }
@@ -348,8 +365,8 @@ class PropertyStateManager extends IPSModule
                 .footer { margin-top: 30px; padding: 20px; background: #222; border-radius: 8px; text-align: center; }
                 .btn-sync { float: right; background: #2196f3; color: white; border: none; padding: 8px 15px; border-radius: 4px; cursor: pointer; text-decoration: none; font-size: 0.6em; vertical-align: middle; }
                 .panel { border: 1px solid #333; border-radius: 8px; padding: 12px; margin: 14px 0; background: #151515; }
-.panel-title { font-size: 1.05em; font-weight: 600; color: #9ecbff; margin-bottom: 8px; }
-.panel .bit-row:last-child { border-bottom: none; }
+            .panel-title { font-size: 1.05em; font-weight: 600; color: #9ecbff; margin-bottom: 8px; }
+            .panel .bit-row:last-child { border-bottom: none; }
               </style>
               <script>
                 function updateDashboard() {
@@ -394,6 +411,20 @@ class PropertyStateManager extends IPSModule
                                 timerBox.innerText = 'Arming in ' + Math.ceil(data.timer) + ' seconds...';
                             } else {
                                 timerBox.style.display = 'none';
+                            }
+                                // Bedroom detail rendering (Option A: blocking if used && doorOpen)
+                            let bd = document.getElementById('bedroomDetails');
+                            if (bd) {
+                                if (data.bedrooms && data.bedrooms.length > 0) {
+                                    const lines = data.bedrooms.map(r => {
+                                        const status = r.used ? (r.doorOpen ? 'BLOCKING (used + door open)' : 'OK (used + door closed)') : (r.doorOpen ? 'Bypassed (unused + door open)' : 'Bypassed (unused + door closed)');
+                                        const icon = r.blocking ? '🚫' : (r.used ? '✅' : '➖');
+                                        return `${icon} ${r.name}: ${status}`;
+                                    });
+                                    bd.innerHTML = "<strong>Bedrooms:</strong><br>" + lines.join("<br>");
+                                } else {
+                                    bd.innerHTML = "<strong>Bedrooms:</strong><br>No bedroom data (no BEDROOM_SYNC received yet).";
+                                }
                             }
                             let warnBox = document.getElementById('warnBox');
                             if (data.unmapped.length > 0) {
@@ -463,6 +494,7 @@ class PropertyStateManager extends IPSModule
             <span id='bit_$i' class='inactive'>...</span>
           </div>";
         }
+        echo "<div id='bedroomDetails' style='margin-top:10px; font-size:0.95em; line-height:1.35;'></div>";
         echo "</div>";
 
         // Generic Doors and Windows: 8,9
@@ -800,11 +832,18 @@ class PropertyStateManager extends IPSModule
             }
         }
 
-        // Parse Bedroom Metadata
-        foreach ($presenceMap as $room) {
-            if ($room['SwitchState'] ?? false) $presence = true;
-            if ($room['DoorTripped'] ?? false) $bedroomOpen = true;
+// Parse Bedroom Metadata (Option A: door only relevant if room is used)
+foreach ($presenceMap as $room) {
+    $roomUsed   = (bool)($room['SwitchState'] ?? false);
+    $doorTripped = (bool)($room['DoorTripped'] ?? false);
+
+    if ($roomUsed) {
+        $presence = true; // someone is home (room used)
+        if ($doorTripped) {
+            $bedroomOpen = true; // only relevant if the room is used
         }
+    }
+}
 
         // Derived Conditions
         $perimeterSecure = ($frontLocked && $frontClosed && $baseLocked && $baseClosed && $windowsClosed);
