@@ -68,6 +68,19 @@
                             { "caption": "Presence", "value": "Presence" }
                         ]
                     }
+                },
+                {
+                    "caption": "Polarity (Active means...)",
+                    "name": "Polarity",
+                    "width": "200px",
+                    "add": "secure",
+                    "edit": {
+                        "type": "Select",
+                        "options": [
+                            { "caption": "Secure (Closed/Locked)", "value": "secure" },
+                            { "caption": "Breach (Open/Unsecure)", "value": "breach" }
+                        ]
+                    }
                 }
             ]
         }

@@ -173,7 +173,37 @@ class PropertyStateManager extends IPSModule
         $mapping = json_decode($this->ReadPropertyString("GroupMapping"), true);
         $mappedIDs = array_column($mapping, 'SourceKey');
         $unmappedSensors = array_diff($activeSensors, $mappedIDs);
+        // Dashboard ON/OFF texts (polarity-aware for Window/Generic)
+        $bitText = [
+            0 => ['on' => 'Locked',       'off' => 'Unlocked'],
+            1 => ['on' => 'Closed',       'off' => 'Open'],
+            2 => ['on' => 'Locked',       'off' => 'Unlocked'],
+            3 => ['on' => 'Someone Home', 'off' => 'Nobody Home'],
+            4 => ['on' => 'Running',      'off' => 'Inactive'],
+            5 => ['on' => 'Not Disarmed', 'off' => 'Disarmed'],
+            6 => ['on' => 'Open',         'off' => 'Closed'],
+            7 => ['on' => 'Closed',       'off' => 'Open'],
+            8 => ['on' => 'Open',         'off' => 'Closed'], // will be adjusted below
+            9 => ['on' => 'Open',         'off' => 'Closed'], // will be adjusted below
+        ];
 
+        // Decide label meaning for bit 8/9 based on mapping polarity.
+        // Default: current convention (active means breach => ON=Open)
+        $windowPolarity  = 'breach';
+        $genericPolarity = 'breach';
+
+        foreach ($mapping as $m) {
+            $role = (string)($m['LogicalRole'] ?? '');
+            $pol  = (string)($m['Polarity'] ?? '');
+            if ($pol === '') continue;
+
+            if ($role === 'Window Contact' && $pol === 'secure')  $windowPolarity  = 'secure';
+            if ($role === 'Generic Door'   && $pol === 'secure')  $genericPolarity = 'secure';
+        }
+
+        // If polarity is "secure", then ON means Closed (secure)
+        if ($windowPolarity === 'secure')  $bitText[8] = ['on' => 'Closed', 'off' => 'Open'];
+        if ($genericPolarity === 'secure') $bitText[9] = ['on' => 'Closed', 'off' => 'Open'];
         // API Mode
         if (isset($_GET['api'])) {
             header("Content-Type: application/json");
@@ -182,7 +212,8 @@ class PropertyStateManager extends IPSModule
                 'state' => $displayState,
                 'timer' => $remainingSeconds,
                 'showTimer' => $isDelayState,
-                'unmapped' => array_values($unmappedSensors)
+                'unmapped' => array_values($unmappedSensors),
+                'bitText' => $bitText
             ]);
             return;
         }
@@ -213,21 +244,22 @@ class PropertyStateManager extends IPSModule
                             for (let i = 0; i < 10; i++) {
                                 let isActive = (data.bits & (1 << i));
                                 let el = document.getElementById('bit_' + i);
-                                if(el) {
-                                    const bitText = {
-                                    0: { on: 'Locked',        off: 'Unlocked'     },
-                                    1: { on: 'Closed',        off: 'Open'         },
-                                    2: { on: 'Locked',        off: 'Unlocked'     },
-                                    3: { on: 'Someone Home',  off: 'Nobody Home'  },
-                                    4: { on: 'Running',       off: 'Inactive'     },
-                                    5: { on: 'Not Disarmed',  off: 'Disarmed'     },
-                                    6: { on: 'Open',          off: 'Closed'       },
-                                    7: { on: 'Closed',        off: 'Open'         },
-                                    8: { on: 'Open',          off: 'Closed'       },
-                                    9: { on: 'Open',          off: 'Closed'       }
+                                if (el) {
+                                    const fallback = {
+                                        0: { on: 'Locked',        off: 'Unlocked'     },
+                                        1: { on: 'Closed',        off: 'Open'         },
+                                        2: { on: 'Locked',        off: 'Unlocked'     },
+                                        3: { on: 'Someone Home',  off: 'Nobody Home'  },
+                                        4: { on: 'Running',       off: 'Inactive'     },
+                                        5: { on: 'Not Disarmed',  off: 'Disarmed'     },
+                                        6: { on: 'Open',          off: 'Closed'       },
+                                        7: { on: 'Closed',        off: 'Open'         },
+                                        8: { on: 'Open',          off: 'Closed'       },
+                                        9: { on: 'Open',          off: 'Closed'       }
                                     };
 
-                                    const txt = bitText[i] || { on: 'ON', off: 'OFF' };
+                                    const txt = (data.bitText && data.bitText[i]) ? data.bitText[i] : (fallback[i] || { on: 'ON', off: 'OFF' });
+
                                     el.innerText = isActive ? txt.on : txt.off;
                                     el.className = isActive ? 'active' : 'inactive';
                                 }
@@ -353,38 +385,58 @@ class PropertyStateManager extends IPSModule
     }
     protected function GetCurrentBitmask()
     {
-        $mapping = json_decode($this->ReadPropertyString("GroupMapping"), true);
+        $mapping       = json_decode($this->ReadPropertyString("GroupMapping"), true);
         $activeSensors = json_decode($this->ReadAttributeString("ActiveSensors"), true);
-        $activeGroups = json_decode($this->ReadAttributeString("ActiveGroups"), true);
-        $presenceMap = json_decode($this->ReadAttributeString("PresenceMap"), true);
+        $activeGroups  = json_decode($this->ReadAttributeString("ActiveGroups"), true);
+        $presenceMap   = json_decode($this->ReadAttributeString("PresenceMap"), true);
 
         $bits = 0;
-        // Bits 0-2: Hardware Sensors & Presence Mapping
+
         foreach ($mapping as $item) {
             $isTripped = in_array($item['SourceKey'], $activeSensors) || in_array($item['SourceKey'], $activeGroups);
-            switch ($item['LogicalRole']) {
+
+            // --- Polarity handling (display only) ---
+            $role     = (string)($item['LogicalRole'] ?? '');
+            $polarity = (string)($item['Polarity'] ?? '');
+
+            // Default polarity by role (keeps existing behavior if Polarity is missing)
+            if ($polarity === '') {
+                if ($role === 'Window Contact' || $role === 'Generic Door') {
+                    $polarity = 'breach'; // current convention: active means open
+                } else {
+                    $polarity = 'secure'; // locks/contacts/presence: active means secure/true
+                }
+            }
+
+            // What the RAW signal currently means by role
+            $rawMeans = ($role === 'Window Contact' || $role === 'Generic Door') ? 'breach' : 'secure';
+
+            // If user polarity differs from raw meaning, invert
+            $isOn = ($polarity === $rawMeans) ? $isTripped : !$isTripped;
+            // --- end polarity handling ---
+
+            switch ($role) {
                 case 'Front Door Lock':
-                    if ($isTripped) $bits |= (1 << 0);
+                    if ($isOn) $bits |= (1 << 0);
                     break;
                 case 'Front Door Contact':
-                    if ($isTripped) $bits |= (1 << 1);
+                    if ($isOn) $bits |= (1 << 1);
                     break;
                 case 'Basement Door Lock':
-                    if ($isTripped) $bits |= (1 << 2);
+                    if ($isOn) $bits |= (1 << 2);
                     break;
                 case 'Presence':
-                    if ($isTripped) $bits |= (1 << 3);
+                    // Presence is not a secure/breach sensor, but polarity default keeps current display
+                    if ($isOn) $bits |= (1 << 3);
                     break;
-                // FIX: Add Basement Contact mapping for Dashboard (Bit 7)
                 case 'Basement Door Contact':
-                    if ($isTripped) $bits |= (1 << 7);
+                    if ($isOn) $bits |= (1 << 7);
                     break;
-                // NEW: Add Window Contact (Bit 8) and Generic Door (Bit 9)
                 case 'Window Contact':
-                    if ($isTripped) $bits |= (1 << 8);
+                    if ($isOn) $bits |= (1 << 8);
                     break;
                 case 'Generic Door':
-                    if ($isTripped) $bits |= (1 << 9);
+                    if ($isOn) $bits |= (1 << 9);
                     break;
             }
         }
@@ -394,7 +446,6 @@ class PropertyStateManager extends IPSModule
             if ($room['SwitchState'] ?? false) {
                 $bits |= (1 << 3);
             }
-            // NEW: Set Bit 6 if any bedroom door is open
             if ($room['DoorTripped'] ?? false) {
                 $bits |= (1 << 6);
             }
@@ -580,12 +631,18 @@ class PropertyStateManager extends IPSModule
                     if ($isActive) $baseClosed = true;
                     break;
 
-                // If any sensor mapped to these roles is Active (Open), set flag to False
                 case 'Generic Door':
-                    if ($isActive) $windowsClosed = false;
-                    break;
                 case 'Window Contact':
-                    if ($isActive) $windowsClosed = false;
+                    // Polarity-aware interpretation:
+                    // raw meaning for these roles is currently "breach" (active = open).
+                    // If user sets Polarity="secure", we invert (active means closed).
+                    $polarity = (string)($item['Polarity'] ?? '');
+                    if ($polarity === '') $polarity = 'breach'; // keep old behavior if missing
+
+                    // Determine whether this row indicates "open" (breach) after applying polarity
+                    $isOpen = ($polarity === 'breach') ? $isActive : !$isActive;
+
+                    if ($isOpen) $windowsClosed = false;
                     break;
 
                 case 'Presence':
@@ -684,6 +741,7 @@ class PropertyStateManager extends IPSModule
                     break;
                 }
                 break;
+
             case 9: // ALARM TRIGGERED (latched, but can be cleared by authorized actions)
                 // Authorized reset: unlocking any entrance lock always disarms (your rule)
                 if ($entranceUnlocked) {
