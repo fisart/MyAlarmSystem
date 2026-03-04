@@ -331,7 +331,7 @@ class PropertyStateManager extends IPSModule
         ];
 
         // IMPORTANT: For group-level Window/Generic (bits 8/9), do NOT derive meaning from bits+polarity,
-        // because ActiveGroups is effectively a "breach list" (group becomes active when something opens).
+        // because   ActiveGroups is effectively a "breach list" (group becomes active when something opens).
         // So: bit ON => Open (breach), bit OFF => Closed (secure), always.
         $uiBits[8] = ['text' => ($bits & (1 << 8)) ? 'Open' : 'Closed', 'ok' => (($bits & (1 << 8)) === 0)];
         $uiBits[9] = ['text' => ($bits & (1 << 9)) ? 'Open' : 'Closed', 'ok' => (($bits & (1 << 9)) === 0)];
