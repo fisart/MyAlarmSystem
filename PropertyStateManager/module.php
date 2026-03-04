@@ -300,16 +300,37 @@ class PropertyStateManager extends IPSModule
 
         // If polarity is "secure", then ON means Closed (secure)
         if ($windowPolarity === 'secure')  $bitText[8] = ['on' => 'Closed', 'off' => 'Open'];
-        if ($genericPolarity === 'secure') $bitText[9] = ['on' => 'Closed', 'off' => 'Open'];       // API Mode
+        if ($genericPolarity === 'secure') $bitText[9] = ['on' => 'Closed', 'off' => 'Open'];
+        // Build semantic UI texts (Option A): server decides what to display per bit.
+        // This is DISPLAY ONLY; it does NOT change any rules/state transitions.
+        $uiBits = [
+            0 => ['text' => ($bits & (1 << 0)) ? 'Locked' : 'Unlocked', 'ok' => (($bits & (1 << 0)) !== 0)],
+            1 => ['text' => ($bits & (1 << 1)) ? 'Closed' : 'Open',     'ok' => (($bits & (1 << 1)) !== 0)],
+            2 => ['text' => ($bits & (1 << 2)) ? 'Locked' : 'Unlocked', 'ok' => (($bits & (1 << 2)) !== 0)],
+            3 => ['text' => ($bits & (1 << 3)) ? 'Someone Home' : 'Nobody Home', 'ok' => true],
+            4 => ['text' => ($bits & (1 << 4)) ? 'Running' : 'Inactive', 'ok' => true],
+            5 => ['text' => ($bits & (1 << 5)) ? 'Not Disarmed' : 'Disarmed', 'ok' => true],
+            6 => ['text' => ($bits & (1 << 6)) ? 'Open' : 'Closed',     'ok' => (($bits & (1 << 6)) === 0)],
+            7 => ['text' => ($bits & (1 << 7)) ? 'Closed' : 'Open',     'ok' => (($bits & (1 << 7)) !== 0)],
+        ];
+
+        // IMPORTANT: For group-level Window/Generic (bits 8/9), do NOT derive meaning from bits+polarity,
+        // because ActiveGroups is effectively a "breach list" (group becomes active when something opens).
+        // So: bit ON => Open (breach), bit OFF => Closed (secure), always.
+        $uiBits[8] = ['text' => ($bits & (1 << 8)) ? 'Open' : 'Closed', 'ok' => (($bits & (1 << 8)) === 0)];
+        $uiBits[9] = ['text' => ($bits & (1 << 9)) ? 'Open' : 'Closed', 'ok' => (($bits & (1 << 9)) === 0)];
+
+        // API Mode
         if (isset($_GET['api'])) {
             header("Content-Type: application/json");
             echo json_encode([
-                'bits' => $bits,
-                'state' => $displayState,
-                'timer' => $remainingSeconds,
+                'bits'     => $bits,
+                'state'    => $displayState,
+                'timer'    => $remainingSeconds,
                 'showTimer' => $isDelayState,
                 'unmapped' => array_values($unmappedSensors),
-                'bitText' => $bitText
+                'bitText'  => $bitText,   // keep for backwards compatibility while migrating
+                'uiBits'   => $uiBits     // NEW: semantic display result
             ]);
             return;
         }
@@ -338,10 +359,17 @@ class PropertyStateManager extends IPSModule
                             document.getElementById('stateText').innerText = data.state;
                             // Updated loop to 10 to include Generic Door Bit
                             for (let i = 0; i < 10; i++) {
-                                let isActive = (data.bits & (1 << i));
                                 let el = document.getElementById('bit_' + i);
                                 if (el) {
-                                    // Prefer server-provided bitText (polarity-aware), fallback to local defaults
+                                    // Prefer server-provided semantic UI (Option A)
+                                    if (data.uiBits && data.uiBits[i]) {
+                                        el.innerText = data.uiBits[i].text;
+                                        el.className = data.uiBits[i].ok ? 'active' : 'inactive';
+                                        continue;
+                                    }
+
+                                    // Fallback (older servers): keep previous behavior
+                                    let isActive = (data.bits & (1 << i));
                                     const fallback = {
                                     0: { on: 'Locked',       off: 'Unlocked' },
                                     1: { on: 'Closed',       off: 'Open'     },
@@ -356,7 +384,6 @@ class PropertyStateManager extends IPSModule
                                     };
 
                                     const txt = (data.bitText && data.bitText[i]) ? data.bitText[i] : (fallback[i] || { on: 'ON', off: 'OFF' });
-
                                     el.innerText = isActive ? txt.on : txt.off;
                                     el.className = isActive ? 'active' : 'inactive';
                                 }
