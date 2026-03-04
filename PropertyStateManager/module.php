@@ -419,11 +419,11 @@ class PropertyStateManager extends IPSModule
                                     const lines = data.bedrooms.map(r => {
                                         const status = r.used ? (r.doorOpen ? 'BLOCKING (used + door open)' : 'OK (used + door closed)') : (r.doorOpen ? 'Bypassed (unused + door open)' : 'Bypassed (unused + door closed)');
                                         const icon = r.blocking ? '🚫' : (r.used ? '✅' : '➖');
-                                        return `${icon} ${r.name}: ${status}`;
+                                        return `${icon} ${r . name}: ${status}`;
                                     });
-                                    bd.innerHTML = "<strong>Bedrooms:</strong><br>" + lines.join("<br>");
+                                    bd.innerHTML = '<strong>Bedrooms:</strong><br>' + lines.join('<br>');
                                 } else {
-                                    bd.innerHTML = "<strong>Bedrooms:</strong><br>No bedroom data (no BEDROOM_SYNC received yet).";
+                                    bd.innerHTML = '<strong>Bedrooms:</strong><br>No bedroom data (no BEDROOM_SYNC received yet).';
                                 }
                             }
                             let warnBox = document.getElementById('warnBox');
@@ -832,18 +832,18 @@ class PropertyStateManager extends IPSModule
             }
         }
 
-// Parse Bedroom Metadata (Option A: door only relevant if room is used)
-foreach ($presenceMap as $room) {
-    $roomUsed   = (bool)($room['SwitchState'] ?? false);
-    $doorTripped = (bool)($room['DoorTripped'] ?? false);
+        // Parse Bedroom Metadata (Option A: door only relevant if room is used)
+        foreach ($presenceMap as $room) {
+            $roomUsed   = (bool)($room['SwitchState'] ?? false);
+            $doorTripped = (bool)($room['DoorTripped'] ?? false);
 
-    if ($roomUsed) {
-        $presence = true; // someone is home (room used)
-        if ($doorTripped) {
-            $bedroomOpen = true; // only relevant if the room is used
+            if ($roomUsed) {
+                $presence = true; // someone is home (room used)
+                if ($doorTripped) {
+                    $bedroomOpen = true; // only relevant if the room is used
+                }
+            }
         }
-    }
-}
 
         // Derived Conditions
         $perimeterSecure = ($frontLocked && $frontClosed && $baseLocked && $baseClosed && $windowsClosed);
