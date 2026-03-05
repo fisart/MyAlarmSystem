@@ -1241,6 +1241,155 @@ class PropertyStateManager extends IPSModule
         return json_encode($status);
     }
 
+    public function GetMappingHints()
+    {
+        $schemaVersion = 1;
+        $module2Version = "7.2.0"; // keep aligned with your module versioning
+        $warnings = [];
+
+        // --- Inputs (read-only) ---
+        $mapping = json_decode($this->ReadPropertyString("GroupMapping"), true);
+        if (!is_array($mapping)) $mapping = [];
+
+        $captionMap = json_decode($this->ReadAttributeString("SensorCaptionMap"), true);
+        if (!is_array($captionMap)) $captionMap = [];
+
+        $groupSensorMap = json_decode($this->ReadAttributeString("GroupSensorMap"), true);
+        if (!is_array($groupSensorMap)) $groupSensorMap = [];
+
+        $presenceMap = json_decode($this->ReadAttributeString("PresenceMap"), true);
+        if (!is_array($presenceMap)) $presenceMap = [];
+
+        if (count($captionMap) === 0) {
+            $warnings[] = "SensorCaptionMap cache is empty. Run PSM_UI_Refresh() to populate captions.";
+        }
+        if (count($groupSensorMap) === 0) {
+            $warnings[] = "GroupSensorMap cache is empty. Run PSM_UI_Refresh() to populate group members.";
+        }
+        if (count($mapping) === 0) {
+            $warnings[] = "GroupMapping is empty. No semantic roles configured in Module 2.";
+        }
+
+        // --- Buckets (stable contract: always include all keys) ---
+        $buckets = [
+            "entry_locks"       => [],
+            "perimeter_windows" => [],
+            "perimeter_doors"   => [],
+            "interior_motion"   => [],
+            "presence_sources"  => [],
+            "bedroom_related"   => []
+        ];
+
+        // --- Build enriched mapping rows ---
+        $mappingsOut = [];
+
+        foreach ($mapping as $m) {
+            $src  = (string)($m["SourceKey"] ?? "");
+            $role = (string)($m["LogicalRole"] ?? "");
+            $pol  = $m["Polarity"] ?? null;
+            if (is_string($pol) && $pol === "") $pol = null;
+
+            if ($src === "" || $role === "") {
+                $warnings[] = "Found incomplete mapping row (missing SourceKey or LogicalRole).";
+                continue;
+            }
+
+            $isSensor = ctype_digit($src);
+            $kind = $isSensor ? "sensor" : "group";
+            $origin = $isSensor ? "module1_variable" : "module1_group";
+
+            // caption
+            if ($isSensor) {
+                $caption = $captionMap[$src] ?? ("Variable " . $src);
+            } else {
+                $caption = $src . " (Group)";
+            }
+
+            $row = [
+                "source_key"   => $src,
+                "source_kind"  => $kind,
+                "logical_role" => $role,
+                "polarity"     => $pol,
+                "caption"      => $caption,
+                "origin"       => $origin
+            ];
+
+            // If group, add members[]
+            if (!$isSensor) {
+                $members = [];
+                $vids = $groupSensorMap[$src] ?? [];
+                if (!is_array($vids)) $vids = [];
+
+                foreach ($vids as $vid) {
+                    $k = (string)$vid;
+                    $members[] = [
+                        "variable_id" => (int)$vid,
+                        "caption"     => $captionMap[$k] ?? ("Variable " . $k)
+                    ];
+                }
+
+                $row["members"] = $members;
+            }
+
+            $mappingsOut[] = $row;
+
+            // --- Bucket assignment (normalized for Module 3) ---
+            switch ($role) {
+                case "Front Door Lock":
+                case "Basement Door Lock":
+                    $buckets["entry_locks"][] = $src;
+                    break;
+
+                case "Window Contact":
+                    $buckets["perimeter_windows"][] = $src;
+                    break;
+
+                case "Generic Door":
+                    $buckets["perimeter_doors"][] = $src;
+                    break;
+
+                case "Presence":
+                    $buckets["presence_sources"][] = $src;
+                    break;
+
+                // Motion is not implemented in your current role set,
+                // but keep the bucket stable and allow future roles.
+                case "Motion":
+                case "Interior Motion":
+                    $buckets["interior_motion"][] = $src;
+                    break;
+            }
+        }
+
+        // --- Bedroom-related signals (currently come from PresenceMap/BEDROOM_SYNC, not GroupMapping) ---
+        $bedroomNames = [];
+        foreach ($presenceMap as $room) {
+            $gn = (string)($room["GroupName"] ?? "");
+            if ($gn !== "") $bedroomNames[$gn] = true;
+        }
+        $buckets["bedroom_related"] = array_values(array_keys($bedroomNames));
+
+        // Optional extra metadata for Module 3 UI (does not affect buckets contract)
+        $bedroomSyncSources = [];
+        foreach ($presenceMap as $room) {
+            $bedroomSyncSources[] = [
+                "group_name"   => (string)($room["GroupName"] ?? "Unknown"),
+                "switch_state" => (bool)($room["SwitchState"] ?? false),
+                "door_tripped" => (bool)($room["DoorTripped"] ?? false)
+            ];
+        }
+
+        return json_encode([
+            "schema_version"   => $schemaVersion,
+            "module2_version"  => $module2Version,
+            "generated_at"     => time(),
+            "buckets"          => $buckets,
+            "mappings"         => $mappingsOut,
+            "bedroom_sync_sources" => $bedroomSyncSources,
+            "warnings"         => $warnings
+        ]);
+    }
+
     public function GetHouseStateSnapshot()
     {
         // Snapshot for Module 3 (pull model). Read-only. No state changes.
