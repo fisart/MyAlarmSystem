@@ -2034,20 +2034,36 @@ class SensorGroup extends IPSModule
             $graph .= $tid . "[\"" . $label . "\"]:::target\n";
         }
 
-        // B. Groups -> Targets
-        foreach ($conf['GroupDispatch'] as $d) {
-            $gName = $d['GroupName'];
-            $tid = "T_" . $d['InstanceID'];
-            $gid = "G_" . md5($gName);
+        // B1. Define ALL Groups (Nodes)
+        // This ensures internal groups (like Bedroom) get labels even if they aren't in GroupDispatch
+        $allGroups = $conf['GroupList'] ?? [];
+        foreach ($allGroups as $g) {
+            $gName = $g['GroupName'];
 
+            // If filtering is active, skip groups that aren't in the allowed list
+            if (isset($allowedGroups) && !isset($allowedGroups[$gName])) continue;
+
+            $gid = "G_" . md5($gName);
             $ident = "Status_" . $this->SanitizeIdent($gName);
             $isActive = (@$this->GetIDForIdent($ident) && GetValue($this->GetIDForIdent($ident)));
             $style = $isActive ? "red" : "green";
 
-            $gLogic = ($groupMap[$gName]['GroupLogic'] ?? 0) == 1 ? "AND" : "OR";
+            $gLogic = ((int)($g['GroupLogic'] ?? 0) == 1) ? "AND" : "OR";
             $label = "$gName<br/>[$gLogic]";
 
-            $graph .= $gid . "[\"" . $label . "\"]:::" . $style . " --> " . $tid . "\n";
+            $graph .= $gid . "[\"" . $label . "\"]:::" . $style . "\n";
+        }
+
+        // B2. Draw Group -> Target Connections
+        foreach ($groupDispatch as $d) {
+            $gName = $d['GroupName'];
+            $tid = "T_" . $d['InstanceID'];
+            $gid = "G_" . md5($gName);
+
+            $graph .= $gid . " --> " . $tid . "\n";
+
+            $ident = "Status_" . $this->SanitizeIdent($gName);
+            $isActive = (@$this->GetIDForIdent($ident) && GetValue($this->GetIDForIdent($ident)));
 
             $linkIdx = $this->linkCounter++;
             if ($isActive) $graph .= "linkStyle $linkIdx stroke:#ff8a80,stroke-width:2px;\n";
