@@ -1843,19 +1843,47 @@ class SensorGroup extends IPSModule
 
             $payloadJson = json_encode($payload);
 
+            // FIX: Deduplicate targets across all active groups before sending.
+            $targetsToSend = [];
+
             foreach ($activeGroups as $gName) {
-                if (!isset($dispatchMap[$gName])) {
-                    if ($this->ReadPropertyBoolean('DebugMode')) $this->LogMessage("DEBUG [Dispatch]: Group '{$gName}' is Active, but has NO route in DispatchMap.", KL_WARNING);
+                if (isset($dispatchMap[$gName])) {
+                    $groupTargets = array_keys($dispatchMap[$gName]);
+                    // Log contribution for traceability
+                    if ($this->ReadPropertyBoolean('DebugMode')) {
+                        $this->LogMessage("DEBUG [Dispatch Resolve]: Group '{$gName}' adds targets: " . json_encode($groupTargets), KL_MESSAGE);
+                    }
+                    foreach ($groupTargets as $iid) {
+                        $targetsToSend[(int)$iid] = true; // Use ID as key to deduplicate
+                    }
+                } else {
+                    if ($this->ReadPropertyBoolean('DebugMode')) $this->LogMessage("DEBUG [Dispatch]: Group '{$gName}' is Active but has NO route.", KL_WARNING);
+                }
+            }
+
+            // Send exactly once per unique target
+            foreach (array_keys($targetsToSend) as $iid) {
+                if (!IPS_InstanceExists((int)$iid)) {
+                    if ($this->ReadPropertyBoolean('DebugMode')) {
+                        $this->LogMessage("DEBUG [Dispatch]: Target InstanceID {$iid} does not exist (skipping).", KL_WARNING);
+                    }
                     continue;
                 }
 
-                foreach (array_keys($dispatchMap[$gName]) as $iid) {
-                    if ($this->ReadPropertyBoolean('DebugMode')) $this->LogMessage("DEBUG [Dispatch]: Sending ALARM for '{$gName}' to Instance {$iid}", KL_MESSAGE);
-                    if (!IPS_InstanceExists((int)$iid)) continue;
+                if ($this->ReadPropertyBoolean('DebugMode')) {
+                    $this->LogMessage(sprintf(
+                        "DEBUG [Dispatch EXEC]: Sending SEQ=%d ID=%s to InstanceID=%d",
+                        $payload['event_seq'],
+                        $payload['event_id'],
+                        $iid
+                    ), KL_MESSAGE);
+                }
 
-                    $sent = @IPS_RequestAction((int)$iid, 'ReceivePayload', $payloadJson);
-                    if (!$sent && $this->ReadPropertyBoolean('DebugMode')) {
-                        $this->LogMessage("DISPATCH ERROR: Target {$iid} refused payload. Missing ReceivePayload action?", KL_WARNING);
+                try {
+                    IPS_RequestAction((int)$iid, 'ReceivePayload', $payloadJson);
+                } catch (Throwable $e) {
+                    if ($this->ReadPropertyBoolean('DebugMode')) {
+                        $this->LogMessage("DISPATCH ERROR: Target {$iid} exception: " . $e->getMessage(), KL_WARNING);
                     }
                 }
             }
@@ -1890,10 +1918,19 @@ class SensorGroup extends IPSModule
             }
 
             foreach (array_keys($allTargets) as $iid) {
-                if (!IPS_InstanceExists((int)$iid)) continue;
-                $sent = @IPS_RequestAction((int)$iid, 'ReceivePayload', $payloadJson);
-                if (!$sent && $this->ReadPropertyBoolean('DebugMode')) {
-                    $this->LogMessage("DISPATCH ERROR (Reset): Target {$iid} refused payload. Missing ReceivePayload action?", KL_WARNING);
+                if (!IPS_InstanceExists((int)$iid)) {
+                    if ($this->ReadPropertyBoolean('DebugMode')) {
+                        $this->LogMessage("DEBUG [Dispatch Reset]: Target InstanceID {$iid} does not exist (skipping).", KL_WARNING);
+                    }
+                    continue;
+                }
+
+                try {
+                    IPS_RequestAction((int)$iid, 'ReceivePayload', $payloadJson);
+                } catch (Throwable $e) {
+                    if ($this->ReadPropertyBoolean('DebugMode')) {
+                        $this->LogMessage("DISPATCH ERROR (Reset): Target {$iid} exception: " . $e->getMessage(), KL_WARNING);
+                    }
                 }
             }
         }
