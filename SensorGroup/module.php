@@ -36,7 +36,8 @@ class SensorGroup extends IPSModule
         $this->RegisterVariableBoolean('Status', 'Status', '~Alert', 10);
         $this->RegisterVariableBoolean('Sabotage', 'Sabotage', '~Alert', 90);
         $this->RegisterVariableString('EventData', 'Event Payload', '', 99);
-
+        $this->RegisterAttributeString('LastAlarmHash', '');
+        $this->RegisterAttributeBoolean('ForceSyncOnce', false);
         $this->RegisterPropertyString('DispatchTargets', '[]');   // list of Module2 targets
 
 
