@@ -138,3 +138,93 @@ The internal configuration is stored in the `GroupMapping` property.
     "Polarity": "breach"
   }
 ]
+Module 2 accepts two distinct JSON payloads via ReceivePayload.
+
+Type 1: Alarm / Sensor Event
+
+Triggered when a sensor changes state.
+
+{
+  "event_type": "ALARM",
+  "source_name": "Sensor Aggregator",
+  "active_groups": ["Burglar Alarm"],
+  "trigger_details": {
+    "variable_id": 14125,
+    "value_raw": true,
+    "var_name": "Front Door Lock"
+  }
+}
+
+Global Reset behavior:
+If active_groups is present and is an empty array ([]), Module 2 interprets this as a global reset and clears its ActiveSensors list.
+
+Type 2: Bedroom Sync
+
+Triggered periodically or on change to update presence logic.
+
+{
+  "event_type": "BEDROOM_SYNC",
+  "bedrooms": [
+    {
+      "GroupName": "Master Bedroom",
+      "SwitchState": true,
+      "DoorTripped": false
+    }
+  ]
+}
+
+SwitchState = bedroom “in use” (presence intent)
+
+DoorTripped = bedroom door open/tripped state
+
+C. Output Payloads
+1) Output Payload (To Module 3 / API on request)
+
+Returned by GetSystemState() for Module 3 consumption.
+
+{
+  "StateID": 3,
+  "PresenceMap": [...],
+  "ActiveSensors": [14125, 55667],
+  "IsDelayActive": false
+}
+2) Dashboard API Payload (WebHook ?api=1)
+
+Returned by the dashboard API for UI/diagnostics. Includes additional UI fields (bitmask, labels, bedrooms, perimeterDetails, etc.).
+
+5. Public API Functions
+
+These functions are available to other scripts or modules in IP-Symcon.
+
+PSM_GetSystemState(int $InstanceID): string
+
+Description: Returns the complete snapshot of the house status for Module 3 consumption.
+Returns: JSON String (see Output Payload #1).
+
+Usage: Called by Module 3 to decide on alerting actions.
+
+PSM_ReceivePayload(int $InstanceID, string $Payload): void
+
+Description: The main input door. Processes JSON events, updates internal buffers, and triggers state machine evaluation.
+Usage: Typically invoked via IPS_RequestAction($InstanceID, 'ReceivePayload', $Payload) from Module 1.
+
+PSM_RequestAction(int $InstanceID, string $Ident, mixed $Value): void
+
+Description: Standard IP-Symcon Action Handler.
+Usage: Allows Module 1 to call IPS_RequestAction($id, 'ReceivePayload', $json) safely.
+
+PSM_GetPayloadHistory(int $InstanceID): string
+
+Description: Returns the last 100 received payloads.
+Returns: JSON String (Array of objects with Timestamp and Data).
+Usage: Debugging and diagnostics.
+
+PSM_ResetPayloadHistory(int $InstanceID): void
+
+Description: Clears debug logs, clears active sensor/group/presence buffers, and resets System State to 0.
+Usage: Hard reset during testing.
+
+PSM_UI_Refresh(int $InstanceID): void
+
+Description: Builds UI caches (caption map + group membership map) and updates SyncTimestamp to enable Apply Changes.
+Usage: Internal UI helper; improves dashboard perimeter sensor captions.
