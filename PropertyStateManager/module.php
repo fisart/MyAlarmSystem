@@ -34,13 +34,13 @@ class PropertyStateManager extends IPSModule
         $this->RegisterAttributeInteger("LastPayloadTime", 0);
         $this->RegisterAttributeString("PayloadHistory", "[]"); // NEW: History Buffer
         // ---- Sync token: "processed up to" marker (restart-safe ordering comes from Module 1) ----
-$this->RegisterAttributeInteger("LastProcessedEventEpoch", 0);
-$this->RegisterAttributeInteger("LastProcessedEventSeq", 0);
+        $this->RegisterAttributeInteger("LastProcessedEventEpoch", 0);
+        $this->RegisterAttributeInteger("LastProcessedEventSeq", 0);
 
-// Optional: diagnostics
-$this->RegisterAttributeInteger("LastSeenEventEpoch", 0);
-$this->RegisterAttributeInteger("LastSeenEventSeq", 0);
-$this->RegisterAttributeInteger("LastTokenMissing", 0); // 1 if last payload had no token
+        // Optional: diagnostics
+        $this->RegisterAttributeInteger("LastSeenEventEpoch", 0);
+        $this->RegisterAttributeInteger("LastSeenEventSeq", 0);
+        $this->RegisterAttributeInteger("LastTokenMissing", 0); // 1 if last payload had no token
 
         // Variable Profiles
         // Variable Profiles
@@ -597,8 +597,8 @@ $this->RegisterAttributeInteger("LastTokenMissing", 0); // 1 if last payload had
                 'bedrooms' => $bedrooms,
                 'perimeterDetails' => $perimeterDetails,
                 'last_processed_event_epoch' => (int)$this->ReadAttributeInteger('LastProcessedEventEpoch'),
-'last_processed_event_seq'   => (int)$this->ReadAttributeInteger('LastProcessedEventSeq'),
-'last_token_missing'         => (int)$this->ReadAttributeInteger('LastTokenMissing')
+                'last_processed_event_seq'   => (int)$this->ReadAttributeInteger('LastProcessedEventSeq'),
+                'last_token_missing'         => (int)$this->ReadAttributeInteger('LastTokenMissing')
             ]);
             return;
         }
@@ -949,25 +949,25 @@ $this->RegisterAttributeInteger("LastTokenMissing", 0); // 1 if last payload had
 
 
 
-private function TokenIsNewer(int $epoch, int $seq, int $curEpoch, int $curSeq): bool
-{
-    if ($epoch > $curEpoch) return true;
-    if ($epoch < $curEpoch) return false;
-    return ($seq > $curSeq);
-}
-
-private function UpdateLastProcessedToken(int $epoch, int $seq): void
-{
-    $curEpoch = (int)$this->ReadAttributeInteger("LastProcessedEventEpoch");
-    $curSeq   = (int)$this->ReadAttributeInteger("LastProcessedEventSeq");
-
-    if ($this->TokenIsNewer($epoch, $seq, $curEpoch, $curSeq)) {
-        $this->WriteAttributeInteger("LastProcessedEventEpoch", $epoch);
-        $this->WriteAttributeInteger("LastProcessedEventSeq", $seq);
+    private function TokenIsNewer(int $epoch, int $seq, int $curEpoch, int $curSeq): bool
+    {
+        if ($epoch > $curEpoch) return true;
+        if ($epoch < $curEpoch) return false;
+        return ($seq > $curSeq);
     }
-}
 
-    
+    private function UpdateLastProcessedToken(int $epoch, int $seq): void
+    {
+        $curEpoch = (int)$this->ReadAttributeInteger("LastProcessedEventEpoch");
+        $curSeq   = (int)$this->ReadAttributeInteger("LastProcessedEventSeq");
+
+        if ($this->TokenIsNewer($epoch, $seq, $curEpoch, $curSeq)) {
+            $this->WriteAttributeInteger("LastProcessedEventEpoch", $epoch);
+            $this->WriteAttributeInteger("LastProcessedEventSeq", $seq);
+        }
+    }
+
+
     public function GetPayloadHistory()
     {
         return $this->ReadAttributeString("PayloadHistory");
@@ -980,29 +980,36 @@ private function UpdateLastProcessedToken(int $epoch, int $seq): void
     public function ReceivePayload(string $Payload)
     {
         $data = json_decode($Payload, true);
-        if (!$data) return;
-// ---- Event token from Module 1 (may be missing for legacy payloads) ----
-$hasToken = isset($data['event_epoch'], $data['event_seq']);
-$evtEpoch = $hasToken ? (int)$data['event_epoch'] : 0;
-$evtSeq   = $hasToken ? (int)$data['event_seq'] : 0;
+        if (!is_array($data)) {
+            return;
+        }
 
-// Optional diagnostics: record "seen" token immediately (NOT "processed")
-if ($hasToken) {
-    $this->WriteAttributeInteger("LastSeenEventEpoch", $evtEpoch);
-    $this->WriteAttributeInteger("LastSeenEventSeq", $evtSeq);
-    $this->WriteAttributeInteger("LastTokenMissing", 0);
-} else {
-    $this->WriteAttributeInteger("LastTokenMissing", 1);
-}
+        // ---- Event token from Module 1 (may be missing for legacy payloads) ----
+        $hasToken = isset($data['event_epoch'], $data['event_seq']);
+        $evtEpoch = $hasToken ? (int)$data['event_epoch'] : 0;
+        $evtSeq   = $hasToken ? (int)$data['event_seq'] : 0;
+
+        // Optional diagnostics: record "seen" token immediately (NOT "processed")
+        if ($hasToken) {
+            $this->WriteAttributeInteger("LastSeenEventEpoch", $evtEpoch);
+            $this->WriteAttributeInteger("LastSeenEventSeq", $evtSeq);
+            $this->WriteAttributeInteger("LastTokenMissing", 0);
+        } else {
+            $this->WriteAttributeInteger("LastTokenMissing", 1);
+        }
+
         // --- HISTORY LOGGING START ---
         $history = json_decode($this->ReadAttributeString("PayloadHistory"), true);
         if (!is_array($history)) $history = [];
+
         array_unshift($history, [
             'Time' => date('Y-m-d H:i:s'),
             'Data' => $data
         ]);
-        // Increased buffer from 20 to 100 to capture bursts
-        if (count($history) > 100) $history = array_slice($history, 0, 100);
+
+        if (count($history) > 100) {
+            $history = array_slice($history, 0, 100);
+        }
         $this->WriteAttributeString("PayloadHistory", json_encode($history));
         // --- HISTORY LOGGING END ---
 
@@ -1010,36 +1017,50 @@ if ($hasToken) {
         $this->WriteAttributeString("LastPayload", $Payload);
         $this->WriteAttributeInteger("LastPayloadTime", time());
 
-        $type = $data['event_type'] ?? 'ALARM';
+        $type   = $data['event_type'] ?? 'ALARM';
         $source = $data['source_name'] ?? 'Unknown Source';
 
         $this->LogMessage("[PSM-Rx] Received '$type' from '$source'", KL_MESSAGE);
 
-        // Handle Bedroom Sync
-if ($type === 'BEDROOM_SYNC') {
+        // -------------------- BEDROOM_SYNC --------------------
+        if ($type === 'BEDROOM_SYNC') {
+            $this->WriteAttributeString("PresenceMap", json_encode($data['bedrooms'] ?? []));
+            $this->EvaluateState();
 
-        // Load current list
+            // Mark processed only after buffers were updated and state machine ran
+            if ($hasToken) {
+                $this->UpdateLastProcessedToken($evtEpoch, $evtSeq);
+            }
+            return;
+        }
+
+        // -------------------- ALARM / RESET / SENSOR EVENT --------------------
         $activeSensors = json_decode($this->ReadAttributeString("ActiveSensors"), true);
         if (!is_array($activeSensors)) $activeSensors = [];
 
-        // 1. Global Reset Logic
+        // 1) Global Reset Logic
         if (isset($data['active_groups']) && empty($data['active_groups'])) {
             $activeSensors = [];
             $this->LogMessage("[PSM-Rx] Global Reset: All sensors cleared.", KL_MESSAGE);
         }
 
-        // 2. Handle specific Sensor Event
+        // 2) Handle specific Sensor Event
         if (isset($data['trigger_details']['variable_id'])) {
             $vID = (string)$data['trigger_details']['variable_id'];
             $val = $data['trigger_details']['value_raw'] ?? false;
 
             // DIAGNOSTIC: Check mapping
             $mapping = json_decode($this->ReadPropertyString("GroupMapping"), true);
+            if (!is_array($mapping)) $mapping = [];
+
             $isMapped = false;
             foreach ($mapping as $m) {
-                if ($m['SourceKey'] == $vID) {
+                if (($m['SourceKey'] ?? null) == $vID) {
                     $isMapped = true;
-                    $this->LogMessage("[PSM-Rx] Diagnostic: Sensor $vID matched to Role '" . $m['LogicalRole'] . "'", KL_MESSAGE);
+                    $this->LogMessage(
+                        "[PSM-Rx] Diagnostic: Sensor $vID matched to Role '" . ($m['LogicalRole'] ?? '?') . "'",
+                        KL_MESSAGE
+                    );
                     break;
                 }
             }
@@ -1049,12 +1070,12 @@ if ($type === 'BEDROOM_SYNC') {
 
             // Update Active List
             if ($val) {
-                if (!in_array($vID, $activeSensors)) {
+                if (!in_array($vID, $activeSensors, true)) {
                     $activeSensors[] = $vID;
                     $this->LogMessage("[PSM-Rx] Added Sensor $vID to Active List.", KL_MESSAGE);
                 }
             } else {
-                if (in_array($vID, $activeSensors)) {
+                if (in_array($vID, $activeSensors, true)) {
                     $this->LogMessage("[PSM-Rx] Removed Sensor $vID from Active List.", KL_MESSAGE);
                 }
                 $activeSensors = array_values(array_diff($activeSensors, [$vID]));
@@ -1066,13 +1087,18 @@ if ($type === 'BEDROOM_SYNC') {
         $this->LogMessage("[PSM-Rx] Active Sensors Count: $count", KL_MESSAGE);
 
         $this->WriteAttributeString("ActiveSensors", json_encode($activeSensors));
-        // 3. Save Active Groups (For Group-Level Logic like "Windows")
+
+        // 3) Save Active Groups (For Group-Level Logic like "Windows")
         if (isset($data['active_groups'])) {
             $this->WriteAttributeString("ActiveGroups", json_encode($data['active_groups']));
         }
+
         $this->EvaluateState();
-        // ---- Mark processed only after buffers were updated and state machine ran ----
-if ($hasToken) $this->UpdateLastProcessedToken($evtEpoch, $evtSeq);
+
+        // Mark processed only after buffers were updated and state machine ran
+        if ($hasToken) {
+            $this->UpdateLastProcessedToken($evtEpoch, $evtSeq);
+        }
     }
 
     public function ResetPayloadHistory()
@@ -1415,10 +1441,10 @@ if ($hasToken) $this->UpdateLastProcessedToken($evtEpoch, $evtSeq);
             'ActiveSensors' => json_decode($this->ReadAttributeString('ActiveSensors'), true),
             'IsDelayActive' => ($this->GetTimerInterval('DelayTimer') > 0),
             'last_processed_event_epoch' => (int)$this->ReadAttributeInteger('LastProcessedEventEpoch'),
-'last_processed_event_seq'   => (int)$this->ReadAttributeInteger('LastProcessedEventSeq'),
-'last_token_missing'         => (int)$this->ReadAttributeInteger('LastTokenMissing'),
-'last_seen_event_epoch'      => (int)$this->ReadAttributeInteger('LastSeenEventEpoch'),
-'last_seen_event_seq'        => (int)$this->ReadAttributeInteger('LastSeenEventSeq')
+            'last_processed_event_seq'   => (int)$this->ReadAttributeInteger('LastProcessedEventSeq'),
+            'last_token_missing'         => (int)$this->ReadAttributeInteger('LastTokenMissing'),
+            'last_seen_event_epoch'      => (int)$this->ReadAttributeInteger('LastSeenEventEpoch'),
+            'last_seen_event_seq'        => (int)$this->ReadAttributeInteger('LastSeenEventSeq')
         ];
 
         return json_encode($status);
