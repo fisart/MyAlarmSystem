@@ -446,17 +446,19 @@ class PropertyStateManager extends IPSModule
             if (!is_array($vids)) $vids = [];
 
             $captions = [];
-            foreach ($vids as $vid) {
-                $k = (string)$vid;
-                if (in_array($k, $activeSensors, true)) {
-                    $captions[] = $sensorCaptionMap[$k] ?? ("Variable " . $k);
-                }
-            }
+$captions = [];
+foreach ($vids as $vid) {
+    $k = (string)$vid;
+    // IMPORTANT: Do NOT filter by ActiveSensors here.
+    // ActiveGroups already tells us "this group is breached/open".
+    // ActiveSensors can be inverted per-device, so filtering would hide the real open sensor.
+    $captions[] = $sensorCaptionMap[$k] ?? ("Variable " . $k);
+}
 
-            // If we don't know exact members (no cache), still show the group name
-            if (count($captions) === 0) {
-                $captions[] = "(No member details cached - run Refresh Keys / UI_Refresh)";
-            }
+// If we don't know members (no cache), still show a hint
+if (count($captions) === 0) {
+    $captions[] = "(No member details cached - run Refresh Keys / UI_Refresh)";
+}
 
             $perimeterDetails[] = [
                 'group'   => $src,
@@ -644,6 +646,7 @@ class PropertyStateManager extends IPSModule
         echo "</div>";
 
         // Generic Doors and Windows: 8,9
+        echo "<div id='perimeterDetails' style='margin-top:10px; font-size:0.95em; line-height:1.35;'></div>";
         echo "<div class='panel'><div class='panel-title'>Generic Doors and Windows</div>";
         foreach ([8, 9] as $i) {
             echo "<div class='bit-row'>
