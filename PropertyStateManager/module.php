@@ -429,7 +429,6 @@ class PropertyStateManager extends IPSModule
 
         $activeGroupNames = json_decode($this->ReadAttributeString("ActiveGroups"), true);
         if (!is_array($activeGroupNames)) $activeGroupNames = [];
-        if (!is_array($activeGroupNames)) $activeGroupNames = [];
 
         foreach ($mapping as $m) {
             $src  = (string)($m['SourceKey'] ?? '');
@@ -446,19 +445,19 @@ class PropertyStateManager extends IPSModule
             if (!is_array($vids)) $vids = [];
 
             $captions = [];
-$captions = [];
-foreach ($vids as $vid) {
-    $k = (string)$vid;
-    // IMPORTANT: Do NOT filter by ActiveSensors here.
-    // ActiveGroups already tells us "this group is breached/open".
-    // ActiveSensors can be inverted per-device, so filtering would hide the real open sensor.
-    $captions[] = $sensorCaptionMap[$k] ?? ("Variable " . $k);
-}
+            foreach ($vids as $vid) {
+                $k = (string)$vid;
 
-// If we don't know members (no cache), still show a hint
-if (count($captions) === 0) {
-    $captions[] = "(No member details cached - run Refresh Keys / UI_Refresh)";
-}
+                // IMPORTANT: Do NOT filter by ActiveSensors here.
+                // ActiveGroups already tells us "this group is breached/open".
+                // ActiveSensors can be inverted per-device, so filtering would hide the real open sensor.
+                $captions[] = $sensorCaptionMap[$k] ?? ("Variable " . $k);
+            }
+
+            // If we don't know members (no cache), still show a hint
+            if (count($captions) === 0) {
+                $captions[] = "(No member details cached - run Refresh Keys / UI_Refresh)";
+            }
 
             $perimeterDetails[] = [
                 'group'   => $src,
