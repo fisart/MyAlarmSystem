@@ -47,7 +47,7 @@ class SensorGroup extends IPSModule
     }
 
 
-public function ApplyChanges()
+    public function ApplyChanges()
     {
         if ($this->ReadPropertyBoolean('DebugMode')) $this->LogMessage("DEBUG: ApplyChanges - START", KL_MESSAGE);
         parent::ApplyChanges();
@@ -1479,10 +1479,10 @@ public function ApplyChanges()
     {
         // Use a lock to prevent concurrent PHP threads from generating duplicate sequence numbers
         $lockName = "Mod1_SeqLock_" . $this->InstanceID;
-        
+
         // Attempt to acquire lock (wait up to 1000ms)
         if (IPS_SemaphoreEnter($lockName, 1000)) {
-            
+
             // 1. Get Epoch (Lazy init if missing)
             $epoch = $this->GetBuffer('EventEpoch');
             if ($epoch === '') {
@@ -1498,13 +1498,12 @@ public function ApplyChanges()
 
             IPS_SemaphoreLeave($lockName);
             return ['epoch' => (int)$epoch, 'seq' => $seq];
-            
         } else {
             // Fallback if semaphore fails (extreme overload)
             if ($this->ReadPropertyBoolean('DebugMode')) {
                 $this->LogMessage("CRITICAL: Could not acquire Semaphore for Event Token!", KL_ERROR);
             }
-            return ['epoch' => 0, 'seq' => 0]; 
+            return ['epoch' => 0, 'seq' => 0];
         }
     }
 
@@ -1775,7 +1774,7 @@ public function ApplyChanges()
                     'DoorTripped' => isset($activeClasses[$cID])
                 ];
             }
-if (count($bedStates) > 0) {
+            if (count($bedStates) > 0) {
                 $token = $this->GetNextEventToken();
                 $payloadJson = json_encode([
                     'event_type'  => 'BEDROOM_SYNC',
@@ -1819,9 +1818,9 @@ if (count($bedStates) > 0) {
                 $readableActiveClasses[] = $classNameMap[$aid] ?? $aid;
             }
 
-// FIX: Prioritize the Specific Trigger Event if it exists...
-            $finalTriggerDetails = (isset($specificTriggerEvent) && $specificTriggerEvent !== null) 
-                ? $specificTriggerEvent 
+            // FIX: Prioritize the Specific Trigger Event if it exists...
+            $finalTriggerDetails = (isset($specificTriggerEvent) && $specificTriggerEvent !== null)
+                ? $specificTriggerEvent
                 : $primaryPayload;
 
             $token = $this->GetNextEventToken();
@@ -1861,11 +1860,11 @@ if (count($bedStates) > 0) {
                 }
             }
         } else {
-} else {
+
             // Explicit Reset Payload
             $token = $this->GetNextEventToken();
             $payload = [
-                'event_type'  => 'ALARM', 
+                'event_type'  => 'ALARM',
                 'event_epoch' => $token['epoch'],
                 'event_seq'   => $token['seq'],
                 'event_id'    => uniqid(),
