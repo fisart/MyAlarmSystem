@@ -133,6 +133,38 @@ class PropertyStateManager extends IPSModule
                         }
                     }
 
+                    // ===================== INSERT START: ignore bedroom-related sensors =====================
+
+                    // 1) Collect bedroom door ClassIDs + bedroom presence VariableIDs from BedroomList
+                    $bedroomDoorClassIDs = [];
+                    $bedroomPresenceVIDs = [];
+
+                    foreach (($config['BedroomList'] ?? []) as $bed) {
+                        $cID = (string)($bed['BedroomDoorClassID'] ?? '');
+                        if ($cID !== '') $bedroomDoorClassIDs[$cID] = true;
+
+                        $pVid = (string)($bed['ActiveVariableID'] ?? '');
+                        if ($pVid !== '' && ctype_digit($pVid)) $bedroomPresenceVIDs[$pVid] = true;
+                    }
+
+                    // 2) Ignore all bedroom presence variables (they are handled via PresenceMap / BEDROOM_SYNC)
+                    foreach (array_keys($bedroomPresenceVIDs) as $vid) {
+                        $ignored[$vid] = true;
+                    }
+
+                    // 3) Ignore all sensors whose ClassID is one of the bedroom door classes
+                    if (count($bedroomDoorClassIDs) > 0) {
+                        foreach (($config['SensorList'] ?? []) as $s) {
+                            $cid = (string)($s['ClassID'] ?? '');
+                            if ($cid !== '' && isset($bedroomDoorClassIDs[$cid])) {
+                                $vid = (string)($s['VariableID'] ?? '');
+                                if ($vid !== '') $ignored[$vid] = true;
+                            }
+                        }
+                    }
+
+                    // ===================== INSERT END =====================
+
                     $this->WriteAttributeString("IgnoredSensors", json_encode(array_values(array_keys($ignored))));
                 }
             }
