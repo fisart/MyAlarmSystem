@@ -86,35 +86,36 @@
     },
 
     {
-      "type": "ExpansionPanel",
-      "caption": "Backup / Restore (Module 2 Config)",
-      "items": [
-        {
-          "type": "Label",
-          "caption": "Export creates a JSON snapshot of Module 2 configuration (properties only). Import applies it immediately."
-        },
-        {
-          "type": "TextArea",
-          "name": "ConfigBackupJson",
-          "caption": "Config JSON",
-          "rows": 14
-        },
-        {
-          "type": "RowLayout",
-          "items": [
+        "type": "ExpansionPanel",
+        "caption": "Backup / Restore (Module 2 Config)",
+        "items": [
             {
-              "type": "Button",
-              "caption": "Export to Field",
-              "onClick": "IPS_RequestAction($id, 'UI_ExportConfig', 1);"
+            "type": "Label",
+            "caption": "Export creates a JSON snapshot of Module 2 configuration (properties only). Import applies it immediately."
             },
             {
-              "type": "Button",
-              "caption": "Import from Field",
-              "onClick": "IPS_RequestAction($id, 'UI_ImportConfig', $ConfigBackupJson);"
+            "type": "ValidationTextBox",
+            "name": "ConfigBackupJson",
+            "caption": "Config JSON",
+            "multiline": true,
+            "height": "220px"
+            },
+            {
+            "type": "RowLayout",
+            "items": [
+                {
+                "type": "Button",
+                "caption": "Export to Field",
+                "onClick": "IPS_RequestAction($id, 'UI_ExportConfig', 1);"
+                },
+                {
+                "type": "Button",
+                "caption": "Import from Field",
+                "onClick": "IPS_RequestAction($id, 'UI_ImportConfig', 1);"
+                }
+            ]
             }
-          ]
-        }
-      ]
+        ]
     }
   ],
   "actions": [
