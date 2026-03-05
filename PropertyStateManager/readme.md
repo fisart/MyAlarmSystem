@@ -240,3 +240,169 @@ These functions are available to other scripts or modules in IP-Symcon.
 
 - **Description:** Builds UI caches (caption map + group membership map) and updates SyncTimestamp to enable Apply Changes.
 - **Usage:** Internal UI helper; improves dashboard perimeter sensor captions.
+
+## Interface Contract: Module 2 → Module 3 “Mapping Hints” Export
+
+## Purpose
+
+`PSM_GetMappingHints()` provides a **read-only semantic export** that allows Module 3 (Output Manager) to stay consistent with Module 2’s role mapping **without re-implementing Module 2 interpretation logic**.
+
+Module 3 uses this export to:
+
+* build its configuration UI (what sources exist, what they mean)
+* apply stable rule categories (entry locks vs perimeter windows vs doors vs presence/bedrooms)
+
+## Strict Separation of Concerns
+
+* **Module 2 remains the only component that interprets sensor meaning in context** (state machine, arming logic, presence gating, alarm validity).
+* **Module 3 must not derive live breach/secure state from mapping hints.**
+* Live decision context for Module 3 must come from Module 2 state outputs (e.g., `PSM_GetSystemState()` / house-mode), not from `PSM_GetMappingHints()`.
+
+`PSM_GetMappingHints()` is semantic metadata + discovery information, not a live-state API.
+
+---
+
+## Output Contract
+
+The export returns a JSON object including:
+
+* schema and version metadata
+* `buckets`: compact semantic categorization lists (SourceKeys only)
+* `mappings[]`: lossless mapping rows with metadata and captions
+* bedroom catalog + bedroom runtime snapshot (clearly separated)
+* `warnings[]` for partial/incomplete data
+
+### Required Meta Fields
+
+* `schema_version` (int): contract version
+* `module2_version` (string): Module 2 version
+* `generated_at` (unix timestamp): when the export was generated
+
+---
+
+## SourceKey Rules
+
+A `source_key` is a string identifying a mapped source and can refer to:
+
+* a **sensor** (VariableID string, e.g., `"14125"`)
+* a **group** (Module 1 GroupName, e.g., `"Windows"`)
+
+Each mapping row must include `source_kind` = `"sensor"` or `"group"`.
+
+---
+
+## Polarity Semantics
+
+Polarity is explicit metadata describing what **Module 2 considers “active”** to mean for that mapped source.
+
+> **Definition of “active” in this contract:**
+> “Active” refers to Module 2’s notion of activity for that `source_key` (as produced by Module 1 payloads and Module 2 runtime buffers such as `ActiveSensors` / `ActiveGroups`). It is **not** guaranteed to reflect raw device electrical polarity.
+> **Polarity describes how Module 2 interprets the source’s truth value in its mapping, not the raw electrical polarity and not necessarily `trigger_details.value_raw` from Module 1.**
+
+### Allowed Values
+
+* `polarity: "secure"`
+  **Active means secure/closed/locked/OK.**
+* `polarity: "breach"`
+  **Active means breach/open/tripped.**
+* `polarity: null` / missing
+  Unknown / not applicable / legacy.
+
+### Contract Rule
+
+`polarity` must reflect the configured polarity **as-is** from Module 2 mapping.
+
+### Design Rule for Module 3
+
+Module 3 may use `polarity` for UI display and default rule templates, but **must not** use it to infer live “breach” state from raw values. Live context must come from Module 2 state outputs.
+
+---
+
+## Buckets
+
+`buckets` provides a normalized semantic view for Module 3. Buckets contain **SourceKeys only** (strings). Details and captions are resolved via `mappings[]`.
+
+> **Rule:** Module 3 must treat `mappings[]` as the authoritative detail source. Buckets are only references to `source_key` values.
+
+### Minimum Required Buckets (always present)
+
+* `entry_locks`: sources that act as disarm/reset triggers (e.g., door locks)
+* `perimeter_windows`: sources representing window perimeter
+* `perimeter_doors`: sources representing door perimeter (generic doors)
+* `interior_motion`: motion-related sources (may be empty)
+* `presence_sources`: presence intent sources
+* `bedroom_catalog`: semantic list of bedrooms relevant to internal arming / gating
+* `authorized_reset_sources`: reserved for future non-lock resets (may be empty)
+
+---
+
+## Mappings
+
+`mappings[]` is the authoritative list of mapping rows. Each row must include at least:
+
+* `source_key` (string)
+* `source_kind` (`"sensor"` | `"group"`)
+* `logical_role` (string) – the Module 2 role name
+* `polarity` (string or null)
+* `caption` (string) – best-available human readable label
+* `origin` (string) – e.g., `module1_variable`, `module1_group`
+
+If `source_kind="group"`, include:
+
+* `members[]`: list of objects with `variable_id` and `caption` (best effort)
+
+> **Best-effort note (group members):**
+> `members[]` is populated from Module 2 discovery caches (caption map + group membership map, typically built/refreshed via `PSM_UI_Refresh()`), and may be empty until refreshed.
+
+---
+
+## Bedroom Data: Semantic vs Runtime
+
+Module 2 may provide both:
+
+### A) Bedroom Catalog (Semantic)
+
+* `bedroom_catalog` (list of bedroom GroupNames)
+  This is a semantic list of bedrooms relevant to Module 2’s internal mode constraints/presence gating.
+
+> **Source note:** Bedroom catalog may be derived from **Module 1 configuration discovery** (e.g., BedroomList / config snapshot) and/or from the **latest `BEDROOM_SYNC` snapshot** (best effort). If these sources disagree or are incomplete, Module 2 should return best-known results and add a warning.
+
+### B) Bedroom Status (Runtime Snapshot)
+
+* `bedroom_status` (array of `{ group_name, switch_state, door_tripped }`)
+  This is a runtime snapshot sourced from the latest `BEDROOM_SYNC`.
+
+### Notes
+
+* The catalog may be as complete as the last known sync/discovery; if incomplete, include a warning.
+* Module 3 should treat runtime bedroom status as optional context; primary house-mode context should come from Module 2 state outputs.
+
+---
+
+## Warnings & Partial Data
+
+The export must include `warnings: []` always.
+If captions/members cannot be resolved (e.g., cache not built yet), Module 2 should:
+
+* still return valid JSON with `mappings[]` and `buckets`
+* include warnings describing what could not be resolved
+
+No fatal errors for incomplete discovery.
+
+---
+
+## Backward Compatibility
+
+* Schema evolution should be **additive**: add fields, do not remove or rename without a deprecation period.
+* If introducing new names (e.g., `bedroom_catalog`, `bedroom_status`), keep legacy fields alongside them during transition.
+
+---
+
+## Summary
+
+`PSM_GetMappingHints()` is a stable, minimal semantic export that:
+
+* makes Module 3 configuration consistent with Module 2 roles,
+* avoids logic duplication by keeping interpretation in Module 2,
+* and provides enough metadata for Module 3 UI and rule mapping.
+
