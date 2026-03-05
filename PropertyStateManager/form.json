@@ -1,100 +1,134 @@
+```json
 {
-    "elements": [
+  "elements": [
+    {
+      "type": "SelectInstance",
+      "name": "SensorGroupInstanceID",
+      "caption": "Sensor Group Instance (Module 1)"
+    },
+    {
+      "type": "NumberSpinner",
+      "name": "SyncTimestamp",
+      "caption": "Last Sync",
+      "visible": false
+    },
+    {
+      "type": "Label",
+      "caption": "Step 1: Map Module 1 Keys to Logical Roles"
+    },
+    {
+      "type": "Select",
+      "name": "DispatchTargetID",
+      "caption": "Step 1: Select Dispatch Target",
+      "options": []
+    },
+    {
+      "type": "NumberSpinner",
+      "name": "ArmingDelayDuration",
+      "caption": "Arming Delay (Minutes)",
+      "minimum": 1
+    },
+    {
+      "type": "SelectInstance",
+      "name": "VaultInstanceID",
+      "caption": "Security Vault (SecretsManager)",
+      "restrict": ["{9716D37A-94B6-F63E-5C13-34537E3A06B8}"]
+    },
+    {
+      "type": "List",
+      "name": "GroupMapping",
+      "caption": "Group Mapping",
+      "rowCount": 8,
+      "add": true,
+      "delete": true,
+      "columns": [
         {
-            "type": "SelectInstance",
-            "name": "SensorGroupInstanceID",
-            "caption": "Sensor Group Instance (Module 1)"
-        },
-        {
-            "type": "NumberSpinner",
-            "name": "SyncTimestamp",
-            "caption": "Last Sync",
-            "visible": false
-        },
-        {
-            "type": "Label",
-            "caption": "Step 1: Map Module 1 Keys to Logical Roles"
-        },
-        {
+          "caption": "Source Key (from Module 1)",
+          "name": "SourceKey",
+          "width": "250px",
+          "add": "",
+          "edit": {
             "type": "Select",
-            "name": "DispatchTargetID",
-            "caption": "Step 1: Select Dispatch Target",
             "options": []
+          }
         },
         {
-            "type": "NumberSpinner",
-            "name": "ArmingDelayDuration",
-            "caption": "Arming Delay (Minutes)",
-            "minimum": 1
-        },
-        {
-            "type": "SelectInstance",
-            "name": "VaultInstanceID",
-            "caption": "Security Vault (SecretsManager)",
-            "restrict": ["{9716D37A-94B6-F63E-5C13-34537E3A06B8}"]
-        },
-        {
-            "type": "List",
-            "name": "GroupMapping",
-            "caption": "Group Mapping",
-            "rowCount": 8,
-            "add": true,
-            "delete": true,
-            "columns": [
-                {
-                    "caption": "Source Key (from Module 1)",
-                    "name": "SourceKey",
-                    "width": "250px",
-                    "add": "",
-                    "edit": {
-                        "type": "Select",
-                        "options": []
-                    }
-                },
-                {
-                    "caption": "Logical Role",
-                    "name": "LogicalRole",
-                    "width": "250px",
-                    "add": "Front Door Lock",
-                    "edit": {
-                        "type": "Select",
-                        "options": [
-                            { "caption": "Front Door: Lock", "value": "Front Door Lock" },
-                            { "caption": "Front Door: Contact", "value": "Front Door Contact" },
-                            { "caption": "Basement: Lock", "value": "Basement Door Lock" },
-                            { "caption": "Basement: Contact", "value": "Basement Door Contact" },
-                            { "caption": "Perimeter: Generic Door", "value": "Generic Door" },
-                            { "caption": "Perimeter: Window", "value": "Window Contact" },
-                            { "caption": "Presence", "value": "Presence" }
-                        ]
-                    }
-                },
-                {
-                    "caption": "Polarity (Active means...)",
-                    "name": "Polarity",
-                    "width": "200px",
-                    "add": "secure",
-                    "edit": {
-                        "type": "Select",
-                        "options": [
-                            { "caption": "Secure (Closed/Locked)", "value": "secure" },
-                            { "caption": "Breach (Open/Unsecure)", "value": "breach" }
-                        ]
-                    }
-                }
+          "caption": "Logical Role",
+          "name": "LogicalRole",
+          "width": "250px",
+          "add": "Front Door Lock",
+          "edit": {
+            "type": "Select",
+            "options": [
+              { "caption": "Front Door: Lock", "value": "Front Door Lock" },
+              { "caption": "Front Door: Contact", "value": "Front Door Contact" },
+              { "caption": "Basement: Lock", "value": "Basement Door Lock" },
+              { "caption": "Basement: Contact", "value": "Basement Door Contact" },
+              { "caption": "Perimeter: Generic Door", "value": "Generic Door" },
+              { "caption": "Perimeter: Window", "value": "Window Contact" },
+              { "caption": "Presence", "value": "Presence" }
             ]
-        }
-    ],
-    "actions": [
-        {
-            "type": "Button",
-            "caption": "Refresh Keys from Module 1",
-            "onClick": "PSM_UI_Refresh($id);"
+          }
         },
         {
-            "type": "Button",
-            "caption": "🤖 Export Logic for AI",
-            "onClick": "echo PSM_ExportLogicForAI($id);"
+          "caption": "Polarity (Active means...)",
+          "name": "Polarity",
+          "width": "200px",
+          "add": "secure",
+          "edit": {
+            "type": "Select",
+            "options": [
+              { "caption": "Secure (Closed/Locked)", "value": "secure" },
+              { "caption": "Breach (Open/Unsecure)", "value": "breach" }
+            ]
+          }
         }
-    ]
+      ]
+    },
+
+    {
+      "type": "ExpansionPanel",
+      "caption": "Backup / Restore (Module 2 Config)",
+      "items": [
+        {
+          "type": "Label",
+          "caption": "Export creates a JSON snapshot of Module 2 configuration (properties only). Import applies it immediately."
+        },
+        {
+          "type": "TextArea",
+          "name": "ConfigBackupJson",
+          "caption": "Config JSON",
+          "rows": 14
+        },
+        {
+          "type": "RowLayout",
+          "items": [
+            {
+              "type": "Button",
+              "caption": "Export to Field",
+              "onClick": "IPS_RequestAction($id, 'UI_ExportConfig', 1);"
+            },
+            {
+              "type": "Button",
+              "caption": "Import from Field",
+              "onClick": "IPS_RequestAction($id, 'UI_ImportConfig', $ConfigBackupJson);"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "actions": [
+    {
+      "type": "Button",
+      "caption": "Refresh Keys from Module 1",
+      "onClick": "PSM_UI_Refresh($id);"
+    },
+    {
+      "type": "Button",
+      "caption": "🤖 Export Logic for AI",
+      "onClick": "echo PSM_ExportLogicForAI($id);"
+    }
+  ]
 }
+```

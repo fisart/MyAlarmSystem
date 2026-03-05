@@ -902,14 +902,27 @@ class PropertyStateManager extends IPSModule
     public function RequestAction($Ident, $Value)
     {
         switch ($Ident) {
+
             case 'ReceivePayload':
-                // Forward the generic action to the specific logic function
-                $this->ReceivePayload($Value);
+                $this->ReceivePayload((string)$Value);
                 break;
+
+            // ---- UI Backup/Restore ----
+            case 'UI_ExportConfig':
+                $json = $this->ExportConfiguration();
+                // Write into the form field so the user can copy it
+                $this->UpdateFormField('ConfigBackupJson', 'value', $json);
+                break;
+
+            case 'UI_ImportConfig':
+                $this->ImportConfiguration((string)$Value);
+                break;
+
             default:
                 throw new Exception("Invalid Ident: $Ident");
         }
     }
+
     public function GetPayloadHistory()
     {
         return $this->ReadAttributeString("PayloadHistory");
@@ -1226,6 +1239,85 @@ class PropertyStateManager extends IPSModule
             $this->SetTimerInterval("DelayTimer", 0);
             $this->LogMessage("[PSM-Timer] Exit Delay Cancelled", KL_MESSAGE);
         }
+    }
+
+    /**
+     * Export PSM configuration as JSON (properties only).
+     * Safe: does not include runtime attributes/state.
+     */
+    public function ExportConfiguration(): string
+    {
+        $export = [
+            'schema'          => 'PSM.ConfigExport',
+            'schema_version'  => 1,
+            'module2_version' => '7.2.0', // optionally update when you bump version
+            'generated_at'    => time(),
+
+            'properties' => [
+                'SensorGroupInstanceID' => $this->ReadPropertyInteger('SensorGroupInstanceID'),
+                'DispatchTargetID'      => $this->ReadPropertyInteger('DispatchTargetID'),
+                'GroupMapping'          => json_decode($this->ReadPropertyString('GroupMapping'), true) ?: [],
+                'DecisionMap'           => json_decode($this->ReadPropertyString('DecisionMap'), true) ?: [],
+                'ArmingDelayDuration'   => $this->ReadPropertyInteger('ArmingDelayDuration'),
+                'VaultInstanceID'       => $this->ReadPropertyInteger('VaultInstanceID')
+            ]
+        ];
+
+        return json_encode($export, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+    }
+
+    /**
+     * Import PSM configuration from JSON (properties only).
+     * Safe: does not restore runtime attributes/state.
+     */
+    public function ImportConfiguration(string $Json): void
+    {
+        $data = json_decode($Json, true);
+        if (!is_array($data)) {
+            $this->LogMessage('[PSM-Import] Invalid JSON (not an object).', KL_WARNING);
+            return;
+        }
+
+        $schema = (string)($data['schema'] ?? '');
+        $ver    = (int)($data['schema_version'] ?? 0);
+        if ($schema !== 'PSM.ConfigExport' || $ver !== 1) {
+            $this->LogMessage('[PSM-Import] Unsupported schema/schema_version.', KL_WARNING);
+            return;
+        }
+
+        $p = $data['properties'] ?? null;
+        if (!is_array($p)) {
+            $this->LogMessage('[PSM-Import] Missing properties object.', KL_WARNING);
+            return;
+        }
+
+        // Validate types defensively (best effort)
+        $sensorGroupID = (int)($p['SensorGroupInstanceID'] ?? 0);
+        $dispatchID    = (int)($p['DispatchTargetID'] ?? 0);
+        $delayMin      = (int)($p['ArmingDelayDuration'] ?? 1);
+        $vaultID       = (int)($p['VaultInstanceID'] ?? 0);
+
+        $groupMapping  = $p['GroupMapping'] ?? [];
+        if (!is_array($groupMapping)) $groupMapping = [];
+
+        $decisionMap   = $p['DecisionMap'] ?? [];
+        if (!is_array($decisionMap)) $decisionMap = [];
+
+        // Persist via IPS_SetProperty + ApplyChanges
+        IPS_SetProperty($this->InstanceID, 'SensorGroupInstanceID', $sensorGroupID);
+        IPS_SetProperty($this->InstanceID, 'DispatchTargetID',      $dispatchID);
+        IPS_SetProperty($this->InstanceID, 'ArmingDelayDuration',   $delayMin);
+        IPS_SetProperty($this->InstanceID, 'VaultInstanceID',       $vaultID);
+        IPS_SetProperty($this->InstanceID, 'GroupMapping',          json_encode($groupMapping));
+        IPS_SetProperty($this->InstanceID, 'DecisionMap',           json_encode($decisionMap));
+
+        IPS_ApplyChanges($this->InstanceID);
+
+        $this->LogMessage(
+            '[PSM-Import] Configuration imported and applied: GroupMapping=' . count($groupMapping) .
+                ', DecisionMap=' . count($decisionMap),
+            KL_MESSAGE
+        );
     }
 
 
