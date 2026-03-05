@@ -908,21 +908,24 @@ class PropertyStateManager extends IPSModule
                 $this->ReceivePayload((string)$Value);
                 break;
 
-            // ---- UI Backup/Restore ----
             case 'UI_ExportConfig':
                 $json = $this->ExportConfiguration();
-                // Write into the form field so the user can copy it
+
+                // 1) show in UI
                 $this->UpdateFormField('ConfigBackupJson', 'value', $json);
+
+                // 2) also store into property so Import works even with your current "Value=1" button
+                IPS_SetProperty($this->InstanceID, 'ConfigBackupJson', $json);
+                IPS_ApplyChanges($this->InstanceID);
                 break;
 
             case 'UI_ImportConfig':
-                // Button passes "1" (or nothing useful). Read the JSON from the property bound to the form field.
-                $json = (string)$this->ReadPropertyString('ConfigBackupJson');
+                // Prefer value passed from UI (if you later change form.json to pass the field)
+                $json = trim((string)$Value);
 
-                // Optional: if someone calls RequestAction with the JSON directly, prefer that.
-                $v = (string)$Value;
-                if ($v !== '' && $v !== '1' && $v !== 'true' && $v !== '0') {
-                    $json = $v;
+                // If button passes "1", fall back to the saved property
+                if ($json === '' || $json === '1') {
+                    $json = trim($this->ReadPropertyString('ConfigBackupJson'));
                 }
 
                 $this->ImportConfiguration($json);
@@ -1297,38 +1300,64 @@ class PropertyStateManager extends IPSModule
             return;
         }
 
-        // Optional sanity check: type marker
-        if (($data['export_type'] ?? '') !== 'PSM_CONFIG') {
-            $this->LogMessage("[PSM-Import] Not a PSM_CONFIG export (export_type missing/mismatch).", KL_WARNING);
-            // You can return here if you want strictness:
-            // return;
+        // Accept both formats:
+        // A) New export: { schema:"PSM.ConfigExport", ..., properties:{...} }
+        // B) Legacy/flat: { SensorGroupInstanceID:..., DispatchTargetID:..., ... }
+        $props = $data['properties'] ?? $data;
+        if (!is_array($props)) $props = [];
+
+        // Soft schema check (do not fail hard)
+        if (isset($data['schema']) && (string)$data['schema'] !== 'PSM.ConfigExport') {
+            $this->LogMessage("[PSM-Import] Warning: unexpected schema '" . (string)$data['schema'] . "'.", KL_WARNING);
         }
 
         // Pull fields with safe defaults
-        $sensorGroup = (int)($data['SensorGroupInstanceID'] ?? 0);
-        $targetID    = (int)($data['DispatchTargetID'] ?? 0);
-        $delayMin    = (int)($data['ArmingDelayDuration'] ?? 1);
-        $vaultID     = (int)($data['VaultInstanceID'] ?? 0);
+        $sensorGroup = (int)($props['SensorGroupInstanceID'] ?? 0);
+        $targetID    = (int)($props['DispatchTargetID'] ?? 0);
+        $delayMin    = (int)($props['ArmingDelayDuration'] ?? 1);
+        $vaultID     = (int)($props['VaultInstanceID'] ?? 0);
 
-        $groupMapping = $data['GroupMapping'] ?? [];
+        $groupMapping = $props['GroupMapping'] ?? [];
         if (!is_array($groupMapping)) $groupMapping = [];
 
-        $decisionMap = $data['DecisionMap'] ?? [];
+        $decisionMap = $props['DecisionMap'] ?? [];
         if (!is_array($decisionMap)) $decisionMap = [];
 
-        // ---- Apply properties (THIS is the step you mean) ----
+        // Basic sanity: keep module usable even if import is incomplete
+        if ($sensorGroup <= 0) {
+            $this->LogMessage("[PSM-Import] Warning: SensorGroupInstanceID is 0/invalid in import.", KL_WARNING);
+        }
+
+        // IMPORTANT sequencing to avoid "Current value X is not available" in Select fields:
+        // Phase 1: set SensorGroup first so GetConfigurationForm can populate DispatchTarget options.
         IPS_SetProperty($this->InstanceID, 'SensorGroupInstanceID', $sensorGroup);
-        IPS_SetProperty($this->InstanceID, 'DispatchTargetID',      $targetID);
-        IPS_SetProperty($this->InstanceID, 'ArmingDelayDuration',   max(1, $delayMin));
-        IPS_SetProperty($this->InstanceID, 'VaultInstanceID',       $vaultID);
+        IPS_ApplyChanges($this->InstanceID);
+
+        // Phase 2: set remaining properties
+        IPS_SetProperty($this->InstanceID, 'DispatchTargetID',    $targetID);
+        IPS_SetProperty($this->InstanceID, 'ArmingDelayDuration', max(1, $delayMin));
+        IPS_SetProperty($this->InstanceID, 'VaultInstanceID',     $vaultID);
 
         IPS_SetProperty($this->InstanceID, 'GroupMapping', json_encode($groupMapping));
         IPS_SetProperty($this->InstanceID, 'DecisionMap',  json_encode($decisionMap));
 
-        // Trigger ApplyChanges lifecycle so module re-registers hook, requests sync, etc.
+        // Optional: persist the JSON in the UI field/property (so the pasted content remains)
+        // Only do this if you've registered the property "ConfigBackupJson"
+        if (property_exists($this, 'InstanceID')) {
+            // keep safe: only set if the property exists in this module (won't throw if missing in most cases,
+            // but if you want stricter, remove this block)
+            @IPS_SetProperty($this->InstanceID, 'ConfigBackupJson', $json);
+        }
+
         IPS_ApplyChanges($this->InstanceID);
 
-        $this->LogMessage("[PSM-Import] Configuration imported and applied.", KL_MESSAGE);
+        $this->LogMessage(
+            "[PSM-Import] Imported: SensorGroup=" . $sensorGroup .
+                " Target=" . $targetID .
+                " MappingRows=" . count($groupMapping) .
+                " DelayMin=" . max(1, $delayMin),
+            KL_MESSAGE
+        );
     }
 
 

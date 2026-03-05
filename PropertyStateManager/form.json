@@ -111,7 +111,7 @@
                 {
                 "type": "Button",
                 "caption": "Import from Field",
-                "onClick": "IPS_RequestAction($id, 'UI_ImportConfig', 1);"
+                "onClick": "IPS_RequestAction($id, 'UI_ImportConfig', $ConfigBackupJson);"
                 }
             ]
             }
