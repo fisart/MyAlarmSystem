@@ -1209,6 +1209,168 @@ class PropertyStateManager extends IPSModule
         return json_encode($status);
     }
 
+    public function GetHouseStateSnapshot()
+    {
+        // Snapshot for Module 3 (pull model). Read-only. No state changes.
+
+        $now = time();
+
+        // --- Core state ---
+        $stateId   = (int)$this->GetValue('SystemState');
+        $stateName = $this->GetStateName($stateId);
+
+        // Delay remaining seconds (same idea as in ProcessHookData)
+        $delayActive = ($this->GetTimerInterval("DelayTimer") > 0);
+        $delayRemainingSeconds = 0;
+
+        if ($stateId === 2) {
+            $varID = $this->GetIDForIdent("SystemState");
+            if ($varID > 0 && IPS_VariableExists($varID)) {
+                $varInfo = IPS_GetVariable($varID);
+                $lastUpdate = (int)($varInfo['VariableUpdated'] ?? 0);
+                $durationSeconds = (int)$this->ReadPropertyInteger("ArmingDelayDuration") * 60;
+                $delayRemainingSeconds = ($lastUpdate + $durationSeconds) - $now;
+                if ($delayRemainingSeconds < 0) $delayRemainingSeconds = 0;
+            }
+        }
+
+        // --- Raw buffers ---
+        $mapping       = json_decode($this->ReadPropertyString("GroupMapping"), true);
+        if (!is_array($mapping)) $mapping = [];
+
+        $activeSensors = json_decode($this->ReadAttributeString("ActiveSensors"), true);
+        if (!is_array($activeSensors)) $activeSensors = [];
+
+        $activeGroups  = json_decode($this->ReadAttributeString("ActiveGroups"), true);
+        if (!is_array($activeGroups)) $activeGroups = [];
+
+        $presenceMap   = json_decode($this->ReadAttributeString("PresenceMap"), true);
+        if (!is_array($presenceMap)) $presenceMap = [];
+
+        // --- Derived flags (same semantics as EvaluateState) ---
+        $frontLocked   = false;
+        $frontClosed   = false;
+        $baseLocked    = false;
+        $baseClosed    = false;
+        $windowsClosed = true; // default secure
+        $presence      = false;
+        $bedroomOpen   = false;
+
+        foreach ($mapping as $item) {
+            $src = (string)($item['SourceKey'] ?? '');
+            $role = (string)($item['LogicalRole'] ?? '');
+
+            $isActive = ($src !== '') && (in_array($src, $activeSensors, true) || in_array($src, $activeGroups, true));
+
+            switch ($role) {
+                case 'Front Door Lock':
+                    if ($isActive) $frontLocked = true;
+                    break;
+                case 'Front Door Contact':
+                    if ($isActive) $frontClosed = true;
+                    break;
+                case 'Basement Door Lock':
+                    if ($isActive) $baseLocked = true;
+                    break;
+                case 'Basement Door Contact':
+                    if ($isActive) $baseClosed = true;
+                    break;
+
+                case 'Generic Door':
+                case 'Window Contact':
+                    // Same polarity logic as EvaluateState:
+                    $polarity = (string)($item['Polarity'] ?? '');
+                    if ($polarity === '') $polarity = 'breach'; // default keeps old behavior
+                    $isOpen = ($polarity === 'breach') ? $isActive : !$isActive;
+                    if ($isOpen) $windowsClosed = false;
+                    break;
+
+                case 'Presence':
+                    if ($isActive) $presence = true;
+                    break;
+            }
+        }
+
+        // Bedrooms (Option A gating)
+        $bedrooms = [];
+        foreach ($presenceMap as $room) {
+            $name = (string)($room['GroupName'] ?? 'Unknown');
+            $roomUsed   = (bool)($room['SwitchState'] ?? false);
+            $doorTripped = (bool)($room['DoorTripped'] ?? false);
+
+            $blocking = ($roomUsed && $doorTripped);
+
+            $bedrooms[] = [
+                'name'     => $name,
+                'used'     => $roomUsed,
+                'doorOpen' => $doorTripped,
+                'blocking' => $blocking
+            ];
+
+            if ($roomUsed) {
+                $presence = true;
+                if ($doorTripped) $bedroomOpen = true;
+            }
+        }
+
+        $perimeterSecure   = ($frontLocked && $frontClosed && $baseLocked && $baseClosed && $windowsClosed);
+        $entranceUnlocked  = (!$frontLocked || !$baseLocked);
+        $groupLevelOpen    = (!$windowsClosed);
+        $readyToSleep      = ($presence && !$bedroomOpen);
+        $readyToLeave      = (!$presence);
+
+        // Blocking reasons (simple, useful for Module 3 decisions/UI)
+        $blockingReasons = [];
+        if (!$perimeterSecure) $blockingReasons[] = "Perimeter not secure";
+        if ($presence && $bedroomOpen) $blockingReasons[] = "Bedroom door open while someone home";
+
+        $bedroomsBlocking = [];
+        foreach ($bedrooms as $b) {
+            if (!empty($b['blocking'])) $bedroomsBlocking[] = $b['name'];
+        }
+
+        $snapshot = [
+            'schema'              => 'PSM.HouseState.v1',
+            'timestamp'           => $now,
+            'source_instance_id'  => $this->InstanceID,
+
+            'system_state_id'     => $stateId,
+            'system_state_name'   => $stateName,
+            'delay_active'        => $delayActive,
+            'delay_remaining_seconds' => $delayRemainingSeconds,
+
+            'active_sensors'      => array_values($activeSensors),
+            'active_groups'       => array_values($activeGroups),
+            'presence_map'        => $presenceMap,
+
+            'bedrooms'            => $bedrooms,
+
+            'derived' => [
+                'frontLocked'      => $frontLocked,
+                'frontClosed'      => $frontClosed,
+                'baseLocked'       => $baseLocked,
+                'baseClosed'       => $baseClosed,
+                'windowsClosed'    => $windowsClosed,
+                'presence'         => $presence,
+                'bedroomOpen'      => $bedroomOpen,
+
+                'perimeterSecure'  => $perimeterSecure,
+                'readyToSleep'     => $readyToSleep,
+                'readyToLeave'     => $readyToLeave,
+                'entranceUnlocked' => $entranceUnlocked,
+                'groupLevelOpen'   => $groupLevelOpen
+            ],
+
+            'blocking_reasons' => $blockingReasons,
+            'blocking_details' => [
+                'bedrooms_blocking' => $bedroomsBlocking
+            ]
+        ];
+
+        return json_encode($snapshot);
+    }
+
+
     public function GetConfigurationForm()
     {
         $form = json_decode(file_get_contents(__DIR__ . "/form.json"), true);
