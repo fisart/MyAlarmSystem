@@ -1880,7 +1880,7 @@ class SensorGroup extends IPSModule
                 }
 
                 try {
-                    IPS_RequestAction((int)$iid, 'ReceivePayload', $payloadJson);
+                    @IPS_RequestAction((int)$iid, 'ReceivePayload', $payloadJson);
                 } catch (Throwable $e) {
                     if ($this->ReadPropertyBoolean('DebugMode')) {
                         $this->LogMessage("DISPATCH ERROR: Target {$iid} exception: " . $e->getMessage(), KL_WARNING);
