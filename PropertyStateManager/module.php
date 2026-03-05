@@ -1661,7 +1661,9 @@ class PropertyStateManager extends IPSModule
         $sensorGroupId = $this->ReadPropertyInteger("SensorGroupInstanceID");
         $targetID = $this->ReadPropertyInteger("DispatchTargetID");
         $options = [];
-        $targetOptions = [];
+        $targetOptions = [
+            ["caption" => "— Not set / Select —", "value" => 0]
+        ];
 
         if ($sensorGroupId > 0 && @IPS_InstanceExists($sensorGroupId)) {
             $configJSON = @MYALARM_GetConfiguration($sensorGroupId);
@@ -1720,7 +1722,9 @@ class PropertyStateManager extends IPSModule
             }
             if (!$found) $targetOptions[] = ["caption" => "⚠️ Unavailable / Old Target ($targetID)", "value" => $targetID];
         }
-
+        if (!isset($form['elements']) || !is_array($form['elements'])) {
+            $form['elements'] = [];
+        }
         foreach ($form['elements'] as &$element) {
             if (isset($element['name']) && $element['name'] === 'DispatchTargetID') $element['options'] = $targetOptions;
             if (isset($element['name']) && $element['name'] === 'GroupMapping') {
