@@ -1,3 +1,5 @@
+Here is the text formatted correctly in Markdown for a GitHub `README.md` file.
+
 # Module Documentation: Property State Manager (PSM)
 
 **Version:** 7.2.0  
@@ -26,13 +28,13 @@ The Property State Manager (Module 2) acts as the central "Brain" of the alarm s
 
 The module implements an Explicit State Machine (ESM) rather than a simple combinatorial matrix. Transitions are governed by strict conditions.
 
-| State ID | State Name         | Description |
-|---------:|--------------------|-------------|
-| 0        | Disarmed           | The system is idle. Monitoring sensors but taking no action. |
-| 2        | Exit Delay         | The system is counting down. Arming will occur when the timer expires (if conditions remain valid). |
-| 3        | Armed External     | "Away" Mode. Perimeter is secure. |
-| 6        | Armed Internal     | "Night" Mode. Perimeter is secure. Bedroom door rules apply. |
-| 9        | Alarm Triggered!   | Latched alarm state triggered by group-level opening (windows / generic doors) while armed. |
+| State ID | State Name | Description |
+|---:|:---|:---|
+| 0 | Disarmed | The system is idle. Monitoring sensors but taking no action. |
+| 2 | Exit Delay | The system is counting down. Arming will occur when the timer expires (if conditions remain valid). |
+| 3 | Armed External | "Away" Mode. Perimeter is secure. |
+| 6 | Armed Internal | "Night" Mode. Perimeter is secure. Bedroom door rules apply. |
+| 9 | Alarm Triggered! | Latched alarm state triggered by group-level opening (windows / generic doors) while armed. |
 
 ---
 
@@ -138,12 +140,15 @@ The internal configuration is stored in the `GroupMapping` property.
     "Polarity": "breach"
   }
 ]
+```
+
 Module 2 accepts two distinct JSON payloads via ReceivePayload.
 
-Type 1: Alarm / Sensor Event
+#### Type 1: Alarm / Sensor Event
 
 Triggered when a sensor changes state.
 
+```json
 {
   "event_type": "ALARM",
   "source_name": "Sensor Aggregator",
@@ -154,14 +159,16 @@ Triggered when a sensor changes state.
     "var_name": "Front Door Lock"
   }
 }
+```
 
-Global Reset behavior:
-If active_groups is present and is an empty array ([]), Module 2 interprets this as a global reset and clears its ActiveSensors list.
+**Global Reset behavior:**
+If active_groups is present and is an empty array (`[]`), Module 2 interprets this as a global reset and clears its ActiveSensors list.
 
-Type 2: Bedroom Sync
+#### Type 2: Bedroom Sync
 
 Triggered periodically or on change to update presence logic.
 
+```json
 {
   "event_type": "BEDROOM_SYNC",
   "bedrooms": [
@@ -172,59 +179,64 @@ Triggered periodically or on change to update presence logic.
     }
   ]
 }
+```
 
-SwitchState = bedroom “in use” (presence intent)
+- `SwitchState` = bedroom “in use” (presence intent)
+- `DoorTripped` = bedroom door open/tripped state
 
-DoorTripped = bedroom door open/tripped state
+### C. Output Payloads
 
-C. Output Payloads
-1) Output Payload (To Module 3 / API on request)
+#### 1) Output Payload (To Module 3 / API on request)
 
 Returned by GetSystemState() for Module 3 consumption.
 
+```json
 {
   "StateID": 3,
   "PresenceMap": [...],
   "ActiveSensors": [14125, 55667],
   "IsDelayActive": false
 }
-2) Dashboard API Payload (WebHook ?api=1)
+```
+
+#### 2) Dashboard API Payload (WebHook ?api=1)
 
 Returned by the dashboard API for UI/diagnostics. Includes additional UI fields (bitmask, labels, bedrooms, perimeterDetails, etc.).
 
-5. Public API Functions
+---
+
+## 5. Public API Functions
 
 These functions are available to other scripts or modules in IP-Symcon.
 
-PSM_GetSystemState(int $InstanceID): string
+#### `PSM_GetSystemState(int $InstanceID): string`
 
-Description: Returns the complete snapshot of the house status for Module 3 consumption.
-Returns: JSON String (see Output Payload #1).
+- **Description:** Returns the complete snapshot of the house status for Module 3 consumption.
+- **Returns:** JSON String (see Output Payload #1).
+- **Usage:** Called by Module 3 to decide on alerting actions.
 
-Usage: Called by Module 3 to decide on alerting actions.
+#### `PSM_ReceivePayload(int $InstanceID, string $Payload): void`
 
-PSM_ReceivePayload(int $InstanceID, string $Payload): void
+- **Description:** The main input door. Processes JSON events, updates internal buffers, and triggers state machine evaluation.
+- **Usage:** Typically invoked via IPS_RequestAction($InstanceID, 'ReceivePayload', $Payload) from Module 1.
 
-Description: The main input door. Processes JSON events, updates internal buffers, and triggers state machine evaluation.
-Usage: Typically invoked via IPS_RequestAction($InstanceID, 'ReceivePayload', $Payload) from Module 1.
+#### `PSM_RequestAction(int $InstanceID, string $Ident, mixed $Value): void`
 
-PSM_RequestAction(int $InstanceID, string $Ident, mixed $Value): void
+- **Description:** Standard IP-Symcon Action Handler.
+- **Usage:** Allows Module 1 to call IPS_RequestAction($id, 'ReceivePayload', $json) safely.
 
-Description: Standard IP-Symcon Action Handler.
-Usage: Allows Module 1 to call IPS_RequestAction($id, 'ReceivePayload', $json) safely.
+#### `PSM_GetPayloadHistory(int $InstanceID): string`
 
-PSM_GetPayloadHistory(int $InstanceID): string
+- **Description:** Returns the last 100 received payloads.
+- **Returns:** JSON String (Array of objects with Timestamp and Data).
+- **Usage:** Debugging and diagnostics.
 
-Description: Returns the last 100 received payloads.
-Returns: JSON String (Array of objects with Timestamp and Data).
-Usage: Debugging and diagnostics.
+#### `PSM_ResetPayloadHistory(int $InstanceID): void`
 
-PSM_ResetPayloadHistory(int $InstanceID): void
+- **Description:** Clears debug logs, clears active sensor/group/presence buffers, and resets System State to 0.
+- **Usage:** Hard reset during testing.
 
-Description: Clears debug logs, clears active sensor/group/presence buffers, and resets System State to 0.
-Usage: Hard reset during testing.
+#### `PSM_UI_Refresh(int $InstanceID): void`
 
-PSM_UI_Refresh(int $InstanceID): void
-
-Description: Builds UI caches (caption map + group membership map) and updates SyncTimestamp to enable Apply Changes.
-Usage: Internal UI helper; improves dashboard perimeter sensor captions.
+- **Description:** Builds UI caches (caption map + group membership map) and updates SyncTimestamp to enable Apply Changes.
+- **Usage:** Internal UI helper; improves dashboard perimeter sensor captions.
