@@ -1975,7 +1975,14 @@ class SensorGroup extends IPSModule
                 return $ok;
             }));
 
-            // 2b) Include Bedroom Groups if the Global BedroomTarget is selected
+            // FIX: Explicitly allow Bedroom Groups if the Bedroom Target is selected
+            $bedTargetID = $conf['BedroomTarget'] ?? 0;
+            if ($bedTargetID > 0 && in_array((string)$bedTargetID, $allowedTargets, true)) {
+                foreach ($bedroomList as $b) {
+                    $gName = (string)($b['GroupName'] ?? '');
+                    if ($gName !== '') $allowedGroups[$gName] = true;
+                }
+            }
             $bedTargetID = $conf['BedroomTarget'] ?? 0;
             if ($bedTargetID > 0 && in_array((string)$bedTargetID, $allowedTargets, true)) {
                 foreach ($bedroomList as $b) {
