@@ -427,7 +427,8 @@ class PropertyStateManager extends IPSModule
 
         $perimeterDetails = []; // array of {group, role, sensors:[caption...]}
 
-        $activeGroupNames = $activeGroups;
+        $activeGroupNames = json_decode($this->ReadAttributeString("ActiveGroups"), true);
+        if (!is_array($activeGroupNames)) $activeGroupNames = [];
         if (!is_array($activeGroupNames)) $activeGroupNames = [];
 
         foreach ($mapping as $m) {
