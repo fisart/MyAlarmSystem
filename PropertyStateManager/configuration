@@ -1,0 +1,50 @@
+{
+    "schema": "PSM.ConfigExport",
+    "schema_version": 1,
+    "module2_version": "7.2.0",
+    "generated_at": 1772733524,
+    "properties": {
+        "SensorGroupInstanceID": 43069,
+        "DispatchTargetID": 51485,
+        "GroupMapping": [
+            {
+                "SourceKey": "14125",
+                "LogicalRole": "Front Door Lock",
+                "Polarity": "secure"
+            },
+            {
+                "SourceKey": "25478",
+                "LogicalRole": "Front Door Contact",
+                "Polarity": "secure"
+            },
+            {
+                "SourceKey": "32928",
+                "LogicalRole": "Basement Door Lock",
+                "Polarity": "secure"
+            },
+            {
+                "SourceKey": "41718",
+                "LogicalRole": "Basement Door Contact",
+                "Polarity": "secure"
+            },
+            {
+                "SourceKey": "45731",
+                "LogicalRole": "Presence",
+                "Polarity": "secure"
+            },
+            {
+                "SourceKey": "Windows",
+                "LogicalRole": "Window Contact",
+                "Polarity": "secure"
+            },
+            {
+                "SourceKey": "Doors",
+                "LogicalRole": "Generic Door",
+                "Polarity": "secure"
+            }
+        ],
+        "DecisionMap": [],
+        "ArmingDelayDuration": 1,
+        "VaultInstanceID": 49800
+    }
+}
