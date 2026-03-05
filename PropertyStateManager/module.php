@@ -23,11 +23,11 @@ class PropertyStateManager extends IPSModule
         $this->RegisterAttributeString("ActiveSensors", "[]");
         $this->RegisterAttributeString("PresenceMap", "[]");
         $this->RegisterAttributeString("ActiveGroups", "[]");
-        
+
         $this->RegisterAttributeString("ImportedConfig", "");   // raw config snapshot from Module 1 (json string)
         $this->RegisterAttributeString("IgnoredSensors", "[]"); // variable IDs to ignore (handled via group-level mapping)
-$this->RegisterAttributeString("SensorCaptionMap", "{}"); // varID(string) -> caption
-$this->RegisterAttributeString("GroupSensorMap", "{}");   // groupName -> [varID(string), ...]
+        $this->RegisterAttributeString("SensorCaptionMap", "{}"); // varID(string) -> caption
+        $this->RegisterAttributeString("GroupSensorMap", "{}");   // groupName -> [varID(string), ...]
         // Debug Attributes
         $this->RegisterAttributeString("LastPayload", "");
         $this->RegisterAttributeInteger("LastPayloadTime", 0);
@@ -184,91 +184,91 @@ $this->RegisterAttributeString("GroupSensorMap", "{}");   // groupName -> [varID
      * This is called by the UI button. 
      * Simply calling it forces IP-Symcon to reload GetConfigurationForm.
      */
-public function UI_Refresh()
-{
-    // 0) Keep existing behavior: trigger Apply button
-    $this->UpdateFormField("SyncTimestamp", "value", time());
+    public function UI_Refresh()
+    {
+        // 0) Keep existing behavior: trigger Apply button
+        $this->UpdateFormField("SyncTimestamp", "value", time());
 
-    // 1) Build UI caches from Module 1 configuration (DISPLAY ONLY)
-    $sensorGroupId = $this->ReadPropertyInteger("SensorGroupInstanceID");
-    if ($sensorGroupId <= 0 || !@IPS_InstanceExists($sensorGroupId) || !function_exists('MYALARM_GetConfiguration')) {
-        $this->LogMessage("[PSM-UI] Refresh: cannot load Module 1 config (missing instance or function).", KL_WARNING);
-        return;
-    }
-
-    $configJSON = @MYALARM_GetConfiguration($sensorGroupId);
-    $config = json_decode((string)$configJSON, true);
-    if (!is_array($config)) {
-        $this->LogMessage("[PSM-UI] Refresh: Module 1 config JSON invalid.", KL_WARNING);
-        return;
-    }
-
-    // 2) Build SensorCaptionMap: varID(string) -> "GrandParent > Parent > Name (ID)"
-    $captionMap = [];
-    foreach (($config['SensorList'] ?? []) as $sensor) {
-        $vid = (int)($sensor['VariableID'] ?? 0);
-        if ($vid <= 0) continue;
-
-        $name = IPS_ObjectExists($vid) ? IPS_GetName($vid) : "Unknown";
-        $gp   = (string)($sensor['GrandParentName'] ?? '?');
-        $p    = (string)($sensor['ParentName'] ?? '?');
-
-        $captionMap[(string)$vid] = sprintf("%s > %s > %s (%d)", $gp, $p, $name, $vid);
-    }
-
-    // 3) Build GroupSensorMap for THIS target: groupName -> [varID(string)...]
-    $targetID = $this->ReadPropertyInteger("DispatchTargetID");
-
-    // 3a) groups dispatched to this target
-    $targetGroups = [];
-    foreach (($config['GroupDispatch'] ?? []) as $gd) {
-        if ((int)($gd['InstanceID'] ?? 0) === (int)$targetID) {
-            $gn = (string)($gd['GroupName'] ?? '');
-            if ($gn !== '') $targetGroups[$gn] = true;
+        // 1) Build UI caches from Module 1 configuration (DISPLAY ONLY)
+        $sensorGroupId = $this->ReadPropertyInteger("SensorGroupInstanceID");
+        if ($sensorGroupId <= 0 || !@IPS_InstanceExists($sensorGroupId) || !function_exists('MYALARM_GetConfiguration')) {
+            $this->LogMessage("[PSM-UI] Refresh: cannot load Module 1 config (missing instance or function).", KL_WARNING);
+            return;
         }
-    }
 
-    // 3b) classes in those groups
-    $classesByGroup = []; // groupName -> [classID...]
-    foreach (($config['GroupMembers'] ?? []) as $gm) {
-        $gn  = (string)($gm['GroupName'] ?? '');
-        $cid = (string)($gm['ClassID'] ?? '');
-        if ($gn === '' || $cid === '') continue;
-        if (!isset($targetGroups[$gn])) continue;
+        $configJSON = @MYALARM_GetConfiguration($sensorGroupId);
+        $config = json_decode((string)$configJSON, true);
+        if (!is_array($config)) {
+            $this->LogMessage("[PSM-UI] Refresh: Module 1 config JSON invalid.", KL_WARNING);
+            return;
+        }
 
-        if (!isset($classesByGroup[$gn])) $classesByGroup[$gn] = [];
-        $classesByGroup[$gn][$cid] = true;
-    }
+        // 2) Build SensorCaptionMap: varID(string) -> "GrandParent > Parent > Name (ID)"
+        $captionMap = [];
+        foreach (($config['SensorList'] ?? []) as $sensor) {
+            $vid = (int)($sensor['VariableID'] ?? 0);
+            if ($vid <= 0) continue;
 
-    // 3c) sensors in those classes
-    $groupSensorMap = []; // groupName -> [varID(string)...]
-    foreach (($config['SensorList'] ?? []) as $sensor) {
-        $vid = (int)($sensor['VariableID'] ?? 0);
-        $cid = (string)($sensor['ClassID'] ?? '');
-        if ($vid <= 0 || $cid === '') continue;
+            $name = IPS_ObjectExists($vid) ? IPS_GetName($vid) : "Unknown";
+            $gp   = (string)($sensor['GrandParentName'] ?? '?');
+            $p    = (string)($sensor['ParentName'] ?? '?');
 
-        foreach ($classesByGroup as $gn => $classSet) {
-            if (isset($classSet[$cid])) {
-                if (!isset($groupSensorMap[$gn])) $groupSensorMap[$gn] = [];
-                $groupSensorMap[$gn][] = (string)$vid;
+            $captionMap[(string)$vid] = sprintf("%s > %s > %s (%d)", $gp, $p, $name, $vid);
+        }
+
+        // 3) Build GroupSensorMap for THIS target: groupName -> [varID(string)...]
+        $targetID = $this->ReadPropertyInteger("DispatchTargetID");
+
+        // 3a) groups dispatched to this target
+        $targetGroups = [];
+        foreach (($config['GroupDispatch'] ?? []) as $gd) {
+            if ((int)($gd['InstanceID'] ?? 0) === (int)$targetID) {
+                $gn = (string)($gd['GroupName'] ?? '');
+                if ($gn !== '') $targetGroups[$gn] = true;
             }
         }
+
+        // 3b) classes in those groups
+        $classesByGroup = []; // groupName -> [classID...]
+        foreach (($config['GroupMembers'] ?? []) as $gm) {
+            $gn  = (string)($gm['GroupName'] ?? '');
+            $cid = (string)($gm['ClassID'] ?? '');
+            if ($gn === '' || $cid === '') continue;
+            if (!isset($targetGroups[$gn])) continue;
+
+            if (!isset($classesByGroup[$gn])) $classesByGroup[$gn] = [];
+            $classesByGroup[$gn][$cid] = true;
+        }
+
+        // 3c) sensors in those classes
+        $groupSensorMap = []; // groupName -> [varID(string)...]
+        foreach (($config['SensorList'] ?? []) as $sensor) {
+            $vid = (int)($sensor['VariableID'] ?? 0);
+            $cid = (string)($sensor['ClassID'] ?? '');
+            if ($vid <= 0 || $cid === '') continue;
+
+            foreach ($classesByGroup as $gn => $classSet) {
+                if (isset($classSet[$cid])) {
+                    if (!isset($groupSensorMap[$gn])) $groupSensorMap[$gn] = [];
+                    $groupSensorMap[$gn][] = (string)$vid;
+                }
+            }
+        }
+
+        // 3d) de-duplicate lists
+        foreach ($groupSensorMap as $gn => $list) {
+            $groupSensorMap[$gn] = array_values(array_unique($list));
+        }
+
+        // 4) Save caches
+        $this->WriteAttributeString("SensorCaptionMap", json_encode($captionMap));
+        $this->WriteAttributeString("GroupSensorMap", json_encode($groupSensorMap));
+
+        $this->LogMessage(
+            "[PSM-UI] Refresh: cached captions=" . count($captionMap) . " | groups=" . count($groupSensorMap),
+            KL_MESSAGE
+        );
     }
-
-    // 3d) de-duplicate lists
-    foreach ($groupSensorMap as $gn => $list) {
-        $groupSensorMap[$gn] = array_values(array_unique($list));
-    }
-
-    // 4) Save caches
-    $this->WriteAttributeString("SensorCaptionMap", json_encode($captionMap));
-    $this->WriteAttributeString("GroupSensorMap", json_encode($groupSensorMap));
-
-    $this->LogMessage(
-        "[PSM-UI] Refresh: cached captions=" . count($captionMap) . " | groups=" . count($groupSensorMap),
-        KL_MESSAGE
-    );
-}
 
     protected function ProcessHookData()
     {
@@ -417,67 +417,67 @@ public function UI_Refresh()
         // So: bit ON => Open (breach), bit OFF => Closed (secure), always.
         $uiBits[8] = ['text' => ($bits & (1 << 8)) ? 'Open' : 'Closed', 'ok' => (($bits & (1 << 8)) === 0)];
         $uiBits[9] = ['text' => ($bits & (1 << 9)) ? 'Open' : 'Closed', 'ok' => (($bits & (1 << 9)) === 0)];
-// -------------------- NEW: Perimeter details (which group + which sensors are blocking) --------------------
-// Uses UI_Refresh caches: SensorCaptionMap + GroupSensorMap. Display-only.
-$sensorCaptionMap = json_decode($this->ReadAttributeString("SensorCaptionMap"), true);
-if (!is_array($sensorCaptionMap)) $sensorCaptionMap = [];
+        // -------------------- NEW: Perimeter details (which group + which sensors are blocking) --------------------
+        // Uses UI_Refresh caches: SensorCaptionMap + GroupSensorMap. Display-only.
+        $sensorCaptionMap = json_decode($this->ReadAttributeString("SensorCaptionMap"), true);
+        if (!is_array($sensorCaptionMap)) $sensorCaptionMap = [];
 
-$groupSensorMap = json_decode($this->ReadAttributeString("GroupSensorMap"), true);
-if (!is_array($groupSensorMap)) $groupSensorMap = [];
+        $groupSensorMap = json_decode($this->ReadAttributeString("GroupSensorMap"), true);
+        if (!is_array($groupSensorMap)) $groupSensorMap = [];
 
-$perimeterDetails = []; // array of {group, role, sensors:[caption...]}
+        $perimeterDetails = []; // array of {group, role, sensors:[caption...]}
 
-$activeGroupNames = $activeGroups;
-if (!is_array($activeGroupNames)) $activeGroupNames = [];
+        $activeGroupNames = $activeGroups;
+        if (!is_array($activeGroupNames)) $activeGroupNames = [];
 
-foreach ($mapping as $m) {
-    $src  = (string)($m['SourceKey'] ?? '');
-    $role = (string)($m['LogicalRole'] ?? '');
+        foreach ($mapping as $m) {
+            $src  = (string)($m['SourceKey'] ?? '');
+            $role = (string)($m['LogicalRole'] ?? '');
 
-    // We only want GROUP-level rows for perimeter roles
-    if ($src === '' || ctype_digit($src)) continue;
-    if ($role !== 'Window Contact' && $role !== 'Generic Door') continue;
+            // We only want GROUP-level rows for perimeter roles
+            if ($src === '' || ctype_digit($src)) continue;
+            if ($role !== 'Window Contact' && $role !== 'Generic Door') continue;
 
-    // If the group is currently active (means breach/open somewhere), list the members
-    if (!in_array($src, $activeGroupNames, true)) continue;
+            // If the group is currently active (means breach/open somewhere), list the members
+            if (!in_array($src, $activeGroupNames, true)) continue;
 
-    $vids = $groupSensorMap[$src] ?? [];
-    if (!is_array($vids)) $vids = [];
+            $vids = $groupSensorMap[$src] ?? [];
+            if (!is_array($vids)) $vids = [];
 
-    $captions = [];
-    foreach ($vids as $vid) {
-        $k = (string)$vid;
-        if (in_array($k, $activeSensors, true)) {
-            $captions[] = $sensorCaptionMap[$k] ?? ("Variable " . $k);
+            $captions = [];
+            foreach ($vids as $vid) {
+                $k = (string)$vid;
+                if (in_array($k, $activeSensors, true)) {
+                    $captions[] = $sensorCaptionMap[$k] ?? ("Variable " . $k);
+                }
+            }
+
+            // If we don't know exact members (no cache), still show the group name
+            if (count($captions) === 0) {
+                $captions[] = "(No member details cached - run Refresh Keys / UI_Refresh)";
+            }
+
+            $perimeterDetails[] = [
+                'group'   => $src,
+                'role'    => $role,
+                'sensors' => $captions
+            ];
         }
-    }
-
-    // If we don't know exact members (no cache), still show the group name
-    if (count($captions) === 0) {
-        $captions[] = "(No member details cached - run Refresh Keys / UI_Refresh)";
-    }
-
-    $perimeterDetails[] = [
-        'group'   => $src,
-        'role'    => $role,
-        'sensors' => $captions
-    ];
-}
-// -------------------- END NEW: Perimeter details --------------------
+        // -------------------- END NEW: Perimeter details --------------------
         // API Mode
         if (isset($_GET['api'])) {
             header("Content-Type: application/json");
-echo json_encode([
-    'bits' => $bits,
-    'state' => $displayState,
-    'timer' => $remainingSeconds,
-    'showTimer' => $isDelayState,
-    'unmapped' => array_values($unmappedSensors),
-    'bitText' => $bitText,
-    'uiBits' => $uiBits,
-    'bedrooms' => $bedrooms,
-    'perimeterDetails' => $perimeterDetails
-]);
+            echo json_encode([
+                'bits' => $bits,
+                'state' => $displayState,
+                'timer' => $remainingSeconds,
+                'showTimer' => $isDelayState,
+                'unmapped' => array_values($unmappedSensors),
+                'bitText' => $bitText,
+                'uiBits' => $uiBits,
+                'bedrooms' => $bedrooms,
+                'perimeterDetails' => $perimeterDetails
+            ]);
             return;
         }
 
@@ -566,9 +566,9 @@ echo json_encode([
                                             g.sensors.forEach(s => lines.push('&nbsp;&nbsp;• ' + s));
                                         }
                                     });
-                                    pd.innerHTML = "<strong>Perimeter Blocking:</strong><br>" + lines.join("<br>");
+                                    pd.innerHTML = '<strong>Perimeter Blocking:</strong><br>' + lines.join('<br>');
                                 } else {
-                                    pd.innerHTML = "<strong>Perimeter Blocking:</strong><br>None.";
+                                    pd.innerHTML = '<strong>Perimeter Blocking:</strong><br>None.';
                                 }
                             }
                             let warnBox = document.getElementById('warnBox');
@@ -643,15 +643,15 @@ echo json_encode([
         echo "</div>";
 
         // Generic Doors and Windows: 8,9
-echo "<div class='panel'><div class='panel-title'>Generic Doors and Windows</div>";
-foreach ([8, 9] as $i) {
-    echo "<div class='bit-row'>
+        echo "<div class='panel'><div class='panel-title'>Generic Doors and Windows</div>";
+        foreach ([8, 9] as $i) {
+            echo "<div class='bit-row'>
     <span>Bit $i: " . ($labels[$i] ?? "Bit $i") . "</span>
     <span id='bit_$i' class='inactive'>...</span>
   </div>";
-}
-echo "<div id='perimeterDetails' style='margin-top:10px; font-size:0.95em; line-height:1.35;'></div>";
-echo "</div>";
+        }
+        echo "<div id='perimeterDetails' style='margin-top:10px; font-size:0.95em; line-height:1.35;'></div>";
+        echo "</div>";
 
         // System: 4,5 (recommended so they don’t “float” ungrouped)
         echo "<div class='panel'><div class='panel-title'>System</div>";
