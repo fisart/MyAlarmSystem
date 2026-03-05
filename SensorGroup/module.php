@@ -1939,6 +1939,9 @@ class SensorGroup extends IPSModule
 
         $conf = json_decode($this->GetConfiguration(), true);
 
+        // FIX: Initialize bedroom list default so it exists even if filtering is skipped
+        $bedroomList = $conf['BedroomList'] ?? [];
+
         // --- OPTIONAL TARGET FILTER (API ONLY) ---
         if (isset($_GET['api']) && isset($_GET['targetFilter'])) {
             $filterStr = (string)$_GET['targetFilter'];
@@ -1949,10 +1952,10 @@ class SensorGroup extends IPSModule
             $groupMembers    = $conf['GroupMembers'] ?? [];
             $sensorList      = $conf['SensorList'] ?? [];
             $bedroomList     = $conf['BedroomList'] ?? []; // Load Bedroom Data
-            
+
             // --- FILTERING LOGIC ---
             $bedroomList     = $conf['BedroomList'] ?? [];
-            
+
             // --- FILTERING LOGIC ---
 
             // 1) Targets
@@ -1986,7 +1989,7 @@ class SensorGroup extends IPSModule
                 return false;
             }));
 
-// 4) Sensors belonging to allowed classes
+            // 4) Sensors belonging to allowed classes
             $sensorList = array_values(array_filter($sensorList, function ($s) use ($allowedClasses) {
                 return isset($allowedClasses[(string)($s['ClassID'] ?? '')]);
             }));
@@ -2037,7 +2040,7 @@ class SensorGroup extends IPSModule
 
             $graph .= $gid . "[\"" . $label . "\"]:::" . $style . " --> " . $tid . "\n";
 
-$linkIdx = $this->linkCounter++;
+            $linkIdx = $this->linkCounter++;
             if ($isActive) $graph .= "linkStyle $linkIdx stroke:#ff8a80,stroke-width:2px;\n";
         }
 
@@ -2051,11 +2054,11 @@ $linkIdx = $this->linkCounter++;
             $val = ($vid > 0 && IPS_VariableExists($vid)) ? GetValue($vid) : false;
             $style = $val ? "red" : "green";
             $name = ($vid > 0 && IPS_VariableExists($vid)) ? IPS_GetName($vid) : "MISSING";
-            
+
             // Mermaid Label: Name (ID) <br/> [Bedroom Switch]
             $label = "$name ($vid)<br/>[Bedroom Switch]";
             $graph .= $sid . "[\"" . $label . "\"]:::" . $style . " --> " . $gid . "\n";
-            
+
             $linkIdx = $this->linkCounter++;
             if ($val) $graph .= "linkStyle $linkIdx stroke:#ff8a80,stroke-width:2px;\n";
         }
