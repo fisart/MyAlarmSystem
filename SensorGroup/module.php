@@ -1473,25 +1473,22 @@ class SensorGroup extends IPSModule
 
     /**
      * Generates a restart-safe, monotonic token in RAM.
-     * Uses Semaphores to prevent race conditions during concurrent sensor triggers.
+     * Epoch = Current Milliseconds.
+     * Seq   = Monotonic counter (increments +1 for every event since module start).
      */
     private function GetNextEventToken()
     {
-        // Use a lock to prevent concurrent PHP threads from generating duplicate sequence numbers
         $lockName = "Mod1_SeqLock_" . $this->InstanceID;
 
-        // Attempt to acquire lock (wait up to 1000ms)
         if (IPS_SemaphoreEnter($lockName, 1000)) {
 
-            // 1. Get Epoch (Lazy init if missing)
-            $epoch = $this->GetBuffer('EventEpoch');
-            if ($epoch === '') {
-                $epoch = (string)round(microtime(true) * 1000);
-                $this->SetBuffer('EventEpoch', $epoch);
-                $this->SetBuffer('EventSeq', '0');
-            }
+            // 1. Epoch is always NOW (Realtime Milliseconds)
+            // This provides absolute wall-clock context for the event.
+            $epoch = (string)round(microtime(true) * 1000);
 
             // 2. Increment Sequence in RAM
+            // We read the buffer (defaults to 0 if empty), increment it, and write it back.
+            // This ensures strict ordering even if two events happen in the same millisecond.
             $seq = (int)$this->GetBuffer('EventSeq');
             $seq++;
             $this->SetBuffer('EventSeq', (string)$seq);
@@ -1499,11 +1496,11 @@ class SensorGroup extends IPSModule
             IPS_SemaphoreLeave($lockName);
             return ['epoch' => (int)$epoch, 'seq' => $seq];
         } else {
-            // Fallback if semaphore fails (extreme overload)
+            // Fallback if semaphore fails
             if ($this->ReadPropertyBoolean('DebugMode')) {
                 $this->LogMessage("CRITICAL: Could not acquire Semaphore for Event Token!", KL_ERROR);
             }
-            return ['epoch' => 0, 'seq' => 0];
+            return ['epoch' => (int)round(microtime(true) * 1000), 'seq' => 0];
         }
     }
 
@@ -1762,33 +1759,73 @@ class SensorGroup extends IPSModule
         $bedTarget = (int)$this->ReadPropertyInteger('BedroomTarget');
         if ($bedTarget > 0 && IPS_InstanceExists($bedTarget)) {
             $bedList = json_decode($this->ReadPropertyString('BedroomList'), true) ?: [];
-            $bedStates = [];
-            foreach ($bedList as $bed) {
-                $cID = $bed['BedroomDoorClassID'] ?? '';
-                if ($cID === '') continue; // Requirement: Only send if associated class exists
 
-                $vid = (int)($bed['ActiveVariableID'] ?? 0);
-                $bedStates[] = [
-                    'GroupName'   => $bed['GroupName'],
-                    'SwitchState' => ($vid > 0 && IPS_VariableExists($vid)) ? (bool)GetValue($vid) : false,
-                    'DoorTripped' => isset($activeClasses[$cID])
-                ];
+            // CHANGE B: Relevance Check
+            // Only send Sync if Trigger is 0 (Full Sync), matches a Bedroom Switch, or matches a Bedroom Door Class
+            $shouldSendSync = ($TriggeringID === 0);
+
+            if (!$shouldSendSync) {
+                // 1. Check Active Switches
+                foreach ($bedList as $b) {
+                    if ((int)($b['ActiveVariableID'] ?? 0) === $TriggeringID) {
+                        $shouldSendSync = true;
+                        break;
+                    }
+                }
+
+                // 2. Check Door Sensors (via ClassID lookup)
+                if (!$shouldSendSync) {
+                    // Find which Class the trigger belongs to
+                    $triggerClassID = '';
+                    foreach ($sensorList as $s) {
+                        if ((int)($s['VariableID'] ?? 0) === $TriggeringID) {
+                            $triggerClassID = $s['ClassID'];
+                            break;
+                        }
+                    }
+
+                    if ($triggerClassID !== '') {
+                        foreach ($bedList as $b) {
+                            if (($b['BedroomDoorClassID'] ?? '') === $triggerClassID) {
+                                $shouldSendSync = true;
+                                break;
+                            }
+                        }
+                    }
+                }
             }
-            if (count($bedStates) > 0) {
-                $token = $this->GetNextEventToken();
-                $payloadJson = json_encode([
-                    'event_type'  => 'BEDROOM_SYNC',
-                    'event_epoch' => $token['epoch'],
-                    'event_seq'   => $token['seq'],
-                    'timestamp'   => time(),
-                    'source_id'   => $this->InstanceID,
-                    'bedrooms'   => $bedStates
-                ]);
 
-                // Update local debug variable so we can see what was sent
-                $this->SetValue('EventData', $payloadJson);
+            if ($shouldSendSync) {
+                $bedStates = [];
+                foreach ($bedList as $bed) {
+                    $cID = $bed['BedroomDoorClassID'] ?? '';
+                    if ($cID === '') continue;
 
-                @IPS_RequestAction($bedTarget, 'ReceivePayload', $payloadJson);
+                    $vid = (int)($bed['ActiveVariableID'] ?? 0);
+                    $bedStates[] = [
+                        'GroupName'   => $bed['GroupName'],
+                        'SwitchState' => ($vid > 0 && IPS_VariableExists($vid)) ? (bool)GetValue($vid) : false,
+                        'DoorTripped' => isset($activeClasses[$cID]) // Checked: activeClasses uses ClassID as key
+                    ];
+                }
+
+                if (count($bedStates) > 0) {
+                    $token = $this->GetNextEventToken();
+                    $payloadJson = json_encode([
+                        'event_type'  => 'BEDROOM_SYNC',
+                        'event_epoch' => $token['epoch'],
+                        'event_seq'   => $token['seq'],
+                        'timestamp'   => time(),
+                        'source_id'   => $this->InstanceID,
+                        'bedrooms'    => $bedStates
+                    ]);
+
+                    $this->SetValue('EventData', $payloadJson);
+                    try {
+                        @IPS_RequestAction($bedTarget, 'ReceivePayload', $payloadJson);
+                    } catch (Throwable $e) {
+                    }
+                }
             }
         }
 
@@ -1859,6 +1896,11 @@ class SensorGroup extends IPSModule
                 } else {
                     if ($this->ReadPropertyBoolean('DebugMode')) $this->LogMessage("DEBUG [Dispatch]: Group '{$gName}' is Active but has NO route.", KL_WARNING);
                 }
+            }
+
+            // DEBUG: Log the final unique destination list
+            if ($this->ReadPropertyBoolean('DebugMode')) {
+                $this->LogMessage("DEBUG [Dispatch Final]: Unique Destinations for SEQ " . $payload['event_seq'] . ": " . json_encode(array_keys($targetsToSend)), KL_MESSAGE);
             }
 
             // Send exactly once per unique target
