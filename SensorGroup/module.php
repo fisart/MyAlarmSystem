@@ -2085,12 +2085,39 @@ class SensorGroup extends IPSModule
             $graph .= $sid . "[\"" . $label . "\"]:::" . $style . " --> " . $gid . "\n";
 
             $linkIdx = $this->linkCounter++;
-            if ($val) $graph .= "linkStyle $linkIdx stroke:#ff8a80,stroke-width:2px;\n";
+            if ($isActive) $graph .= "linkStyle $linkIdx stroke:#ff8a80,stroke-width:2px;\n";
         }
 
-        // 3. API Mode (AJAX Request)
+        // B3. Draw Bedroom Group -> Global Target Connections
+        $bedTargetID = (int)($conf['BedroomTarget'] ?? 0);
+        if ($bedTargetID > 0) {
+            // Only draw if the target is currently visible (passed the filter)
+            $targetIsVisible = false;
+            foreach ($dispatchTargets as $dt) {
+                if ((int)$dt['InstanceID'] === $bedTargetID) {
+                    $targetIsVisible = true;
+                    break;
+                }
+            }
 
-        // C. Classes -> Groups
+            if ($targetIsVisible) {
+                $tid = "T_" . $bedTargetID;
+                foreach ($bedroomList as $b) {
+                    $gName = $b['GroupName'];
+                    $gid = "G_" . md5($gName);
+
+                    $graph .= $gid . " --> " . $tid . "\n";
+
+                    $ident = "Status_" . $this->SanitizeIdent($gName);
+                    $isActive = (@$this->GetIDForIdent($ident) && GetValue($this->GetIDForIdent($ident)));
+
+                    $linkIdx = $this->linkCounter++;
+                    if ($isActive) $graph .= "linkStyle $linkIdx stroke:#ff8a80,stroke-width:2px;\n";
+                }
+            }
+        }
+
+        // C. Draw Classes
         foreach ($conf['GroupMembers'] as $m) {
             $gName = $m['GroupName'];
             $cID = $m['ClassID'];
