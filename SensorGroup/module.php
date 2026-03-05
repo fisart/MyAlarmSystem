@@ -1939,20 +1939,17 @@ class SensorGroup extends IPSModule
 
         $conf = json_decode($this->GetConfiguration(), true);
 
-        // FIX: Initialize bedroom list default so it exists even if filtering is skipped
-        $bedroomList = $conf['BedroomList'] ?? [];
+        // FIX: Initialize ALL lists globally so they exist even if filtering is skipped
+        $bedroomList     = $conf['BedroomList'] ?? [];
+        $dispatchTargets = $conf['DispatchTargets'] ?? [];
+        $groupDispatch   = $conf['GroupDispatch'] ?? [];
+        $groupMembers    = $conf['GroupMembers'] ?? [];
+        $sensorList      = $conf['SensorList'] ?? [];
 
         // --- OPTIONAL TARGET FILTER (API ONLY) ---
         if (isset($_GET['api']) && isset($_GET['targetFilter'])) {
             $filterStr = (string)$_GET['targetFilter'];
             $allowedTargets = ($filterStr === '' || $filterStr === 'NONE') ? [] : array_filter(explode(',', $filterStr), 'strlen');
-
-            $dispatchTargets = $conf['DispatchTargets'] ?? [];
-            $groupDispatch   = $conf['GroupDispatch'] ?? [];
-            $groupMembers    = $conf['GroupMembers'] ?? [];
-            $sensorList      = $conf['SensorList'] ?? [];
-            $bedroomList     = $conf['BedroomList'] ?? []; // Load Bedroom Data
-
             // --- FILTERING LOGIC ---
             $bedroomList     = $conf['BedroomList'] ?? [];
 
