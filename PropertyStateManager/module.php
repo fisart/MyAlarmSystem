@@ -417,53 +417,122 @@ class PropertyStateManager extends IPSModule
         // So: bit ON => Open (breach), bit OFF => Closed (secure), always.
         $uiBits[8] = ['text' => ($bits & (1 << 8)) ? 'Open' : 'Closed', 'ok' => (($bits & (1 << 8)) === 0)];
         $uiBits[9] = ['text' => ($bits & (1 << 9)) ? 'Open' : 'Closed', 'ok' => (($bits & (1 << 9)) === 0)];
-        // -------------------- NEW: Perimeter details (which group + which sensors are blocking) --------------------
-        // Uses UI_Refresh caches: SensorCaptionMap + GroupSensorMap. Display-only.
-        $sensorCaptionMap = json_decode($this->ReadAttributeString("SensorCaptionMap"), true);
-        if (!is_array($sensorCaptionMap)) $sensorCaptionMap = [];
-
-        $groupSensorMap = json_decode($this->ReadAttributeString("GroupSensorMap"), true);
-        if (!is_array($groupSensorMap)) $groupSensorMap = [];
+        // -------------------- NEW: Perimeter details (which group + which sensors are open) --------------------
+        // Display-only, authoritative: recompute "open" from Module 1 config + live GetValue().
+        // This avoids ActiveSensors inversion / history issues.
 
         $perimeterDetails = []; // array of {group, role, sensors:[caption...]}
 
-        $activeGroupNames = json_decode($this->ReadAttributeString("ActiveGroups"), true);
-        if (!is_array($activeGroupNames)) $activeGroupNames = [];
+        $sensorGroupID = $this->ReadPropertyInteger("SensorGroupInstanceID");
+        $targetID      = $this->ReadPropertyInteger("DispatchTargetID");
 
-        foreach ($mapping as $m) {
-            $src  = (string)($m['SourceKey'] ?? '');
-            $role = (string)($m['LogicalRole'] ?? '');
+        $config = null;
+        if ($sensorGroupID > 0 && @IPS_InstanceExists($sensorGroupID) && function_exists('MYALARM_GetConfiguration')) {
+            $cfgJson = @MYALARM_GetConfiguration($sensorGroupID);
+            if ($cfgJson !== false) {
+                $tmp = json_decode($cfgJson, true);
+                if (is_array($tmp)) $config = $tmp;
+            }
+        }
 
-            // We only want GROUP-level rows for perimeter roles
-            if ($src === '' || ctype_digit($src)) continue;
-            if ($role !== 'Window Contact' && $role !== 'Generic Door') continue;
-
-            // If the group is currently active (means breach/open somewhere), list the members
-            if (!in_array($src, $activeGroupNames, true)) continue;
-
-            $vids = $groupSensorMap[$src] ?? [];
-            if (!is_array($vids)) $vids = [];
-
-            $captions = [];
-            foreach ($vids as $vid) {
-                $k = (string)$vid;
-
-                // IMPORTANT: Do NOT filter by ActiveSensors here.
-                // ActiveGroups already tells us "this group is breached/open".
-                // ActiveSensors can be inverted per-device, so filtering would hide the real open sensor.
-                $captions[] = $sensorCaptionMap[$k] ?? ("Variable " . $k);
+        // helper: evaluate Module-1 style compare (Operator + ComparisonValue)
+        $evalTrip = function ($currentValue, int $op, $cmpRaw): bool {
+            // normalize cmp to number if possible, else string
+            $cmp = $cmpRaw;
+            if (is_string($cmpRaw) && is_numeric(str_replace(',', '.', $cmpRaw))) {
+                $cmp = (float)str_replace(',', '.', $cmpRaw);
+            }
+            // normalize current similarly
+            $cur = $currentValue;
+            if (is_string($currentValue) && is_numeric(str_replace(',', '.', $currentValue))) {
+                $cur = (float)str_replace(',', '.', $currentValue);
             }
 
-            // If we don't know members (no cache), still show a hint
-            if (count($captions) === 0) {
-                $captions[] = "(No member details cached - run Refresh Keys / UI_Refresh)";
+            switch ($op) {
+                case 0:
+                    return ($cur == $cmp);  // Equal
+                case 1:
+                    return ($cur != $cmp);  // Not Equal
+                case 2:
+                    return ($cur >  $cmp);  // >
+                case 3:
+                    return ($cur <  $cmp);  // <
+                case 4:
+                    return ($cur >= $cmp);  // >=
+                case 5:
+                    return ($cur <= $cmp);  // <=
+                default:
+                    return false;
+            }
+        };
+
+        if (is_array($config)) {
+            // 1) Find groups routed to THIS module 2 instance (target)
+            $targetGroups = [];
+            foreach ($config['GroupDispatch'] ?? [] as $gd) {
+                if ((int)($gd['InstanceID'] ?? 0) === (int)$targetID) {
+                    $targetGroups[] = (string)($gd['GroupName'] ?? '');
+                }
+            }
+            $targetGroups = array_values(array_filter($targetGroups));
+
+            // 2) Build group -> classIDs
+            $groupClasses = [];
+            foreach ($config['GroupMembers'] ?? [] as $gm) {
+                $gName = (string)($gm['GroupName'] ?? '');
+                $cID   = (string)($gm['ClassID'] ?? '');
+                if ($gName === '' || $cID === '') continue;
+                if (!in_array($gName, $targetGroups, true)) continue;
+                $groupClasses[$gName][] = $cID;
             }
 
-            $perimeterDetails[] = [
-                'group'   => $src,
-                'role'    => $role,
-                'sensors' => $captions
-            ];
+            // 3) For each mapping row that is group-level Window/Generic, evaluate member sensors live
+            foreach ($mapping as $m) {
+                $src  = (string)($m['SourceKey'] ?? '');
+                $role = (string)($m['LogicalRole'] ?? '');
+
+                if ($src === '' || ctype_digit($src)) continue; // group-level only
+                if ($role !== 'Window Contact' && $role !== 'Generic Door') continue;
+
+                $classIDs = $groupClasses[$src] ?? [];
+                if (!is_array($classIDs) || count($classIDs) === 0) continue;
+
+                $captions = [];
+
+                foreach ($config['SensorList'] ?? [] as $s) {
+                    $vid = (int)($s['VariableID'] ?? 0);
+                    $cID = (string)($s['ClassID'] ?? '');
+                    if ($vid <= 0 || $cID === '') continue;
+                    if (!in_array($cID, $classIDs, true)) continue;
+                    if (!IPS_VariableExists($vid)) continue;
+
+                    $op  = (int)($s['Operator'] ?? 0);
+                    $cmp = $s['ComparisonValue'] ?? null;
+                    $cur = GetValue($vid);
+
+                    // "tripped" as Module 1 would interpret it
+                    if ($evalTrip($cur, $op, $cmp)) {
+                        $name = IPS_GetName($vid);
+                        $cap  = sprintf(
+                            "%s > %s > %s (%d)",
+                            $s['GrandParentName'] ?? '?',
+                            $s['ParentName'] ?? '?',
+                            $name,
+                            $vid
+                        );
+                        $captions[] = $cap;
+                    }
+                }
+
+                // Only show the group if something is actually open
+                if (count($captions) > 0) {
+                    $perimeterDetails[] = [
+                        'group'   => $src,
+                        'role'    => $role,
+                        'sensors' => $captions
+                    ];
+                }
+            }
         }
         // -------------------- END NEW: Perimeter details --------------------
         // API Mode
