@@ -1948,6 +1948,12 @@ class SensorGroup extends IPSModule
             $groupDispatch   = $conf['GroupDispatch'] ?? [];
             $groupMembers    = $conf['GroupMembers'] ?? [];
             $sensorList      = $conf['SensorList'] ?? [];
+            $bedroomList     = $conf['BedroomList'] ?? []; // Load Bedroom Data
+            
+            // --- FILTERING LOGIC ---
+            $bedroomList     = $conf['BedroomList'] ?? [];
+            
+            // --- FILTERING LOGIC ---
 
             // 1) Targets
             $dispatchTargets = array_values(array_filter($dispatchTargets, function ($t) use ($allowedTargets) {
@@ -1980,10 +1986,17 @@ class SensorGroup extends IPSModule
                 return false;
             }));
 
-            // 4) Sensors belonging to allowed classes
+// 4) Sensors belonging to allowed classes
             $sensorList = array_values(array_filter($sensorList, function ($s) use ($allowedClasses) {
                 return isset($allowedClasses[(string)($s['ClassID'] ?? '')]);
             }));
+
+            // 5) Bedroom settings belonging to allowed groups
+            $bedroomList = array_values(array_filter($bedroomList, function ($b) use ($allowedGroups) {
+                return isset($allowedGroups[(string)($b['GroupName'] ?? '')]);
+            }));
+
+            // Write back pruned arrays so your existing loops stay unchanged
 
             // Write back pruned arrays so your existing loops stay unchanged
             $conf['DispatchTargets'] = $dispatchTargets;
@@ -2024,9 +2037,30 @@ class SensorGroup extends IPSModule
 
             $graph .= $gid . "[\"" . $label . "\"]:::" . $style . " --> " . $tid . "\n";
 
-            $linkIdx = $this->linkCounter++;
+$linkIdx = $this->linkCounter++;
             if ($isActive) $graph .= "linkStyle $linkIdx stroke:#ff8a80,stroke-width:2px;\n";
         }
+
+        // E. Draw Bedroom Active Switches
+        foreach ($bedroomList as $b) {
+            $gName = $b['GroupName'];
+            $gid = "G_" . md5($gName);
+            $vid = (int)($b['ActiveVariableID'] ?? 0);
+            $sid = "BS_" . $vid;
+
+            $val = ($vid > 0 && IPS_VariableExists($vid)) ? GetValue($vid) : false;
+            $style = $val ? "red" : "green";
+            $name = ($vid > 0 && IPS_VariableExists($vid)) ? IPS_GetName($vid) : "MISSING";
+            
+            // Mermaid Label: Name (ID) <br/> [Bedroom Switch]
+            $label = "$name ($vid)<br/>[Bedroom Switch]";
+            $graph .= $sid . "[\"" . $label . "\"]:::" . $style . " --> " . $gid . "\n";
+            
+            $linkIdx = $this->linkCounter++;
+            if ($val) $graph .= "linkStyle $linkIdx stroke:#ff8a80,stroke-width:2px;\n";
+        }
+
+        // 3. API Mode (AJAX Request)
 
         // C. Classes -> Groups
         foreach ($conf['GroupMembers'] as $m) {
@@ -2106,164 +2140,164 @@ class SensorGroup extends IPSModule
             }
         }
         echo '<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <title>Sensor Flow</title>
-  <style>
-    body{
-      background-color:#1e1e1e;color:#cfcfcf;font-family:"Segoe UI",sans-serif;
-      margin:0;padding:20px;height:100vh;box-sizing:border-box;
-      overflow:hidden;display:flex;flex-direction:column;
-    }
-    .header{flex-shrink:0;text-align:center;margin-bottom:12px;border-bottom:1px solid #333;padding-bottom:10px;}
-    .header h2{margin:0;color:#4CAF50;}
-.filter-bar{ background:#333; padding:10px; border-radius:6px; display:inline-block; margin-top:10px; }
-.filter-bar input{ transform:scale(1.15); margin-right:6px; }
-.container{
-              flex-grow:1;background:#252526;border-radius:8px;width:100%;
-              border:1px solid #444;overflow:hidden;position:relative;
-            }
-            /* FIX: Tighter container bounds and explicit block display for SVG */
-            #mermaid-container { position:absolute; inset:0; overflow:hidden; }
-            #mermaid-container svg { width:100% !important; height:100% !important; max-width:none !important; display:block; }
-  </style>
+                            <html>
+                            <head>
+                            <meta charset="utf-8">
+                            <title>Sensor Flow</title>
+                            <style>
+                                body{
+                                background-color:#1e1e1e;color:#cfcfcf;font-family:"Segoe UI",sans-serif;
+                                margin:0;padding:20px;height:100vh;box-sizing:border-box;
+                                overflow:hidden;display:flex;flex-direction:column;
+                                }
+                                .header{flex-shrink:0;text-align:center;margin-bottom:12px;border-bottom:1px solid #333;padding-bottom:10px;}
+                                .header h2{margin:0;color:#4CAF50;}
+                            .filter-bar{ background:#333; padding:10px; border-radius:6px; display:inline-block; margin-top:10px; }
+                            .filter-bar input{ transform:scale(1.15); margin-right:6px; }
+                            .container{
+                                        flex-grow:1;background:#252526;border-radius:8px;width:100%;
+                                        border:1px solid #444;overflow:hidden;position:relative;
+                                        }
+                                        /* FIX: Tighter container bounds and explicit block display for SVG */
+                                        #mermaid-container { position:absolute; inset:0; overflow:hidden; }
+                                        #mermaid-container svg { width:100% !important; height:100% !important; max-width:none !important; display:block; }
+                            </style>
 
-  <!-- Pan/Zoom lib (creates global svgPanZoom()) -->
-  <script src="https://unpkg.com/svg-pan-zoom@3.6.1/dist/svg-pan-zoom.min.js"></script>
+                            <!-- Pan/Zoom lib (creates global svgPanZoom()) -->
+                            <script src="https://unpkg.com/svg-pan-zoom@3.6.1/dist/svg-pan-zoom.min.js"></script>
 
-  <script type="module">
-    import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs";
+                            <script type="module">
+                                import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs";
 
-    mermaid.initialize({
-      startOnLoad:false,
-      theme:"dark",
-      flowchart:{ curve:"basis", nodeSpacing:60, rankSpacing:120 }
-    });
+                                mermaid.initialize({
+                                startOnLoad:false,
+                                theme:"dark",
+                                flowchart:{ curve:"basis", nodeSpacing:60, rankSpacing:120 }
+                                });
 
-let isRendering=false;
-let lastGraphString="";
-let pzInstance=null;
+                            let isRendering=false;
+                            let lastGraphString="";
+                            let pzInstance=null;
 
-window.getFilterString = function () {
-  const boxes = document.querySelectorAll(".target-filter:checked");
-  if (boxes.length === 0) return "NONE";
-  return Array.from(boxes).map(b => b.value).join(",");
-};
+                            window.getFilterString = function () {
+                            const boxes = document.querySelectorAll(".target-filter:checked");
+                            if (boxes.length === 0) return "NONE";
+                            return Array.from(boxes).map(b => b.value).join(",");
+                            };
 
-window.forceRefresh = function () {
-  lastGraphString = "";
-  fetchAndUpdateGraph();
-};
+                            window.forceRefresh = function () {
+                            lastGraphString = "";
+                            fetchAndUpdateGraph();
+                            };
 
-window.setAllTargets = function (checked) {
-  document.querySelectorAll(".target-filter").forEach(b => b.checked = checked);
-  window.forceRefresh();
-};
+                            window.setAllTargets = function (checked) {
+                            document.querySelectorAll(".target-filter").forEach(b => b.checked = checked);
+                            window.forceRefresh();
+                            };
 
-    async function fetchAndUpdateGraph(){
-      if(isRendering) return;
+                                async function fetchAndUpdateGraph(){
+                                if(isRendering) return;
 
-      try{
-        // IMPORTANT: keep this on the same hook URL; only add query params
-        const url = location.pathname + "?api=1&t=" + Date.now() + "&targetFilter=" + encodeURIComponent(window.getFilterString());
-        const response = await fetch(url);
-        const graphString = await response.text();
+                                try{
+                                    // IMPORTANT: keep this on the same hook URL; only add query params
+                                    const url = location.pathname + "?api=1&t=" + Date.now() + "&targetFilter=" + encodeURIComponent(window.getFilterString());
+                                    const response = await fetch(url);
+                                    const graphString = await response.text();
 
-        if(graphString !== lastGraphString){
-          isRendering=true;
-          lastGraphString=graphString;
+                                    if(graphString !== lastGraphString){
+                                    isRendering=true;
+                                    lastGraphString=graphString;
 
-          const container = document.getElementById("mermaid-container");
+                                    const container = document.getElementById("mermaid-container");
 
-          // preserve zoom/pan between rerenders
-          const oldZoom = pzInstance ? pzInstance.getZoom() : null;
-          const oldPan  = pzInstance ? pzInstance.getPan()  : null;
+                                    // preserve zoom/pan between rerenders
+                                    const oldZoom = pzInstance ? pzInstance.getZoom() : null;
+                                    const oldPan  = pzInstance ? pzInstance.getPan()  : null;
 
-          if(pzInstance){ pzInstance.destroy(); pzInstance=null; }
+                                    if(pzInstance){ pzInstance.destroy(); pzInstance=null; }
 
-          const renderId = "graph_" + Date.now();
-          const { svg } = await mermaid.render(renderId, graphString);
+                                    const renderId = "graph_" + Date.now();
+                                    const { svg } = await mermaid.render(renderId, graphString);
 
-          container.innerHTML = svg;
+                                    container.innerHTML = svg;
 
-const svgEl = container.querySelector("svg");
-                  if (svgEl) {
-                    // Ensure a viewBox exists (svg-pan-zoom works best with it)
-                    if (!svgEl.getAttribute("viewBox")) {
-                      const wRaw = (svgEl.width && svgEl.width.baseVal && svgEl.width.baseVal.value) || svgEl.getAttribute("width") || 1000;
-                      const hRaw = (svgEl.height && svgEl.height.baseVal && svgEl.height.baseVal.value) || svgEl.getAttribute("height") || 1000;
+                            const svgEl = container.querySelector("svg");
+                                            if (svgEl) {
+                                                // Ensure a viewBox exists (svg-pan-zoom works best with it)
+                                                if (!svgEl.getAttribute("viewBox")) {
+                                                const wRaw = (svgEl.width && svgEl.width.baseVal && svgEl.width.baseVal.value) || svgEl.getAttribute("width") || 1000;
+                                                const hRaw = (svgEl.height && svgEl.height.baseVal && svgEl.height.baseVal.value) || svgEl.getAttribute("height") || 1000;
 
-                      const w = Number(String(wRaw).replace(/[^0-9.]/g, "")) || 1000;
-                      const h = Number(String(hRaw).replace(/[^0-9.]/g, "")) || 1000;
+                                                const w = Number(String(wRaw).replace(/[^0-9.]/g, "")) || 1000;
+                                                const h = Number(String(hRaw).replace(/[^0-9.]/g, "")) || 1000;
 
-                      svgEl.setAttribute("viewBox", `0 0 ${w} ${h}`);
-                    }
+                                                svgEl.setAttribute("viewBox", `0 0 ${w} ${h}`);
+                                                }
 
-                    // Remove hard pixel sizing so CSS 100% can take over
-                    svgEl.removeAttribute("width");
-                    svgEl.removeAttribute("height");
+                                                // Remove hard pixel sizing so CSS 100% can take over
+                                                svgEl.removeAttribute("width");
+                                                svgEl.removeAttribute("height");
 
-                    // Don’t nuke the entire style; just neutralize sizing constraints if present
-                    svgEl.style.width = "100%";
-                    svgEl.style.height = "100%";
-                    svgEl.style.maxWidth = "none";
+                                                // Don’t nuke the entire style; just neutralize sizing constraints if present
+                                                svgEl.style.width = "100%";
+                                                svgEl.style.height = "100%";
+                                                svgEl.style.maxWidth = "none";
 
-  // Determine if this is the initial load or a live update
-                    let isFirstLoad = (oldZoom === null || oldPan === null);
+                            // Determine if this is the initial load or a live update
+                                                let isFirstLoad = (oldZoom === null || oldPan === null);
 
-                    pzInstance = svgPanZoom(svgEl, {
-                      zoomEnabled: true,
-                      controlIconsEnabled: true,
-                      fit: isFirstLoad,       // Only auto-fit on initial load
-                      center: isFirstLoad,    // Only auto-center on initial load
-                      minZoom: 0.2,
-                      maxZoom: 10,
-                      eventsListenerElement: container
-                    });
+                                                pzInstance = svgPanZoom(svgEl, {
+                                                zoomEnabled: true,
+                                                controlIconsEnabled: true,
+                                                fit: isFirstLoad,       // Only auto-fit on initial load
+                                                center: isFirstLoad,    // Only auto-center on initial load
+                                                minZoom: 0.2,
+                                                maxZoom: 10,
+                                                eventsListenerElement: container
+                                                });
 
-                    // Important: force recalculation of container bounds
-                    pzInstance.resize();
+                                                // Important: force recalculation of container bounds
+                                                pzInstance.resize();
 
-                    if (isFirstLoad) {
-                      // First time seeing the chart -> center it beautifully
-                      pzInstance.fit();
-                      pzInstance.center();
-                    } else {
-                      // Live update -> freeze the camera exactly where the user left it
-                      pzInstance.zoom(oldZoom);
-                      pzInstance.pan(oldPan);
-                    }
-                  }
-        }
-      }catch(err){
-        console.error("Failed to render graph:", err);
-      }finally{
-        isRendering=false;
-      }
-    }
+                                                if (isFirstLoad) {
+                                                // First time seeing the chart -> center it beautifully
+                                                pzInstance.fit();
+                                                pzInstance.center();
+                                                } else {
+                                                // Live update -> freeze the camera exactly where the user left it
+                                                pzInstance.zoom(oldZoom);
+                                                pzInstance.pan(oldPan);
+                                                }
+                                            }
+                                    }
+                                }catch(err){
+                                    console.error("Failed to render graph:", err);
+                                }finally{
+                                    isRendering=false;
+                                }
+                                }
 
-    fetchAndUpdateGraph();
-    setInterval(fetchAndUpdateGraph, 2000);
-  </script>
-</head>
+                                fetchAndUpdateGraph();
+                                setInterval(fetchAndUpdateGraph, 2000);
+                            </script>
+                            </head>
 
-<body>
-  <div class="header">
-    <h2>System Hierarchy (Live)</h2>
-    <small>Instance ID: ' . $this->InstanceID . '</small>
-<br>
-<div class="filter-bar">
-  <a href="#" onclick="setAllTargets(true); return false;" style="color:#9ecbff; margin-right:12px;">All</a>
-  <a href="#" onclick="setAllTargets(false); return false;" style="color:#9ecbff; margin-right:18px;">None</a>
-  ' . $checkboxesHTML . '
-</div>
-  </div>
-  <div class="container">
-    <div id="mermaid-container">Initializing Live View...</div>
-  </div>
-</body>
-</html>';
+                            <body>
+                            <div class="header">
+                                <h2>System Hierarchy (Live)</h2>
+                                <small>Instance ID: ' . $this->InstanceID . '</small>
+                            <br>
+                            <div class="filter-bar">
+                            <a href="#" onclick="setAllTargets(true); return false;" style="color:#9ecbff; margin-right:12px;">All</a>
+                            <a href="#" onclick="setAllTargets(false); return false;" style="color:#9ecbff; margin-right:18px;">None</a>
+                            ' . $checkboxesHTML . '
+                            </div>
+                            </div>
+                            <div class="container">
+                                <div id="mermaid-container">Initializing Live View...</div>
+                            </div>
+                            </body>
+                            </html>';
     }
 
 
