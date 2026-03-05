@@ -47,10 +47,14 @@ class SensorGroup extends IPSModule
     }
 
 
-    public function ApplyChanges()
+public function ApplyChanges()
     {
         if ($this->ReadPropertyBoolean('DebugMode')) $this->LogMessage("DEBUG: ApplyChanges - START", KL_MESSAGE);
         parent::ApplyChanges();
+
+        // Init Event Token Epoch (RAM Buffer - No Disk Write)
+        $this->SetBuffer('EventEpoch', (string)round(microtime(true) * 1000));
+        $this->SetBuffer('EventSeq', '0');
 
         // Register the Webhook for the HTML Dashboard
         $this->RegisterHook('/hook/MyAlarmFlow_' . $this->InstanceID);
@@ -1467,6 +1471,43 @@ class SensorGroup extends IPSModule
         }
     }
 
+    /**
+     * Generates a restart-safe, monotonic token in RAM.
+     * Uses Semaphores to prevent race conditions during concurrent sensor triggers.
+     */
+    private function GetNextEventToken()
+    {
+        // Use a lock to prevent concurrent PHP threads from generating duplicate sequence numbers
+        $lockName = "Mod1_SeqLock_" . $this->InstanceID;
+        
+        // Attempt to acquire lock (wait up to 1000ms)
+        if (IPS_SemaphoreEnter($lockName, 1000)) {
+            
+            // 1. Get Epoch (Lazy init if missing)
+            $epoch = $this->GetBuffer('EventEpoch');
+            if ($epoch === '') {
+                $epoch = (string)round(microtime(true) * 1000);
+                $this->SetBuffer('EventEpoch', $epoch);
+                $this->SetBuffer('EventSeq', '0');
+            }
+
+            // 2. Increment Sequence in RAM
+            $seq = (int)$this->GetBuffer('EventSeq');
+            $seq++;
+            $this->SetBuffer('EventSeq', (string)$seq);
+
+            IPS_SemaphoreLeave($lockName);
+            return ['epoch' => (int)$epoch, 'seq' => $seq];
+            
+        } else {
+            // Fallback if semaphore fails (extreme overload)
+            if ($this->ReadPropertyBoolean('DebugMode')) {
+                $this->LogMessage("CRITICAL: Could not acquire Semaphore for Event Token!", KL_ERROR);
+            }
+            return ['epoch' => 0, 'seq' => 0]; 
+        }
+    }
+
     private function CheckLogic($TriggeringID = 0)
     {
         $classList = json_decode($this->ReadPropertyString('ClassList'), true);
@@ -1734,11 +1775,14 @@ class SensorGroup extends IPSModule
                     'DoorTripped' => isset($activeClasses[$cID])
                 ];
             }
-            if (count($bedStates) > 0) {
+if (count($bedStates) > 0) {
+                $token = $this->GetNextEventToken();
                 $payloadJson = json_encode([
-                    'event_type' => 'BEDROOM_SYNC',
-                    'timestamp'  => time(),
-                    'source_id'  => $this->InstanceID,
+                    'event_type'  => 'BEDROOM_SYNC',
+                    'event_epoch' => $token['epoch'],
+                    'event_seq'   => $token['seq'],
+                    'timestamp'   => time(),
+                    'source_id'   => $this->InstanceID,
                     'bedrooms'   => $bedStates
                 ]);
 
@@ -1775,16 +1819,18 @@ class SensorGroup extends IPSModule
                 $readableActiveClasses[] = $classNameMap[$aid] ?? $aid;
             }
 
-            // FIX: Prioritize the Specific Trigger Event if it exists (even if it was an OFF event)
-            // Otherwise fallback to the first active sensor found ($primaryPayload)
-            $finalTriggerDetails = (isset($specificTriggerEvent) && $specificTriggerEvent !== null)
-                ? $specificTriggerEvent
+// FIX: Prioritize the Specific Trigger Event if it exists...
+            $finalTriggerDetails = (isset($specificTriggerEvent) && $specificTriggerEvent !== null) 
+                ? $specificTriggerEvent 
                 : $primaryPayload;
 
+            $token = $this->GetNextEventToken();
             $payload = [
-                'event_type' => 'ALARM',
-                'event_id' => uniqid(),
-                'timestamp' => time(),
+                'event_type'  => 'ALARM',
+                'event_epoch' => $token['epoch'],
+                'event_seq'   => $token['seq'],
+                'event_id'    => uniqid(),
+                'timestamp'   => time(),
                 'source_id' => $this->InstanceID,
                 'source_name' => IPS_GetName($this->InstanceID),
                 'primary_class' => $finalTriggerDetails['tag'] ?? 'General',
@@ -1815,11 +1861,15 @@ class SensorGroup extends IPSModule
                 }
             }
         } else {
+} else {
             // Explicit Reset Payload
+            $token = $this->GetNextEventToken();
             $payload = [
-                'event_type' => 'ALARM',
-                'event_id' => uniqid(),
-                'timestamp' => time(),
+                'event_type'  => 'ALARM', 
+                'event_epoch' => $token['epoch'],
+                'event_seq'   => $token['seq'],
+                'event_id'    => uniqid(),
+                'timestamp'   => time(),
                 'source_id' => $this->InstanceID,
                 'source_name' => IPS_GetName($this->InstanceID),
                 'primary_class' => '',
