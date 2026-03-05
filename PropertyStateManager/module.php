@@ -33,6 +33,14 @@ class PropertyStateManager extends IPSModule
         $this->RegisterAttributeString("LastPayload", "");
         $this->RegisterAttributeInteger("LastPayloadTime", 0);
         $this->RegisterAttributeString("PayloadHistory", "[]"); // NEW: History Buffer
+        // ---- Sync token: "processed up to" marker (restart-safe ordering comes from Module 1) ----
+$this->RegisterAttributeInteger("LastProcessedEventEpoch", 0);
+$this->RegisterAttributeInteger("LastProcessedEventSeq", 0);
+
+// Optional: diagnostics
+$this->RegisterAttributeInteger("LastSeenEventEpoch", 0);
+$this->RegisterAttributeInteger("LastSeenEventSeq", 0);
+$this->RegisterAttributeInteger("LastTokenMissing", 0); // 1 if last payload had no token
 
         // Variable Profiles
         // Variable Profiles
@@ -587,7 +595,10 @@ class PropertyStateManager extends IPSModule
                 'bitText' => $bitText,
                 'uiBits' => $uiBits,
                 'bedrooms' => $bedrooms,
-                'perimeterDetails' => $perimeterDetails
+                'perimeterDetails' => $perimeterDetails,
+                'last_processed_event_epoch' => (int)$this->ReadAttributeInteger('LastProcessedEventEpoch'),
+'last_processed_event_seq'   => (int)$this->ReadAttributeInteger('LastProcessedEventSeq'),
+'last_token_missing'         => (int)$this->ReadAttributeInteger('LastTokenMissing')
             ]);
             return;
         }
@@ -936,16 +947,53 @@ class PropertyStateManager extends IPSModule
         }
     }
 
+
+
+private function TokenIsNewer(int $epoch, int $seq, int $curEpoch, int $curSeq): bool
+{
+    if ($epoch > $curEpoch) return true;
+    if ($epoch < $curEpoch) return false;
+    return ($seq > $curSeq);
+}
+
+private function UpdateLastProcessedToken(int $epoch, int $seq): void
+{
+    $curEpoch = (int)$this->ReadAttributeInteger("LastProcessedEventEpoch");
+    $curSeq   = (int)$this->ReadAttributeInteger("LastProcessedEventSeq");
+
+    if ($this->TokenIsNewer($epoch, $seq, $curEpoch, $curSeq)) {
+        $this->WriteAttributeInteger("LastProcessedEventEpoch", $epoch);
+        $this->WriteAttributeInteger("LastProcessedEventSeq", $seq);
+    }
+}
+
+    
     public function GetPayloadHistory()
     {
         return $this->ReadAttributeString("PayloadHistory");
     }
 
+
+
+
+
     public function ReceivePayload(string $Payload)
     {
         $data = json_decode($Payload, true);
         if (!$data) return;
+// ---- Event token from Module 1 (may be missing for legacy payloads) ----
+$hasToken = isset($data['event_epoch'], $data['event_seq']);
+$evtEpoch = $hasToken ? (int)$data['event_epoch'] : 0;
+$evtSeq   = $hasToken ? (int)$data['event_seq'] : 0;
 
+// Optional diagnostics: record "seen" token immediately (NOT "processed")
+if ($hasToken) {
+    $this->WriteAttributeInteger("LastSeenEventEpoch", $evtEpoch);
+    $this->WriteAttributeInteger("LastSeenEventSeq", $evtSeq);
+    $this->WriteAttributeInteger("LastTokenMissing", 0);
+} else {
+    $this->WriteAttributeInteger("LastTokenMissing", 1);
+}
         // --- HISTORY LOGGING START ---
         $history = json_decode($this->ReadAttributeString("PayloadHistory"), true);
         if (!is_array($history)) $history = [];
@@ -968,11 +1016,7 @@ class PropertyStateManager extends IPSModule
         $this->LogMessage("[PSM-Rx] Received '$type' from '$source'", KL_MESSAGE);
 
         // Handle Bedroom Sync
-        if ($type === 'BEDROOM_SYNC') {
-            $this->WriteAttributeString("PresenceMap", json_encode($data['bedrooms'] ?? []));
-            $this->EvaluateState();
-            return;
-        }
+if ($type === 'BEDROOM_SYNC') {
 
         // Load current list
         $activeSensors = json_decode($this->ReadAttributeString("ActiveSensors"), true);
@@ -1027,6 +1071,8 @@ class PropertyStateManager extends IPSModule
             $this->WriteAttributeString("ActiveGroups", json_encode($data['active_groups']));
         }
         $this->EvaluateState();
+        // ---- Mark processed only after buffers were updated and state machine ran ----
+if ($hasToken) $this->UpdateLastProcessedToken($evtEpoch, $evtSeq);
     }
 
     public function ResetPayloadHistory()
@@ -1367,7 +1413,12 @@ class PropertyStateManager extends IPSModule
             'StateID'       => $this->GetValue('SystemState'),
             'PresenceMap'   => json_decode($this->ReadAttributeString('PresenceMap'), true),
             'ActiveSensors' => json_decode($this->ReadAttributeString('ActiveSensors'), true),
-            'IsDelayActive' => ($this->GetTimerInterval('DelayTimer') > 0)
+            'IsDelayActive' => ($this->GetTimerInterval('DelayTimer') > 0),
+            'last_processed_event_epoch' => (int)$this->ReadAttributeInteger('LastProcessedEventEpoch'),
+'last_processed_event_seq'   => (int)$this->ReadAttributeInteger('LastProcessedEventSeq'),
+'last_token_missing'         => (int)$this->ReadAttributeInteger('LastTokenMissing'),
+'last_seen_event_epoch'      => (int)$this->ReadAttributeInteger('LastSeenEventEpoch'),
+'last_seen_event_seq'        => (int)$this->ReadAttributeInteger('LastSeenEventSeq')
         ];
 
         return json_encode($status);
