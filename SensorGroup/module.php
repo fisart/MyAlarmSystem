@@ -2531,20 +2531,31 @@ class SensorGroup extends IPSModule
                 ' actions=' . (isset($form['actions']) && is_array($form['actions']) ? count($form['actions']) : 0)
         );
 
-        // Blueprint 2.0: Prioritize RAM Buffers (Source of Truth)
-        // Classes: prefer PROPERTY if it contains newer/more rows than buffer
-        $clBuf  = json_decode($this->ReadAttributeString('ClassListBuffer'), true);
-        $clProp = json_decode($this->ReadPropertyString('ClassList'), true);
-        if (!is_array($clBuf))  $clBuf  = [];
-        if (!is_array($clProp)) $clProp = [];
-        $definedClasses = (count($clProp) >= count($clBuf)) ? $clProp : $clBuf;
+        // Consistent source rule for UI-managed lists:
+        // valid Buffer first (even if empty []), else Property.
+        $rawClassBuf  = (string)$this->ReadAttributeString('ClassListBuffer');
+        $rawClassProp = (string)$this->ReadPropertyString('ClassList');
+        $tmp = json_decode($rawClassBuf, true);
+        if (is_array($tmp)) {
+            $definedClasses = $tmp;
+        } else {
+            $tmp2 = json_decode($rawClassProp, true);
+            $definedClasses = is_array($tmp2) ? $tmp2 : [];
+            unset($tmp2);
+        }
+        unset($tmp);
 
-        // Groups: prefer PROPERTY if it contains newer/more rows than buffer
-        $grBuf  = json_decode($this->ReadAttributeString('GroupListBuffer'), true);
-        $grProp = json_decode($this->ReadPropertyString('GroupList'), true);
-        if (!is_array($grBuf))  $grBuf  = [];
-        if (!is_array($grProp)) $grProp = [];
-        $definedGroups = (count($grProp) >= count($grBuf)) ? $grProp : $grBuf;
+        $rawGroupBuf  = (string)$this->ReadAttributeString('GroupListBuffer');
+        $rawGroupProp = (string)$this->ReadPropertyString('GroupList');
+        $tmp = json_decode($rawGroupBuf, true);
+        if (is_array($tmp)) {
+            $definedGroups = $tmp;
+        } else {
+            $tmp2 = json_decode($rawGroupProp, true);
+            $definedGroups = is_array($tmp2) ? $tmp2 : [];
+            unset($tmp2);
+        }
+        unset($tmp);
 
         if ($this->ReadPropertyBoolean('DebugMode')) IPS_LogMessage('SensorGroup', 'DEBUG: ClassListBuffer RAW=' . $this->ReadAttributeString('ClassListBuffer'));
         if ($this->ReadPropertyBoolean('DebugMode')) IPS_LogMessage('SensorGroup', 'DEBUG: ClassListProperty RAW=' . $this->ReadPropertyString('ClassList'));
@@ -2606,7 +2617,19 @@ class SensorGroup extends IPSModule
                 "values" => []
             ];
         }
-        $groupMembers = json_decode($this->ReadAttributeString('GroupMembersBuffer'), true) ?: json_decode($this->ReadPropertyString('GroupMembers'), true) ?: [];
+
+        $rawMembersBuf  = (string)$this->ReadAttributeString('GroupMembersBuffer');
+        $rawMembersProp = (string)$this->ReadPropertyString('GroupMembers');
+        $tmp = json_decode($rawMembersBuf, true);
+        if (is_array($tmp)) {
+            $groupMembers = $tmp;
+        } else {
+            $tmp2 = json_decode($rawMembersProp, true);
+            $groupMembers = is_array($tmp2) ? $tmp2 : [];
+            unset($tmp2);
+        }
+        unset($tmp);
+
         // FIX: Dispatch lists are standard properties. Buffer fallback resurrects deleted "zombie" rows.
         $dispatchTargets = json_decode($this->ReadPropertyString('DispatchTargets'), true);
         if (!is_array($dispatchTargets)) $dispatchTargets = [];
@@ -2635,14 +2658,37 @@ class SensorGroup extends IPSModule
         }
         unset($s);
 
-        // Sync to RAM Buffers immediately on form load
-        $this->WriteAttributeString('ClassListBuffer', json_encode($definedClasses));
-        $this->WriteAttributeString('GroupListBuffer', json_encode($definedGroups));
-        $this->WriteAttributeString('SensorListBuffer', json_encode($sensorList));
-        $this->WriteAttributeString('BedroomListBuffer', json_encode($bedroomList));
-        $this->WriteAttributeString('GroupMembersBuffer', json_encode($groupMembers));
-        $this->WriteAttributeString('DispatchTargetsBuffer', json_encode($dispatchTargets));
-        $this->WriteAttributeString('GroupDispatchBuffer', json_encode($groupDispatch));
+        // Sync to RAM Buffers on form load only if content differs
+        $jsonClasses        = json_encode($definedClasses);
+        $jsonGroups         = json_encode($definedGroups);
+        $jsonSensors        = json_encode($sensorList);
+        $jsonBedrooms       = json_encode($bedroomList);
+        $jsonMembers        = json_encode($groupMembers);
+        $jsonTargets        = json_encode($dispatchTargets);
+        $jsonGroupDispatch  = json_encode($groupDispatch);
+
+        if ($jsonClasses !== $rawClassBuf) {
+            $this->WriteAttributeString('ClassListBuffer', $jsonClasses);
+        }
+        if ($jsonGroups !== $rawGroupBuf) {
+            $this->WriteAttributeString('GroupListBuffer', $jsonGroups);
+        }
+        if ($jsonSensors !== (string)$this->ReadAttributeString('SensorListBuffer')) {
+            $this->WriteAttributeString('SensorListBuffer', $jsonSensors);
+        }
+        if ($jsonBedrooms !== (string)$this->ReadAttributeString('BedroomListBuffer')) {
+            $this->WriteAttributeString('BedroomListBuffer', $jsonBedrooms);
+        }
+        if ($jsonMembers !== $rawMembersBuf) {
+            $this->WriteAttributeString('GroupMembersBuffer', $jsonMembers);
+        }
+        if ($jsonTargets !== (string)$this->ReadAttributeString('DispatchTargetsBuffer')) {
+            $this->WriteAttributeString('DispatchTargetsBuffer', $jsonTargets);
+        }
+        if ($jsonGroupDispatch !== (string)$this->ReadAttributeString('GroupDispatchBuffer')) {
+            $this->WriteAttributeString('GroupDispatchBuffer', $jsonGroupDispatch);
+        }
+
         // === DEBUG: after sync to RAM buffers ===
         if ($this->ReadPropertyBoolean('DebugMode')) IPS_LogMessage(
             'SensorGroup',
@@ -2905,7 +2951,9 @@ class SensorGroup extends IPSModule
         foreach ($form['elements'] as $el) {
             if (($el['name'] ?? '') === 'GroupList') {
                 $firstGroup = $el['values'][0]['GroupName'] ?? 'MISSING';
-                $this->LogMessage("DEBUG [FormOutput]: Sending GroupList. First Group Name: '{$firstGroup}'", KL_MESSAGE);
+                if ($this->ReadPropertyBoolean('DebugMode')) {
+                    $this->LogMessage("DEBUG [FormOutput]: Sending GroupList. First Group Name: '{$firstGroup}'", KL_MESSAGE);
+                }
             }
         }
 
@@ -2950,7 +2998,6 @@ class SensorGroup extends IPSModule
             }
         }
         unset($e);
-
 
         return json_encode($form);
     }
