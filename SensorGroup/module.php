@@ -119,18 +119,10 @@ class SensorGroup extends IPSModule
         // === END AGREED CHANGE ===
 
         // 1. LIFECYCLE: ID STABILIZATION (Sticky IDs)
-        // Consistent source rule for UI-managed structural lists:
-        // valid Buffer first (even if empty []), else Property.
-        $tmp = json_decode((string)$this->ReadAttributeString('ClassListBuffer'), true);
-        if (is_array($tmp)) {
-            $classList = $tmp;
-        } else {
-            $tmp2 = json_decode((string)$this->ReadPropertyString('ClassList'), true);
-            $classList = is_array($tmp2) ? $tmp2 : [];
-            unset($tmp2);
-        }
-        unset($tmp);
-
+        $classList = json_decode($this->ReadPropertyString('ClassList'), true)
+            ?: json_decode($this->ReadAttributeString('ClassListBuffer'), true)
+            ?: [];
+        // FIX: Prioritize Buffer for stateless Group definitions to prevent GC wipeout
         $tmp = json_decode((string)$this->ReadAttributeString('GroupListBuffer'), true);
         if (is_array($tmp)) {
             $groupList = $tmp;               // buffer is valid (even if empty [])
@@ -156,7 +148,6 @@ class SensorGroup extends IPSModule
         }
 
         $idsChanged = false;
-        $stateDataChanged = false;
         $regenCountClasses = 0;
         $regenCountGroups = 0;
 
@@ -228,7 +219,6 @@ class SensorGroup extends IPSModule
 
         // Re-index after unsets
         $groupList = array_values($groupList);
-
         // =========================
         // DISPATCH ROUTER: GC + Buffer/Property sync  (FLAT LIST: GroupDispatch)
         // =========================
@@ -241,16 +231,16 @@ class SensorGroup extends IPSModule
         if (!is_array($groupDispatch)) $groupDispatch = [];
 
         /*
-    Expected shapes:
-    DispatchTargets: [
-    ["Name" => "Einbruch", "InstanceID" => 12345],
-    ...
-    ]
-    GroupDispatch: [
-    ["GroupName" => "Wasser Alarm", "InstanceID" => 12345],
-    ...
-    ]
-    */
+        Expected shapes:
+        DispatchTargets: [
+        ["Name" => "Einbruch", "InstanceID" => 12345],
+        ...
+        ]
+        GroupDispatch: [
+        ["GroupName" => "Wasser Alarm", "InstanceID" => 12345],
+        ...
+        ]
+        */
 
         // Build set of valid target IDs
         $validTargetIDs = [];
@@ -287,21 +277,12 @@ class SensorGroup extends IPSModule
         $jsonTargets   = json_encode(array_values($dispatchTargets));
         $jsonDispatch  = json_encode(array_values($cleanDispatch));
 
-        if ($jsonTargets !== (string)$this->ReadAttributeString('DispatchTargetsBuffer')) {
-            $this->WriteAttributeString('DispatchTargetsBuffer', $jsonTargets);
-        }
-        if ($jsonDispatch !== (string)$this->ReadAttributeString('GroupDispatchBuffer')) {
-            $this->WriteAttributeString('GroupDispatchBuffer', $jsonDispatch);
-        }
+        $this->WriteAttributeString('DispatchTargetsBuffer', $jsonTargets);
+        $this->WriteAttributeString('GroupDispatchBuffer',  $jsonDispatch);
 
         // Keep properties in sync (so backup/restore + Apply works)
-        if ($jsonTargets !== (string)$this->ReadPropertyString('DispatchTargets')) {
-            IPS_SetProperty($this->InstanceID, 'DispatchTargets', $jsonTargets);
-        }
-        if ($jsonDispatch !== (string)$this->ReadPropertyString('GroupDispatch')) {
-            IPS_SetProperty($this->InstanceID, 'GroupDispatch',  $jsonDispatch);
-        }
-
+        IPS_SetProperty($this->InstanceID, 'DispatchTargets', $jsonTargets);
+        IPS_SetProperty($this->InstanceID, 'GroupDispatch',  $jsonDispatch);
         if ($this->ReadPropertyBoolean('DebugMode')) {
             $this->LogMessage(
                 "DEBUG: ApplyChanges - Router Sync targets=" . count($dispatchTargets) .
@@ -327,7 +308,6 @@ class SensorGroup extends IPSModule
         // Save Maps and Buffers
         $this->WriteAttributeString('ClassListBuffer', json_encode($classList));
         $this->WriteAttributeString('GroupListBuffer', json_encode($groupList)); // Sync Group Buffer
-
         // --- FIX 2: Purge state entries for deleted classes (COUNT buffers etc.) ---
         // Keep only runtime state keys that are still valid ClassIDs.
         // Do NOT touch the mapping keys.
@@ -337,22 +317,12 @@ class SensorGroup extends IPSModule
             }
             if (!in_array($k, $validClassIDs, true)) {
                 unset($stateData[$k]);
-                $stateDataChanged = true;
+                $idsChanged = true;
             }
         }
-
-        if (($stateData['IDMap'] ?? null) !== $idMap) {
-            $stateData['IDMap'] = $idMap;
-            $stateDataChanged = true;
-        }
-        if (($stateData['GroupIDMap'] ?? null) !== $groupIDMap) {
-            $stateData['GroupIDMap'] = $groupIDMap;
-            $stateDataChanged = true;
-        }
-
-        if ($stateDataChanged) {
-            $this->WriteAttributeString('ClassStateAttribute', json_encode($stateData));
-        }
+        $stateData['IDMap'] = $idMap;
+        $stateData['GroupIDMap'] = $groupIDMap;
+        $this->WriteAttributeString('ClassStateAttribute', json_encode($stateData));
 
         if ($idsChanged) {
             IPS_SetProperty($this->InstanceID, 'ClassList', json_encode($classList));
@@ -360,18 +330,9 @@ class SensorGroup extends IPSModule
         }
 
         // 2. GARBAGE COLLECTION & REPAIR
-        $bufferJson = (string)$this->ReadAttributeString('SensorListBuffer');
-        $propJson   = (string)$this->ReadPropertyString('SensorList');
-
-        $tmp = json_decode($bufferJson, true);
-        if (is_array($tmp)) {
-            $sensorList = $tmp;   // valid buffer first, even if empty []
-        } else {
-            $tmp2 = json_decode($propJson, true);
-            $sensorList = is_array($tmp2) ? $tmp2 : [];
-            unset($tmp2);
-        }
-        unset($tmp);
+        $bufferJson = $this->ReadAttributeString('SensorListBuffer');
+        $propJson = $this->ReadPropertyString('SensorList');
+        $sensorList = json_decode($bufferJson, true) ?: json_decode($propJson, true) ?: [];
 
         $cleanSensors = [];
         $sensorsDirty = false;
@@ -393,54 +354,21 @@ class SensorGroup extends IPSModule
         }
 
         $json = json_encode($cleanSensors);
-        if ($json !== $bufferJson) {
-            $this->WriteAttributeString('SensorListBuffer', $json);
-        }
-        if ($json !== $propJson) {
-            IPS_SetProperty($this->InstanceID, 'SensorList', $json);
-        }
+        IPS_SetProperty($this->InstanceID, 'SensorList', $json);
+        $this->WriteAttributeString('SensorListBuffer', $json);
 
-        $rawBedroomBuffer = (string)$this->ReadAttributeString('BedroomListBuffer');
-        $rawBedroomProp   = (string)$this->ReadPropertyString('BedroomList');
-
-        $tmp = json_decode($rawBedroomBuffer, true);
-        if (is_array($tmp)) {
-            $bedroomList = $tmp;
-        } else {
-            $tmp2 = json_decode($rawBedroomProp, true);
-            $bedroomList = is_array($tmp2) ? $tmp2 : [];
-            unset($tmp2);
-        }
-        unset($tmp);
-
+        $bedroomList = json_decode($this->ReadAttributeString('BedroomListBuffer'), true) ?: json_decode($this->ReadPropertyString('BedroomList'), true) ?: [];
         $cleanBedrooms = [];
         foreach ($bedroomList as $b) {
             if (in_array(($b['GroupName'] ?? ''), $validGroupNames, true)) {
                 $cleanBedrooms[] = $b;
             }
         }
-
         $jsonBed = json_encode($cleanBedrooms);
-        if ($jsonBed !== $rawBedroomBuffer) {
-            $this->WriteAttributeString('BedroomListBuffer', $jsonBed);
-        }
-        if ($jsonBed !== $rawBedroomProp) {
-            IPS_SetProperty($this->InstanceID, 'BedroomList', $jsonBed);
-        }
+        IPS_SetProperty($this->InstanceID, 'BedroomList', $jsonBed);
+        $this->WriteAttributeString('BedroomListBuffer', $jsonBed);
 
-        $rawMembersBuffer = (string)$this->ReadAttributeString('GroupMembersBuffer');
-        $rawMembersProp   = (string)$this->ReadPropertyString('GroupMembers');
-
-        $tmp = json_decode($rawMembersBuffer, true);
-        if (is_array($tmp)) {
-            $groupMembers = $tmp;
-        } else {
-            $tmp2 = json_decode($rawMembersProp, true);
-            $groupMembers = is_array($tmp2) ? $tmp2 : [];
-            unset($tmp2);
-        }
-        unset($tmp);
-
+        $groupMembers = json_decode($this->ReadAttributeString('GroupMembersBuffer'), true) ?: json_decode($this->ReadPropertyString('GroupMembers'), true) ?: [];
         $cleanMembers = [];
 
         foreach ($groupMembers as $m) {
@@ -466,12 +394,8 @@ class SensorGroup extends IPSModule
         }
 
         $jsonMem = json_encode($cleanMembers);
-        if ($jsonMem !== $rawMembersBuffer) {
-            $this->WriteAttributeString('GroupMembersBuffer', $jsonMem);
-        }
-        if ($jsonMem !== $rawMembersProp) {
-            IPS_SetProperty($this->InstanceID, 'GroupMembers', $jsonMem);
-        }
+        IPS_SetProperty($this->InstanceID, 'GroupMembers', $jsonMem);
+        $this->WriteAttributeString('GroupMembersBuffer', $jsonMem);
 
         // 3. REGISTRATION
         $messages = $this->GetMessageList();
@@ -510,7 +434,6 @@ class SensorGroup extends IPSModule
         if ($this->ReadAttributeString('LastMainStatus') === '') {
             $this->WriteAttributeString('LastMainStatus', '0');
         }
-
         // 5. RELOAD FORM
         $this->ReloadForm();
         $this->CheckLogic();
@@ -2531,31 +2454,20 @@ class SensorGroup extends IPSModule
                 ' actions=' . (isset($form['actions']) && is_array($form['actions']) ? count($form['actions']) : 0)
         );
 
-        // Consistent source rule for UI-managed lists:
-        // valid Buffer first (even if empty []), else Property.
-        $rawClassBuf  = (string)$this->ReadAttributeString('ClassListBuffer');
-        $rawClassProp = (string)$this->ReadPropertyString('ClassList');
-        $tmp = json_decode($rawClassBuf, true);
-        if (is_array($tmp)) {
-            $definedClasses = $tmp;
-        } else {
-            $tmp2 = json_decode($rawClassProp, true);
-            $definedClasses = is_array($tmp2) ? $tmp2 : [];
-            unset($tmp2);
-        }
-        unset($tmp);
+        // Blueprint 2.0: Prioritize RAM Buffers (Source of Truth)
+        // Classes: prefer PROPERTY if it contains newer/more rows than buffer
+        $clBuf  = json_decode($this->ReadAttributeString('ClassListBuffer'), true);
+        $clProp = json_decode($this->ReadPropertyString('ClassList'), true);
+        if (!is_array($clBuf))  $clBuf  = [];
+        if (!is_array($clProp)) $clProp = [];
+        $definedClasses = (count($clProp) >= count($clBuf)) ? $clProp : $clBuf;
 
-        $rawGroupBuf  = (string)$this->ReadAttributeString('GroupListBuffer');
-        $rawGroupProp = (string)$this->ReadPropertyString('GroupList');
-        $tmp = json_decode($rawGroupBuf, true);
-        if (is_array($tmp)) {
-            $definedGroups = $tmp;
-        } else {
-            $tmp2 = json_decode($rawGroupProp, true);
-            $definedGroups = is_array($tmp2) ? $tmp2 : [];
-            unset($tmp2);
-        }
-        unset($tmp);
+        // Groups: prefer PROPERTY if it contains newer/more rows than buffer
+        $grBuf  = json_decode($this->ReadAttributeString('GroupListBuffer'), true);
+        $grProp = json_decode($this->ReadPropertyString('GroupList'), true);
+        if (!is_array($grBuf))  $grBuf  = [];
+        if (!is_array($grProp)) $grProp = [];
+        $definedGroups = (count($grProp) >= count($grBuf)) ? $grProp : $grBuf;
 
         if ($this->ReadPropertyBoolean('DebugMode')) IPS_LogMessage('SensorGroup', 'DEBUG: ClassListBuffer RAW=' . $this->ReadAttributeString('ClassListBuffer'));
         if ($this->ReadPropertyBoolean('DebugMode')) IPS_LogMessage('SensorGroup', 'DEBUG: ClassListProperty RAW=' . $this->ReadPropertyString('ClassList'));
@@ -2617,19 +2529,7 @@ class SensorGroup extends IPSModule
                 "values" => []
             ];
         }
-
-        $rawMembersBuf  = (string)$this->ReadAttributeString('GroupMembersBuffer');
-        $rawMembersProp = (string)$this->ReadPropertyString('GroupMembers');
-        $tmp = json_decode($rawMembersBuf, true);
-        if (is_array($tmp)) {
-            $groupMembers = $tmp;
-        } else {
-            $tmp2 = json_decode($rawMembersProp, true);
-            $groupMembers = is_array($tmp2) ? $tmp2 : [];
-            unset($tmp2);
-        }
-        unset($tmp);
-
+        $groupMembers = json_decode($this->ReadAttributeString('GroupMembersBuffer'), true) ?: json_decode($this->ReadPropertyString('GroupMembers'), true) ?: [];
         // FIX: Dispatch lists are standard properties. Buffer fallback resurrects deleted "zombie" rows.
         $dispatchTargets = json_decode($this->ReadPropertyString('DispatchTargets'), true);
         if (!is_array($dispatchTargets)) $dispatchTargets = [];
@@ -2658,37 +2558,14 @@ class SensorGroup extends IPSModule
         }
         unset($s);
 
-        // Sync to RAM Buffers on form load only if content differs
-        $jsonClasses        = json_encode($definedClasses);
-        $jsonGroups         = json_encode($definedGroups);
-        $jsonSensors        = json_encode($sensorList);
-        $jsonBedrooms       = json_encode($bedroomList);
-        $jsonMembers        = json_encode($groupMembers);
-        $jsonTargets        = json_encode($dispatchTargets);
-        $jsonGroupDispatch  = json_encode($groupDispatch);
-
-        if ($jsonClasses !== $rawClassBuf) {
-            $this->WriteAttributeString('ClassListBuffer', $jsonClasses);
-        }
-        if ($jsonGroups !== $rawGroupBuf) {
-            $this->WriteAttributeString('GroupListBuffer', $jsonGroups);
-        }
-        if ($jsonSensors !== (string)$this->ReadAttributeString('SensorListBuffer')) {
-            $this->WriteAttributeString('SensorListBuffer', $jsonSensors);
-        }
-        if ($jsonBedrooms !== (string)$this->ReadAttributeString('BedroomListBuffer')) {
-            $this->WriteAttributeString('BedroomListBuffer', $jsonBedrooms);
-        }
-        if ($jsonMembers !== $rawMembersBuf) {
-            $this->WriteAttributeString('GroupMembersBuffer', $jsonMembers);
-        }
-        if ($jsonTargets !== (string)$this->ReadAttributeString('DispatchTargetsBuffer')) {
-            $this->WriteAttributeString('DispatchTargetsBuffer', $jsonTargets);
-        }
-        if ($jsonGroupDispatch !== (string)$this->ReadAttributeString('GroupDispatchBuffer')) {
-            $this->WriteAttributeString('GroupDispatchBuffer', $jsonGroupDispatch);
-        }
-
+        // Sync to RAM Buffers immediately on form load
+        $this->WriteAttributeString('ClassListBuffer', json_encode($definedClasses));
+        $this->WriteAttributeString('GroupListBuffer', json_encode($definedGroups));
+        $this->WriteAttributeString('SensorListBuffer', json_encode($sensorList));
+        $this->WriteAttributeString('BedroomListBuffer', json_encode($bedroomList));
+        $this->WriteAttributeString('GroupMembersBuffer', json_encode($groupMembers));
+        $this->WriteAttributeString('DispatchTargetsBuffer', json_encode($dispatchTargets));
+        $this->WriteAttributeString('GroupDispatchBuffer', json_encode($groupDispatch));
         // === DEBUG: after sync to RAM buffers ===
         if ($this->ReadPropertyBoolean('DebugMode')) IPS_LogMessage(
             'SensorGroup',
@@ -2951,9 +2828,7 @@ class SensorGroup extends IPSModule
         foreach ($form['elements'] as $el) {
             if (($el['name'] ?? '') === 'GroupList') {
                 $firstGroup = $el['values'][0]['GroupName'] ?? 'MISSING';
-                if ($this->ReadPropertyBoolean('DebugMode')) {
-                    $this->LogMessage("DEBUG [FormOutput]: Sending GroupList. First Group Name: '{$firstGroup}'", KL_MESSAGE);
-                }
+                $this->LogMessage("DEBUG [FormOutput]: Sending GroupList. First Group Name: '{$firstGroup}'", KL_MESSAGE);
             }
         }
 
@@ -2998,6 +2873,7 @@ class SensorGroup extends IPSModule
             }
         }
         unset($e);
+
 
         return json_encode($form);
     }
