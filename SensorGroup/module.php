@@ -1959,19 +1959,21 @@ class SensorGroup extends IPSModule
                 }
             }
 
-            foreach (array_keys($allTargets) as $iid) {
-                if (!IPS_InstanceExists((int)$iid)) {
-                    if ($this->ReadPropertyBoolean('DebugMode')) {
-                        $this->LogMessage("DEBUG [Dispatch Reset]: Target InstanceID {$iid} does not exist (skipping).", KL_WARNING);
-                    }
-                    continue;
-                }
+            foreach (array_keys($targetsToSend) as $iid) {
+                if (!IPS_InstanceExists((int)$iid)) continue;
 
-                try {
-                    IPS_RequestAction((int)$iid, 'ReceivePayload', $payloadJson);
-                } catch (Throwable $e) {
+                // --- NEW: Safe Payload Dispatch ---
+                // Only attempt the action if the instance is a valid module
+                // and explicitly supports the 'ReceivePayload' action.
+                $targetInstance = IPS_GetInstance($iid);
+
+                // Check if the instance is actually active and has the required Ident
+                if ($targetInstance['InstanceStatus'] === 102) { // 102 = IS_ACTIVE
+                    // We use @ to suppress the warning if the Ident is missing on a live module
+                    @IPS_RequestAction((int)$iid, 'ReceivePayload', $payloadJson);
+                } else {
                     if ($this->ReadPropertyBoolean('DebugMode')) {
-                        $this->LogMessage("DISPATCH ERROR (Reset): Target {$iid} exception: " . $e->getMessage(), KL_WARNING);
+                        $this->LogMessage("DEBUG [Dispatch]: Skipping Instance $iid - Status is not Active.", KL_WARNING);
                     }
                 }
             }
