@@ -2060,13 +2060,6 @@ class SensorGroup extends IPSModule
                     if ($gName !== '') $allowedGroups[$gName] = true;
                 }
             }
-            $bedTargetID = $conf['BedroomTarget'] ?? 0;
-            if ($bedTargetID > 0 && in_array((string)$bedTargetID, $allowedTargets, true)) {
-                foreach ($bedroomList as $b) {
-                    $gName = (string)($b['GroupName'] ?? '');
-                    if ($gName !== '') $allowedGroups[$gName] = true;
-                }
-            }
 
             // 3) Classes belonging to allowed groups
             $allowedClasses = [];
@@ -2166,7 +2159,7 @@ class SensorGroup extends IPSModule
             $graph .= $sid . "[\"" . $label . "\"]:::" . $style . " --> " . $gid . "\n";
 
             $linkIdx = $this->linkCounter++;
-            if ($isActive) $graph .= "linkStyle $linkIdx stroke:#ff8a80,stroke-width:2px;\n";
+            if ($val) $graph .= "linkStyle $linkIdx stroke:#ff8a80,stroke-width:2px;\n";
         }
 
         // B3. Draw Bedroom Group -> Global Target Connections
@@ -2828,7 +2821,9 @@ class SensorGroup extends IPSModule
         foreach ($form['elements'] as $el) {
             if (($el['name'] ?? '') === 'GroupList') {
                 $firstGroup = $el['values'][0]['GroupName'] ?? 'MISSING';
-                $this->LogMessage("DEBUG [FormOutput]: Sending GroupList. First Group Name: '{$firstGroup}'", KL_MESSAGE);
+                if ($this->ReadPropertyBoolean('DebugMode')) {
+                    $this->LogMessage("DEBUG [FormOutput]: Sending GroupList. First Group Name: '{$firstGroup}'", KL_MESSAGE);
+                }
             }
         }
 
@@ -3130,14 +3125,8 @@ class SensorGroup extends IPSModule
             return ($s['ClassID'] ?? '') !== $ClassID;
         }));
         $target = array_values(array_filter($fullBuffer, function ($s) use ($ClassID) {
-            return ($s['ClassID'] ?? '') === $classID; // Should use $ClassID (case check)
-        }));
-
-        // Correction for variable casing to match function argument
-        $target = array_values(array_filter($fullBuffer, function ($s) use ($ClassID) {
             return ($s['ClassID'] ?? '') === $ClassID;
         }));
-
         // 3. Remove only the specific index from the target class
         if (isset($target[$Index])) {
             array_splice($target, $Index, 1);
