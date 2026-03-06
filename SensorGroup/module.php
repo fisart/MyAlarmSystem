@@ -1829,11 +1829,8 @@ class SensorGroup extends IPSModule
             }
         }
 
-        // === DISPATCH (Module 2 Routing) - load routing table ===
-        $groupDispatch = json_decode($this->ReadPropertyString('GroupDispatch'), true);
-        if (!is_array($groupDispatch)) $groupDispatch = [];
-
-        // Build: GroupName -> [InstanceID => true]
+        // === DISPATCH (Module 2 Routing) ===
+        $groupDispatch = json_decode($this->ReadPropertyString('GroupDispatch'), true) ?: [];
         $dispatchMap = [];
         foreach ($groupDispatch as $row) {
             if (!is_array($row)) continue;
@@ -1843,11 +1840,9 @@ class SensorGroup extends IPSModule
             $dispatchMap[$g][$iid] = true;
         }
 
-        // DEBUG: Trace the decision matrix
-        if ($this->ReadPropertyBoolean('DebugMode')) {
-            $this->LogMessage("DEBUG [Dispatch]: MainStatus=" . (int)$mainStatus . " | ActiveGroups=" . json_encode($activeGroups), KL_MESSAGE);
-            $this->LogMessage("DEBUG [Dispatch]: Routing Table=" . json_encode($dispatchMap), KL_MESSAGE);
-        }
+        // Initialize targets container for both ALARM and RESET
+        $targetsToSend = [];
+        $payloadJson = '';
 
         if ($mainStatus) {
             $readableActiveClasses = [];
@@ -1855,7 +1850,6 @@ class SensorGroup extends IPSModule
                 $readableActiveClasses[] = $classNameMap[$aid] ?? $aid;
             }
 
-            // FIX: Prioritize the Specific Trigger Event if it exists...
             $finalTriggerDetails = (isset($specificTriggerEvent) && $specificTriggerEvent !== null)
                 ? $specificTriggerEvent
                 : $primaryPayload;
@@ -1877,61 +1871,18 @@ class SensorGroup extends IPSModule
                 'trigger_details' => $finalTriggerDetails
             ];
             $this->SetValue('EventData', json_encode($payload));
-
             $payloadJson = json_encode($payload);
-
-            // FIX: Deduplicate targets across all active groups before sending.
-            $targetsToSend = [];
 
             foreach ($activeGroups as $gName) {
                 if (isset($dispatchMap[$gName])) {
-                    $groupTargets = array_keys($dispatchMap[$gName]);
-                    // Log contribution for traceability
-                    if ($this->ReadPropertyBoolean('DebugMode')) {
-                        $this->LogMessage("DEBUG [Dispatch Resolve]: Group '{$gName}' adds targets: " . json_encode($groupTargets), KL_MESSAGE);
+                    foreach (array_keys($dispatchMap[$gName]) as $iid) {
+                        $targetsToSend[(int)$iid] = true;
                     }
-                    foreach ($groupTargets as $iid) {
-                        $targetsToSend[(int)$iid] = true; // Use ID as key to deduplicate
-                    }
-                } else {
-                    if ($this->ReadPropertyBoolean('DebugMode')) $this->LogMessage("DEBUG [Dispatch]: Group '{$gName}' is Active but has NO route.", KL_WARNING);
-                }
-            }
-
-            // DEBUG: Log the final unique destination list
-            if ($this->ReadPropertyBoolean('DebugMode')) {
-                $this->LogMessage("DEBUG [Dispatch Final]: Unique Destinations for SEQ " . $payload['event_seq'] . ": " . json_encode(array_keys($targetsToSend)), KL_MESSAGE);
-            }
-
-            // Send exactly once per unique target
-            foreach (array_keys($targetsToSend) as $iid) {
-                if (!IPS_InstanceExists((int)$iid)) {
-                    if ($this->ReadPropertyBoolean('DebugMode')) {
-                        $this->LogMessage("DEBUG [Dispatch]: Target InstanceID {$iid} does not exist (skipping).", KL_WARNING);
-                    }
-                    continue;
-                }
-
-                if ($this->ReadPropertyBoolean('DebugMode')) {
-                    $this->LogMessage(sprintf(
-                        "DEBUG [Dispatch EXEC]: Sending SEQ=%d ID=%s to InstanceID=%d",
-                        $payload['event_seq'],
-                        $payload['event_id'],
-                        $iid
-                    ), KL_MESSAGE);
-                }
-
-                try {
-                    @IPS_RequestAction((int)$iid, 'ReceivePayload', $payloadJson);
-                } catch (Throwable $e) {
-                    if ($this->ReadPropertyBoolean('DebugMode')) {
-                        $this->LogMessage("DISPATCH ERROR: Target {$iid} exception: " . $e->getMessage(), KL_WARNING);
-                    }
+                } elseif ($this->ReadPropertyBoolean('DebugMode')) {
+                    $this->LogMessage("DEBUG [Dispatch]: Group '{$gName}' is Active but has NO route.", KL_WARNING);
                 }
             }
         } else {
-
-            // Explicit Reset Payload
             $token = $this->GetNextEventToken();
             $payload = [
                 'event_type'  => 'ALARM',
@@ -1949,32 +1900,28 @@ class SensorGroup extends IPSModule
                 'trigger_details' => null
             ];
             $this->SetValue('EventData', json_encode($payload));
-
             $payloadJson = json_encode($payload);
 
-            $allTargets = [];
-            foreach ($dispatchMap as $g => $targets) {
+            foreach ($dispatchMap as $targets) {
                 foreach (array_keys($targets) as $iid) {
-                    $allTargets[(int)$iid] = true;
+                    $targetsToSend[(int)$iid] = true;
                 }
             }
+        }
 
-            foreach (array_keys($targetsToSend) as $iid) {
-                if (!IPS_InstanceExists((int)$iid)) continue;
+        // Final Dispatch Execution
+        foreach (array_keys($targetsToSend) as $iid) {
+            if (!IPS_InstanceExists((int)$iid)) continue;
 
-                // --- NEW: Safe Payload Dispatch ---
-                // Only attempt the action if the instance is a valid module
-                // and explicitly supports the 'ReceivePayload' action.
-                $targetInstance = IPS_GetInstance($iid);
+            if ($this->ReadPropertyBoolean('DebugMode')) {
+                $this->LogMessage("DEBUG [Dispatch EXEC]: Sending to InstanceID=$iid", KL_MESSAGE);
+            }
 
-                // Check if the instance is actually active and has the required Ident
-                if ($targetInstance['InstanceStatus'] === 102) { // 102 = IS_ACTIVE
-                    // We use @ to suppress the warning if the Ident is missing on a live module
-                    @IPS_RequestAction((int)$iid, 'ReceivePayload', $payloadJson);
-                } else {
-                    if ($this->ReadPropertyBoolean('DebugMode')) {
-                        $this->LogMessage("DEBUG [Dispatch]: Skipping Instance $iid - Status is not Active.", KL_WARNING);
-                    }
+            try {
+                @IPS_RequestAction((int)$iid, 'ReceivePayload', $payloadJson);
+            } catch (Throwable $e) {
+                if ($this->ReadPropertyBoolean('DebugMode')) {
+                    $this->LogMessage("DISPATCH ERROR: Target {$iid} exception: " . $e->getMessage(), KL_WARNING);
                 }
             }
         }
