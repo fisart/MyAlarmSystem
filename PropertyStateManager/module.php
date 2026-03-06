@@ -1065,10 +1065,19 @@ class PropertyStateManager extends IPSModule
         $activeSensors = json_decode($this->ReadAttributeString("ActiveSensors"), true);
         if (!is_array($activeSensors)) $activeSensors = [];
 
-        // 1) Global Reset Logic
+        // 1) Global Reset Logic (dedicated early path)
         if (isset($data['active_groups']) && empty($data['active_groups'])) {
-            $activeSensors = [];
-            $this->LogMessage("[PSM-Rx] Global Reset: All sensors cleared.", KL_MESSAGE);
+            $this->WriteAttributeString("ActiveSensors", "[]");
+            $this->WriteAttributeString("ActiveGroups", "[]");
+            $this->LogMessage("[PSM-Rx] Global Reset: ActiveSensors and ActiveGroups cleared.", KL_MESSAGE);
+
+            $this->EvaluateState();
+
+            // Mark processed only after buffers were updated and state machine ran
+            if ($hasToken) {
+                $this->UpdateLastProcessedToken($evtEpoch, $evtSeq);
+            }
+            return;
         }
 
         // 2) Handle specific Sensor Event
