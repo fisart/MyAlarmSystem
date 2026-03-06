@@ -28,13 +28,13 @@ The Property State Manager (Module 2) acts as the central "Brain" of the alarm s
 
 The module implements an Explicit State Machine (ESM) rather than a simple combinatorial matrix. Transitions are governed by strict conditions.
 
-| State ID | State Name | Description |
-|---:|:---|:---|
-| 0 | Disarmed | The system is idle. Monitoring sensors but taking no action. |
-| 2 | Exit Delay | The system is counting down. Arming will occur when the timer expires (if conditions remain valid). |
-| 3 | Armed External | "Away" Mode. Perimeter is secure. |
-| 6 | Armed Internal | "Night" Mode. Perimeter is secure. Bedroom door rules apply. |
-| 9 | Alarm Triggered! | Latched alarm state triggered by group-level opening (windows / generic doors) while armed. |
+| State ID | State Name       | Description                                                                                         |
+| -------: | :--------------- | :-------------------------------------------------------------------------------------------------- |
+|        0 | Disarmed         | The system is idle. Monitoring sensors but taking no action.                                        |
+|        2 | Exit Delay       | The system is counting down. Arming will occur when the timer expires (if conditions remain valid). |
+|        3 | Armed External   | "Away" Mode. Perimeter is secure.                                                                   |
+|        6 | Armed Internal   | "Night" Mode. Perimeter is secure. Bedroom door rules apply.                                        |
+|        9 | Alarm Triggered! | Latched alarm state triggered by group-level opening (windows / generic doors) while armed.         |
 
 ---
 
@@ -43,11 +43,13 @@ The module implements an Explicit State Machine (ESM) rather than a simple combi
 The system decides which Arming Mode to enter based on the **Presence** intent at the moment the timer expires.
 
 #### Path A: External Arming (Leaving)
+
 - **Condition to enter Exit Delay:** Perimeter Secure + Presence = FALSE (ready to leave).
 - **Process:** Exit Delay timer starts immediately once arming conditions are met.
 - **Result on timer expiry:** Transitions to **State 3 (Armed External)**.
 
 #### Path B: Internal Arming (Sleeping)
+
 - **Condition to enter Exit Delay:** Perimeter Secure + Presence = TRUE (ready to sleep).
 - **Constraint:** During Exit Delay, if Presence is TRUE and a relevant Bedroom Door is open, the delay is **aborted** and the system returns to Disarmed.
 - **Process:** Exit Delay timer starts immediately once arming conditions are met; it can be aborted if bedroom door is open while Presence is TRUE.
@@ -58,16 +60,20 @@ The system decides which Arming Mode to enter based on the **Presence** intent a
 ### C. Disarm / Abort / Alarm Triggers
 
 #### During Exit Delay (State 2)
+
 The Exit Delay is **aborted** and the system reverts to **State 0 (Disarmed)** if:
+
 - Any perimeter condition becomes unsecure, OR
 - Presence is TRUE and a relevant Bedroom Door is open.
 
 #### While Armed (State 3 / 6)
+
 - **Unlocking any entrance lock** disarms immediately → **State 0 (Disarmed)**.
 - **Opening any group-level perimeter (windows / generic doors)** triggers alarm → **State 9 (Alarm Triggered!)**.
 - **Internal mode only:** Opening a relevant Bedroom Door disarms → **State 0 (Disarmed)**.
 
 #### Alarm Triggered (State 9)
+
 - **Authorized reset:** Unlocking any entrance lock always disarms → **State 0**.
 - **Internal context reset:** If Presence is TRUE and a relevant Bedroom Door is open, system disarms → **State 0**.
 - Otherwise remains latched in alarm state.
@@ -87,6 +93,7 @@ This is where the integrator links Module 2 to the rest of the system.
 - **Group Mapping List:** The core configuration table.
 
 #### Group Mapping Columns (Conceptual)
+
 - **Source Key:** A dropdown list of Sensors (numeric Variable IDs as strings) and Groups (string Group Names) discovered from Module 1.
 - **Logical Role:** Assigns a function to the source.
 - **Polarity (optional):** Controls interpretation for perimeter roles.
@@ -94,6 +101,7 @@ This is where the integrator links Module 2 to the rest of the system.
   - `"secure"` = active means closed/secure (inverts raw meaning)
 
 #### Roles
+
 - **Front Door Lock / Basement Door Lock:** Secure role (active means locked).
 - **Front Door Contact / Basement Door Contact:** Secure role (active means closed).
 - **Perimeter: Window Contact:** Perimeter role (open/breach if active unless Polarity="secure").
@@ -110,6 +118,7 @@ A real-time diagnostic page accessible via browser:
 - **Technology:** PHP-generated HTML with client-side JavaScript (AJAX polling).
 
 #### Features
+
 - **Auto-Refresh:** Polls the API every **2 seconds**.
 - **Sensor Status:** Visualizes key internal state fields; bits are displayed for quick overview.
 - **System State:** Large text display of the current State Name.
@@ -128,6 +137,7 @@ A real-time diagnostic page accessible via browser:
 The internal configuration is stored in the `GroupMapping` property.
 
 **Format:**
+
 ```json
 [
   {
@@ -249,14 +259,14 @@ These functions are available to other scripts or modules in IP-Symcon.
 
 Module 3 uses this export to:
 
-* build its configuration UI (what sources exist, what they mean)
-* apply stable rule categories (entry locks vs perimeter windows vs doors vs presence/bedrooms)
+- build its configuration UI (what sources exist, what they mean)
+- apply stable rule categories (entry locks vs perimeter windows vs doors vs presence/bedrooms)
 
 ## Strict Separation of Concerns
 
-* **Module 2 remains the only component that interprets sensor meaning in context** (state machine, arming logic, presence gating, alarm validity).
-* **Module 3 must not derive live breach/secure state from mapping hints.**
-* Live decision context for Module 3 must come from Module 2 state outputs (e.g., `PSM_GetSystemState()` / house-mode), not from `PSM_GetMappingHints()`.
+- **Module 2 remains the only component that interprets sensor meaning in context** (state machine, arming logic, presence gating, alarm validity).
+- **Module 3 must not derive live breach/secure state from mapping hints.**
+- Live decision context for Module 3 must come from Module 2 state outputs (e.g., `PSM_GetSystemState()` / house-mode), not from `PSM_GetMappingHints()`.
 
 `PSM_GetMappingHints()` is semantic metadata + discovery information, not a live-state API.
 
@@ -266,17 +276,17 @@ Module 3 uses this export to:
 
 The export returns a JSON object including:
 
-* schema and version metadata
-* `buckets`: compact semantic categorization lists (SourceKeys only)
-* `mappings[]`: lossless mapping rows with metadata and captions
-* bedroom catalog + bedroom runtime snapshot (clearly separated)
-* `warnings[]` for partial/incomplete data
+- schema and version metadata
+- `buckets`: compact semantic categorization lists (SourceKeys only)
+- `mappings[]`: lossless mapping rows with metadata and captions
+- bedroom catalog + bedroom runtime snapshot (clearly separated)
+- `warnings[]` for partial/incomplete data
 
 ### Required Meta Fields
 
-* `schema_version` (int): contract version
-* `module2_version` (string): Module 2 version
-* `generated_at` (unix timestamp): when the export was generated
+- `schema_version` (int): contract version
+- `module2_version` (string): Module 2 version
+- `generated_at` (unix timestamp): when the export was generated
 
 ---
 
@@ -284,8 +294,8 @@ The export returns a JSON object including:
 
 A `source_key` is a string identifying a mapped source and can refer to:
 
-* a **sensor** (VariableID string, e.g., `"14125"`)
-* a **group** (Module 1 GroupName, e.g., `"Windows"`)
+- a **sensor** (VariableID string, e.g., `"14125"`)
+- a **group** (Module 1 GroupName, e.g., `"Windows"`)
 
 Each mapping row must include `source_kind` = `"sensor"` or `"group"`.
 
@@ -301,11 +311,11 @@ Polarity is explicit metadata describing what **Module 2 considers “active”*
 
 ### Allowed Values
 
-* `polarity: "secure"`
+- `polarity: "secure"`
   **Active means secure/closed/locked/OK.**
-* `polarity: "breach"`
+- `polarity: "breach"`
   **Active means breach/open/tripped.**
-* `polarity: null` / missing
+- `polarity: null` / missing
   Unknown / not applicable / legacy.
 
 ### Contract Rule
@@ -326,13 +336,14 @@ Module 3 may use `polarity` for UI display and default rule templates, but **mus
 
 ### Minimum Required Buckets (always present)
 
-* `entry_locks`: sources that act as disarm/reset triggers (e.g., door locks)
-* `perimeter_windows`: sources representing window perimeter
-* `perimeter_doors`: sources representing door perimeter (generic doors)
-* `interior_motion`: motion-related sources (may be empty)
-* `presence_sources`: presence intent sources
-* `bedroom_catalog`: semantic list of bedrooms relevant to internal arming / gating
-* `authorized_reset_sources`: reserved for future non-lock resets (may be empty)
+- `entry_locks`: sources that act as disarm/reset triggers (e.g., door locks)
+- `perimeter_windows`: sources representing window perimeter
+- `perimeter_doors`: sources representing door perimeter (generic doors)
+- `interior_motion`: motion-related sources (may be empty)
+- `presence_sources`: presence intent sources only if needed by downstream consumers
+- `authorized_reset_sources`: reserved for future non-lock resets (may be empty)
+
+Bedroom-specific semantic buckets are not required for the Module 2 → Module 3 contract.
 
 ---
 
@@ -340,42 +351,40 @@ Module 3 may use `polarity` for UI display and default rule templates, but **mus
 
 `mappings[]` is the authoritative list of mapping rows. Each row must include at least:
 
-* `source_key` (string)
-* `source_kind` (`"sensor"` | `"group"`)
-* `logical_role` (string) – the Module 2 role name
-* `polarity` (string or null)
-* `caption` (string) – best-available human readable label
-* `origin` (string) – e.g., `module1_variable`, `module1_group`
+- `source_key` (string)
+- `source_kind` (`"sensor"` | `"group"`)
+- `logical_role` (string) – the Module 2 role name
+- `polarity` (string or null)
+- `caption` (string) – best-available human readable label
+- `origin` (string) – e.g., `module1_variable`, `module1_group`
 
 If `source_kind="group"`, include:
 
-* `members[]`: list of objects with `variable_id` and `caption` (best effort)
+- `members[]`: list of objects with `variable_id` and `caption` (best effort)
 
 > **Best-effort note (group members):**
 > `members[]` is populated from Module 2 discovery caches (caption map + group membership map, typically built/refreshed via `PSM_UI_Refresh()`), and may be empty until refreshed.
 
 ---
 
-## Bedroom Data: Semantic vs Runtime
+## Bedroom Data
 
-Module 2 may provide both:
+Bedroom-related logic is an internal concern of **Module 2** and is **not part of the required Module 2 → Module 3 contract**.
 
-### A) Bedroom Catalog (Semantic)
+Module 2 may maintain bedroom-specific runtime data internally (for example from `BEDROOM_SYNC`) in order to implement internal arming rules, bedroom-door gating, and related state-machine behavior. However, Module 3 must not depend on bedroom-specific metadata, bedroom catalogs, or bedroom runtime snapshots.
 
-* `bedroom_catalog` (list of bedroom GroupNames)
-  This is a semantic list of bedrooms relevant to Module 2’s internal mode constraints/presence gating.
+### Contract rule for Module 3
 
-> **Source note:** Bedroom catalog may be derived from **Module 1 configuration discovery** (e.g., BedroomList / config snapshot) and/or from the **latest `BEDROOM_SYNC` snapshot** (best effort). If these sources disagree or are incomplete, Module 2 should return best-known results and add a warning.
+Module 3 should consume only the generic semantic export and Module 2 state outputs, for example:
 
-### B) Bedroom Status (Runtime Snapshot)
+- generic mapped sources such as entry locks, perimeter windows, perimeter doors, and other non-bedroom-specific roles
+- interpreted state outputs such as `PSM_GetSystemState()` / house-mode snapshots
 
-* `bedroom_status` (array of `{ group_name, switch_state, door_tripped }`)
-  This is a runtime snapshot sourced from the latest `BEDROOM_SYNC`.
+### Design intent
 
-### Notes
-
-* The catalog may be as complete as the last known sync/discovery; if incomplete, include a warning.
-* Module 3 should treat runtime bedroom status as optional context; primary house-mode context should come from Module 2 state outputs.
+- **Module 2** remains responsible for interpreting bedroom presence and bedroom door logic.
+- **Module 3** should treat bedroom doors like ordinary generic/perimeter door information if such signals are exposed through the generic mapping/state outputs, without any special bedroom semantics.
+- Bedroom-specific structures may still exist internally or for diagnostics/UI, but they are not required for Module 3 integration and are not a stable dependency contract.
 
 ---
 
@@ -384,8 +393,8 @@ Module 2 may provide both:
 The export must include `warnings: []` always.
 If captions/members cannot be resolved (e.g., cache not built yet), Module 2 should:
 
-* still return valid JSON with `mappings[]` and `buckets`
-* include warnings describing what could not be resolved
+- still return valid JSON with `mappings[]` and `buckets`
+- include warnings describing what could not be resolved
 
 No fatal errors for incomplete discovery.
 
@@ -393,8 +402,8 @@ No fatal errors for incomplete discovery.
 
 ## Backward Compatibility
 
-* Schema evolution should be **additive**: add fields, do not remove or rename without a deprecation period.
-* If introducing new names (e.g., `bedroom_catalog`, `bedroom_status`), keep legacy fields alongside them during transition.
+- Schema evolution should be **additive**: add fields, do not remove or rename without a deprecation period.
+- If introducing new names (e.g., `bedroom_catalog`, `bedroom_status`), keep legacy fields alongside them during transition.
 
 ---
 
@@ -402,7 +411,7 @@ No fatal errors for incomplete discovery.
 
 `PSM_GetMappingHints()` is a stable, minimal semantic export that:
 
-* makes Module 3 configuration consistent with Module 2 roles,
-* avoids logic duplication by keeping interpretation in Module 2,
-* and provides enough metadata for Module 3 UI and rule mapping.
-
+- makes Module 3 configuration consistent with Module 2 roles,
+- avoids logic duplication by keeping interpretation in Module 2,
+- provides enough metadata for Module 3 UI and rule mapping using generic semantic categories,
+- and does **not** require Module 3 to understand or consume bedroom-specific semantics, which remain internal to Module 2.
