@@ -1175,6 +1175,11 @@ class PropertyStateManager extends IPSModule
         $activeGroups  = json_decode($this->ReadAttributeString("ActiveGroups"), true);
         $presenceMap   = json_decode($this->ReadAttributeString("PresenceMap"), true);
 
+        if (!is_array($mapping)) $mapping = [];
+        if (!is_array($activeSensors)) $activeSensors = [];
+        if (!is_array($activeGroups)) $activeGroups = [];
+        if (!is_array($presenceMap)) $presenceMap = [];
+
         // Reset Flags
         $frontLocked   = false;
         $frontClosed   = false;
