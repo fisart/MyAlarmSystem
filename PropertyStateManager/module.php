@@ -989,11 +989,38 @@ class PropertyStateManager extends IPSModule
         $evtEpoch = $hasToken ? (int)$data['event_epoch'] : 0;
         $evtSeq   = $hasToken ? (int)$data['event_seq'] : 0;
 
-        // Optional diagnostics: record "seen" token immediately (NOT "processed")
+        // Optional diagnostics: record "seen" token as highest token observed (NOT merely last arrival)
         if ($hasToken) {
-            $this->WriteAttributeInteger("LastSeenEventEpoch", $evtEpoch);
-            $this->WriteAttributeInteger("LastSeenEventSeq", $evtSeq);
+            $seenEpoch = (int)$this->ReadAttributeInteger("LastSeenEventEpoch");
+            $seenSeq   = (int)$this->ReadAttributeInteger("LastSeenEventSeq");
+
+            if ($this->TokenIsNewer($evtEpoch, $evtSeq, $seenEpoch, $seenSeq)) {
+                $this->WriteAttributeInteger("LastSeenEventEpoch", $evtEpoch);
+                $this->WriteAttributeInteger("LastSeenEventSeq", $evtSeq);
+            }
+
             $this->WriteAttributeInteger("LastTokenMissing", 0);
+
+            // Minimum-stability token gate:
+            // reject duplicates and stale/out-of-order events BEFORE any state mutation
+            $curEpoch = (int)$this->ReadAttributeInteger("LastProcessedEventEpoch");
+            $curSeq   = (int)$this->ReadAttributeInteger("LastProcessedEventSeq");
+
+            $isNewer = $this->TokenIsNewer($evtEpoch, $evtSeq, $curEpoch, $curSeq);
+            $isEqual = ($evtEpoch === $curEpoch && $evtSeq === $curSeq);
+
+            if ($isEqual) {
+                $this->LogMessage("[PSM-Rx] Ignored duplicate event token: epoch=$evtEpoch seq=$evtSeq", KL_MESSAGE);
+                return;
+            }
+
+            if (!$isNewer) {
+                $this->LogMessage(
+                    "[PSM-Rx] Ignored stale/out-of-order event token: epoch=$evtEpoch seq=$evtSeq | last_processed=$curEpoch/$curSeq",
+                    KL_WARNING
+                );
+                return;
+            }
         } else {
             $this->WriteAttributeInteger("LastTokenMissing", 1);
         }
