@@ -28,6 +28,15 @@
       "minimum": 1
     },
     {
+      "type": "Select",
+      "name": "BedroomDoorPolarity",
+      "caption": "Bedroom Door Polarity (Active means...)",
+      "options": [
+        { "caption": "Breach (Open/Unsecure)", "value": "breach" },
+        { "caption": "Secure (Closed/Secure)", "value": "secure" }
+      ]
+    },
+    {
       "type": "SelectInstance",
       "name": "VaultInstanceID",
       "caption": "Security Vault (SecretsManager)",
@@ -86,36 +95,36 @@
     },
 
     {
-        "type": "ExpansionPanel",
-        "caption": "Backup / Restore (Module 2 Config)",
-        "items": [
+      "type": "ExpansionPanel",
+      "caption": "Backup / Restore (Module 2 Config)",
+      "items": [
+        {
+          "type": "Label",
+          "caption": "Export creates a JSON snapshot of Module 2 configuration (properties only). Import applies it immediately."
+        },
+        {
+          "type": "ValidationTextBox",
+          "name": "ConfigBackupJson",
+          "caption": "Config JSON",
+          "multiline": true,
+          "height": "220px"
+        },
+        {
+          "type": "RowLayout",
+          "items": [
             {
-            "type": "Label",
-            "caption": "Export creates a JSON snapshot of Module 2 configuration (properties only). Import applies it immediately."
+              "type": "Button",
+              "caption": "Export to Field",
+              "onClick": "IPS_RequestAction($id, 'UI_ExportConfig', 1);"
             },
             {
-            "type": "ValidationTextBox",
-            "name": "ConfigBackupJson",
-            "caption": "Config JSON",
-            "multiline": true,
-            "height": "220px"
-            },
-            {
-            "type": "RowLayout",
-            "items": [
-                {
-                "type": "Button",
-                "caption": "Export to Field",
-                "onClick": "IPS_RequestAction($id, 'UI_ExportConfig', 1);"
-                },
-                {
-                "type": "Button",
-                "caption": "Import from Field",
-                "onClick": "IPS_RequestAction($id, 'UI_ImportConfig', $ConfigBackupJson);"
-                }
-            ]
+              "type": "Button",
+              "caption": "Import from Field",
+              "onClick": "IPS_RequestAction($id, 'UI_ImportConfig', $ConfigBackupJson);"
             }
-        ]
+          ]
+        }
+      ]
     }
   ],
   "actions": [
@@ -131,4 +140,3 @@
     }
   ]
 }
-

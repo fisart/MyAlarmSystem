@@ -17,6 +17,7 @@ class PropertyStateManager extends IPSModule
         $this->RegisterPropertyInteger("SyncTimestamp", 0);
         $this->RegisterPropertyInteger("ArmingDelayDuration", 1);
         $this->RegisterPropertyInteger("VaultInstanceID", 0);
+        $this->RegisterPropertyString("BedroomDoorPolarity", "breach");
         $this->RegisterAttributeInteger("DelayExpired", 0);
 
         // Attributes (RAM Buffers)
@@ -369,16 +370,21 @@ class PropertyStateManager extends IPSModule
         if (!is_array($presenceMap)) $presenceMap = [];
 
         $bedrooms = [];
+        $bedroomPolarity = (string)$this->ReadPropertyString("BedroomDoorPolarity");
+        if ($bedroomPolarity === '') $bedroomPolarity = 'breach'; // keep old behavior if missing
+
+        $bedrooms = [];
         foreach ($presenceMap as $room) {
-            $name      = (string)($room['GroupName'] ?? 'Unknown');
-            $roomUsed  = (bool)($room['SwitchState'] ?? false);
-            $doorTrip  = (bool)($room['DoorTripped'] ?? false);
+            $name       = (string)($room['GroupName'] ?? 'Unknown');
+            $roomUsed   = (bool)($room['SwitchState'] ?? false);
+            $doorTrip   = (bool)($room['DoorTripped'] ?? false);
+            $doorOpen   = ($bedroomPolarity === 'breach') ? $doorTrip : !$doorTrip;
 
             $bedrooms[] = [
                 'name'      => $name,
                 'used'      => $roomUsed,
-                'doorOpen'  => $doorTrip,
-                'blocking'  => ($roomUsed && $doorTrip) // Option A gating
+                'doorOpen'  => $doorOpen,
+                'blocking'  => ($roomUsed && $doorOpen) // Option A gating
             ];
         }
         // NEW: Hide ignored member-sensors (handled via group-level mapping) from "unmapped"
@@ -769,9 +775,9 @@ class PropertyStateManager extends IPSModule
         echo "<div class='panel'><div class='panel-title'>Generic Doors and Windows</div>";
         foreach ([8, 9] as $i) {
             echo "<div class='bit-row'>
-    <span>Bit $i: " . ($labels[$i] ?? "Bit $i") . "</span>
-    <span id='bit_$i' class='inactive'>...</span>
-  </div>";
+        <span>Bit $i: " . ($labels[$i] ?? "Bit $i") . "</span>
+        <span id='bit_$i' class='inactive'>...</span>
+        </div>";
         }
         echo "<div id='perimeterDetails' style='margin-top:10px; font-size:0.95em; line-height:1.35;'></div>";
         echo "</div>";
@@ -892,11 +898,24 @@ class PropertyStateManager extends IPSModule
         }
 
         // Bit 3: Presence (Intent) & Bit 6: Bedroom Door Open
+        $bedroomPolarity = (string)$this->ReadPropertyString("BedroomDoorPolarity");
+        if ($bedroomPolarity === '') $bedroomPolarity = 'breach'; // keep old behavior if missing
+
         foreach ($presenceMap as $room) {
-            if ($room['SwitchState'] ?? false) {
+            $roomUsed    = (bool)($room['SwitchState'] ?? false);
+            $doorTripped = (bool)($room['DoorTripped'] ?? false);
+
+            // Presence bit: someone is home if any bedroom is marked as used
+            if ($roomUsed) {
                 $bits |= (1 << 3);
             }
-            if ($room['DoorTripped'] ?? false) {
+
+            // Normalize bedroom door meaning:
+            // breach = active means open
+            // secure = active means closed
+            $doorOpen = ($bedroomPolarity === 'breach') ? $doorTripped : !$doorTripped;
+
+            if ($doorOpen) {
                 $bits |= (1 << 6);
             }
         }
@@ -1229,13 +1248,21 @@ class PropertyStateManager extends IPSModule
         }
 
         // Parse Bedroom Metadata (Option A: door only relevant if room is used)
+        $bedroomPolarity = (string)$this->ReadPropertyString("BedroomDoorPolarity");
+        if ($bedroomPolarity === '') $bedroomPolarity = 'breach'; // keep old behavior if missing
+
         foreach ($presenceMap as $room) {
-            $roomUsed   = (bool)($room['SwitchState'] ?? false);
+            $roomUsed    = (bool)($room['SwitchState'] ?? false);
             $doorTripped = (bool)($room['DoorTripped'] ?? false);
+
+            // Normalize bedroom door meaning:
+            // breach = active means open
+            // secure = active means closed
+            $doorOpen = ($bedroomPolarity === 'breach') ? $doorTripped : !$doorTripped;
 
             if ($roomUsed) {
                 $presence = true; // someone is home (room used)
-                if ($doorTripped) {
+                if ($doorOpen) {
                     $bedroomOpen = true; // only relevant if the room is used
                 }
             }
@@ -1386,6 +1413,7 @@ class PropertyStateManager extends IPSModule
             'DecisionMap'           => json_decode($this->ReadPropertyString('DecisionMap'), true),
             'ArmingDelayDuration'   => $this->ReadPropertyInteger('ArmingDelayDuration'),
             'VaultInstanceID'       => $this->ReadPropertyInteger('VaultInstanceID'),
+            'BedroomDoorPolarity'   => $this->ReadPropertyString('BedroomDoorPolarity'),
         ];
 
         // make sure arrays are arrays (not null)
@@ -1426,9 +1454,11 @@ class PropertyStateManager extends IPSModule
 
         // Pull fields with safe defaults
         $sensorGroup = (int)($props['SensorGroupInstanceID'] ?? 0);
-        $targetID    = (int)($props['DispatchTargetID'] ?? 0);
-        $delayMin    = (int)($props['ArmingDelayDuration'] ?? 1);
-        $vaultID     = (int)($props['VaultInstanceID'] ?? 0);
+        $targetID         = (int)($props['DispatchTargetID'] ?? 0);
+        $delayMin         = (int)($props['ArmingDelayDuration'] ?? 1);
+        $vaultID          = (int)($props['VaultInstanceID'] ?? 0);
+        $bedroomPolarity  = (string)($props['BedroomDoorPolarity'] ?? 'breach');
+        if ($bedroomPolarity !== 'secure' && $bedroomPolarity !== 'breach') $bedroomPolarity = 'breach';
 
         $groupMapping = $props['GroupMapping'] ?? [];
         if (!is_array($groupMapping)) $groupMapping = [];
@@ -1447,9 +1477,10 @@ class PropertyStateManager extends IPSModule
         IPS_ApplyChanges($this->InstanceID);
 
         // Phase 2: set remaining properties
-        IPS_SetProperty($this->InstanceID, 'DispatchTargetID',    $targetID);
-        IPS_SetProperty($this->InstanceID, 'ArmingDelayDuration', max(1, $delayMin));
-        IPS_SetProperty($this->InstanceID, 'VaultInstanceID',     $vaultID);
+        IPS_SetProperty($this->InstanceID, 'DispatchTargetID',       $targetID);
+        IPS_SetProperty($this->InstanceID, 'ArmingDelayDuration',    max(1, $delayMin));
+        IPS_SetProperty($this->InstanceID, 'VaultInstanceID',        $vaultID);
+        IPS_SetProperty($this->InstanceID, 'BedroomDoorPolarity',    $bedroomPolarity);
 
         IPS_SetProperty($this->InstanceID, 'GroupMapping', json_encode($groupMapping));
         IPS_SetProperty($this->InstanceID, 'DecisionMap',  json_encode($decisionMap));
@@ -1723,24 +1754,28 @@ class PropertyStateManager extends IPSModule
         }
 
         // Bedrooms (Option A gating)
+        $bedroomPolarity = (string)$this->ReadPropertyString("BedroomDoorPolarity");
+        if ($bedroomPolarity === '') $bedroomPolarity = 'breach'; // keep old behavior if missing
+
         $bedrooms = [];
         foreach ($presenceMap as $room) {
-            $name = (string)($room['GroupName'] ?? 'Unknown');
-            $roomUsed   = (bool)($room['SwitchState'] ?? false);
+            $name        = (string)($room['GroupName'] ?? 'Unknown');
+            $roomUsed    = (bool)($room['SwitchState'] ?? false);
             $doorTripped = (bool)($room['DoorTripped'] ?? false);
+            $doorOpen    = ($bedroomPolarity === 'breach') ? $doorTripped : !$doorTripped;
 
-            $blocking = ($roomUsed && $doorTripped);
+            $blocking = ($roomUsed && $doorOpen);
 
             $bedrooms[] = [
                 'name'     => $name,
                 'used'     => $roomUsed,
-                'doorOpen' => $doorTripped,
+                'doorOpen' => $doorOpen,
                 'blocking' => $blocking
             ];
 
             if ($roomUsed) {
                 $presence = true;
-                if ($doorTripped) $bedroomOpen = true;
+                if ($doorOpen) $bedroomOpen = true;
             }
         }
 
