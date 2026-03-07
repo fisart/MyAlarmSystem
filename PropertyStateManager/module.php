@@ -897,18 +897,14 @@ class PropertyStateManager extends IPSModule
             }
         }
 
-        // Bit 3: Presence (Intent) & Bit 6: Bedroom Door Open
+        // Bit 6: Bedroom Door Open
+        // IMPORTANT: Bit 3 (Presence) must come only from the mapped Presence role above.
+        // Bedroom usage (SwitchState) must not redefine global house presence.
         $bedroomPolarity = (string)$this->ReadPropertyString("BedroomDoorPolarity");
         if ($bedroomPolarity === '') $bedroomPolarity = 'breach'; // keep old behavior if missing
 
         foreach ($presenceMap as $room) {
-            $roomUsed    = (bool)($room['SwitchState'] ?? false);
             $doorTripped = (bool)($room['DoorTripped'] ?? false);
-
-            // Presence bit: someone is home if any bedroom is marked as used
-            if ($roomUsed) {
-                $bits |= (1 << 3);
-            }
 
             // Normalize bedroom door meaning:
             // breach = active means open
@@ -1260,11 +1256,12 @@ class PropertyStateManager extends IPSModule
             // secure = active means closed
             $doorOpen = ($bedroomPolarity === 'breach') ? $doorTripped : !$doorTripped;
 
-            if ($roomUsed) {
-                $presence = true; // someone is home (room used)
-                if ($doorOpen) {
-                    $bedroomOpen = true; // only relevant if the room is used
-                }
+            // IMPORTANT:
+            // Bedroom usage must NOT redefine global house presence.
+            // It only tells us whether this bedroom door is relevant for
+            // internal-mode gating/disarm logic.
+            if ($roomUsed && $doorOpen) {
+                $bedroomOpen = true; // only relevant if the room is used
             }
         }
 
@@ -1773,9 +1770,12 @@ class PropertyStateManager extends IPSModule
                 'blocking' => $blocking
             ];
 
-            if ($roomUsed) {
-                $presence = true;
-                if ($doorOpen) $bedroomOpen = true;
+            // IMPORTANT:
+            // Bedroom usage must NOT redefine global house presence.
+            // It only determines whether this bedroom door is relevant
+            // for internal-mode blocking / disarm logic.
+            if ($roomUsed && $doorOpen) {
+                $bedroomOpen = true;
             }
         }
 
