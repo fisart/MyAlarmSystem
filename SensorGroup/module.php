@@ -1568,7 +1568,7 @@ class SensorGroup extends IPSModule
         $activeClasses = [];
         $classNameMap = [];
         $engineActiveSensors = []; // NEW: Keep track of every individual sensor that matches its rule
-        $activeSensorDetailsMap = []; // variable_id => full sensor detail for all currently active concrete sensors
+        $activeSensorDetailsMap = []; // variable_id => full sensor detail for all currently active concrete sensors        $activeSensorDetailsMap = []; // variable_id => full sensor detail for all currently active concrete sensors
         if (is_array($classList)) {
             foreach ($classList as $classDef) {
                 $classID = $classDef['ClassID'] ?? '';
@@ -1610,6 +1610,7 @@ class SensorGroup extends IPSModule
                             'value_raw'   => GetValue($TriggeringID),
                             'tag'         => $className,
                             'class_id'    => $classID,
+                            'class_name'  => $className,
                             'var_name'    => IPS_GetName($TriggeringID),
                             'parent_name' => ($pID > 0) ? IPS_GetName($pID) : "Root",
                             'grandparent_name' => ($gpID > 0) ? IPS_GetName($gpID) : "",
@@ -1771,6 +1772,22 @@ class SensorGroup extends IPSModule
 
         $this->SetValue('Status', $mainStatus);
 
+        $classToActiveGroups = []; // class_id => [groupName => true]
+        foreach ($mergedGroups as $gName => $gData) {
+            if (!in_array($gName, $activeGroups, true)) {
+                continue;
+            }
+            foreach (($gData['Classes'] ?? []) as $cID) {
+                if (!isset($activeClasses[$cID])) {
+                    continue;
+                }
+                if (!isset($classToActiveGroups[$cID])) {
+                    $classToActiveGroups[$cID] = [];
+                }
+                $classToActiveGroups[$cID][$gName] = true;
+            }
+        }
+
         // === BEDROOM DISPATCH (Presence Sync) ===
         $bedTarget = (int)$this->ReadPropertyInteger('BedroomTarget');
         if ($bedTarget > 0 && IPS_InstanceExists($bedTarget)) {
@@ -1860,6 +1877,14 @@ class SensorGroup extends IPSModule
         $targetsToSend = [];
         $payloadJson = '';
         ksort($activeSensorDetailsMap, SORT_NUMERIC);
+        $globalActiveSensorDetails = [];
+        foreach ($activeSensorDetailsMap as $vid => $detail) {
+            $cID = (string)($detail['class_id'] ?? '');
+            $groupNames = isset($classToActiveGroups[$cID]) ? array_values(array_keys($classToActiveGroups[$cID])) : [];
+            sort($groupNames, SORT_STRING);
+            $detail['group_names'] = $groupNames;
+            $globalActiveSensorDetails[] = $detail;
+        }
         if ($mainStatus) {
             $readableActiveClasses = [];
             foreach (array_keys($activeClasses) as $aid) {
@@ -1885,6 +1910,7 @@ class SensorGroup extends IPSModule
                 'active_groups' => $activeGroups,
                 'is_maintenance' => $this->ReadPropertyBoolean('MaintenanceMode'),
                 'trigger_details' => $finalTriggerDetails,
+                'active_sensor_details' => $globalActiveSensorDetails,
                 'active_sensor_details' => array_values($activeSensorDetailsMap)
             ];
             $this->SetValue('EventData', json_encode($payload));
@@ -1915,6 +1941,7 @@ class SensorGroup extends IPSModule
                 'active_groups' => [],
                 'is_maintenance' => $this->ReadPropertyBoolean('MaintenanceMode'),
                 'trigger_details' => null,
+                'active_sensor_details' => [],
                 'active_sensor_details' => []
             ];
             $this->SetValue('EventData', json_encode($payload));
@@ -1928,20 +1955,108 @@ class SensorGroup extends IPSModule
         }
 
         // Final Dispatch Execution
+        $lastPayloadJson = '';
+
         foreach (array_keys($targetsToSend) as $iid) {
-            if (!IPS_InstanceExists((int)$iid)) continue;
+            $iid = (int)$iid;
+            if (!IPS_InstanceExists($iid)) continue;
 
             if ($this->ReadPropertyBoolean('DebugMode')) {
                 $this->LogMessage("DEBUG [Dispatch EXEC]: Sending to InstanceID=$iid", KL_MESSAGE);
             }
 
+            $targetActiveGroups = [];
+            foreach ($activeGroups as $gName) {
+                if (isset($dispatchMap[$gName][$iid])) {
+                    $targetActiveGroups[] = $gName;
+                }
+            }
+
+            $targetActiveClassesMap = [];
+            $targetActiveSensorDetailsMap = [];
+
+            foreach ($activeSensorDetailsMap as $vid => $detail) {
+                $cID = (string)($detail['class_id'] ?? '');
+                $groupNamesForTarget = [];
+
+                if (isset($classToActiveGroups[$cID])) {
+                    foreach (array_keys($classToActiveGroups[$cID]) as $gName) {
+                        if (isset($dispatchMap[$gName][$iid])) {
+                            $groupNamesForTarget[] = $gName;
+                        }
+                    }
+                }
+
+                if (count($groupNamesForTarget) > 0) {
+                    sort($groupNamesForTarget, SORT_STRING);
+                    $detail['group_names'] = array_values($groupNamesForTarget);
+                    $targetActiveSensorDetailsMap[(int)$vid] = $detail;
+                    $targetActiveClassesMap[$cID] = $classNameMap[$cID] ?? $cID;
+                }
+            }
+
+            ksort($targetActiveSensorDetailsMap, SORT_NUMERIC);
+            $targetActiveSensorDetails = array_values($targetActiveSensorDetailsMap);
+
+            $targetActiveClasses = array_values($targetActiveClassesMap);
+            sort($targetActiveClasses, SORT_STRING);
+
+            $targetTriggerDetails = null;
+            if ($mainStatus) {
+                if (is_array($finalTriggerDetails)) {
+                    $anchorVid = (int)($finalTriggerDetails['variable_id'] ?? 0);
+                    if ($anchorVid > 0 && isset($targetActiveSensorDetailsMap[$anchorVid])) {
+                        $targetTriggerDetails = $finalTriggerDetails;
+                    }
+                }
+
+                if ($targetTriggerDetails === null && count($targetActiveSensorDetails) > 0) {
+                    $first = $targetActiveSensorDetails[0];
+                    $targetTriggerDetails = [
+                        'variable_id' => $first['variable_id'],
+                        'value_raw'   => $first['value_raw'],
+                        'tag'         => $first['tag'],
+                        'class_id'    => $first['class_id'],
+                        'class_name'  => $first['class_name'],
+                        'var_name'    => $first['var_name'],
+                        'parent_name' => $first['parent_name'],
+                        'grandparent_name' => $first['grandparent_name'],
+                        'value_human' => $first['value_human'],
+                        'smart_label' => $first['smart_label']
+                    ];
+                }
+            }
+
+            $payloadForTarget = $payload;
+            $payloadForTarget['target_instance_id'] = $iid;
+            $payloadForTarget['target_active_groups'] = $mainStatus ? $targetActiveGroups : [];
+            $payloadForTarget['target_active_classes'] = $mainStatus ? $targetActiveClasses : [];
+            $payloadForTarget['target_trigger_details'] = $mainStatus ? $targetTriggerDetails : null;
+            $payloadForTarget['target_active_sensor_details'] = $mainStatus ? $targetActiveSensorDetails : [];
+
+            $payloadJsonForTarget = json_encode($payloadForTarget);
+            $lastPayloadJson = $payloadJsonForTarget;
+
+            if ($this->ReadPropertyBoolean('DebugMode')) {
+                $this->LogMessage(
+                    "DEBUG [Dispatch EXEC]: InstanceID=$iid target_groups=" . count($payloadForTarget['target_active_groups']) .
+                        " target_classes=" . count($payloadForTarget['target_active_classes']) .
+                        " target_sensors=" . count($payloadForTarget['target_active_sensor_details']),
+                    KL_MESSAGE
+                );
+            }
+
             try {
-                @IPS_RequestAction((int)$iid, 'ReceivePayload', $payloadJson);
+                @IPS_RequestAction($iid, 'ReceivePayload', $payloadJsonForTarget);
             } catch (Throwable $e) {
                 if ($this->ReadPropertyBoolean('DebugMode')) {
                     $this->LogMessage("DISPATCH ERROR: Target {$iid} exception: " . $e->getMessage(), KL_WARNING);
                 }
             }
+        }
+
+        if ($lastPayloadJson !== '') {
+            $this->SetValue('EventData', $lastPayloadJson);
         }
     }
 
