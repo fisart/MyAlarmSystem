@@ -1,0 +1,1515 @@
+<?php
+declare(strict_types=1);
+
+/*
+ * PSM FULL REGRESSION E2E TEST
+ *
+ * Purpose
+ * - Full business-state regression test for Module 1 -> Module 2.
+ * - Designed to run after every change in Module 1 or Module 2.
+ *
+ * Output philosophy
+ * - Minimal console output
+ * - Internal assertions only
+ * - Final summary + compact failure list
+ * - Full JSON report written to disk
+ *
+ * Key improvement
+ * - Critical steps can now wait for a stable business state instead of relying
+ *   only on a fixed sleep. This avoids timing races and intermediate snapshots.
+ */
+
+$MODULE2_ID        = 23675;
+$SETTLE_MS         = 1800;
+$ACTION_GAP_MS     = 120;
+$RESET_GAP_MS      = 80;
+$RESET_SETTLE_MS   = 2400;
+$DEFAULT_WAIT_TIMEOUT_MS = 7000;
+$DEFAULT_WAIT_POLL_MS    = 150;
+$DEFAULT_WAIT_STABLE_HITS = 3;
+$REPORT_DIR        = '/var/lib/symcon';
+
+// -----------------------------------------------------
+// HELPERS
+// -----------------------------------------------------
+
+function psm_now(): string
+{
+    return date('Y-m-d H:i:s');
+}
+
+function psm_sleep_ms(int $ms): void
+{
+    if ($ms > 0) {
+        IPS_Sleep($ms);
+    }
+}
+
+function psm_log(string $msg): void
+{
+    echo $msg . PHP_EOL;
+}
+
+function psm_safe_name(int $varId): string
+{
+    $name = @IPS_GetName($varId);
+    return (is_string($name) && $name !== '') ? $name : (string) $varId;
+}
+
+function psm_write_value(int $varId, $value): array
+{
+    $before = GetValue($varId);
+    SetValue($varId, $value);
+    $after = GetValue($varId);
+
+    return [
+        'variable_id' => $varId,
+        'label'       => psm_safe_name($varId),
+        'before'      => $before,
+        'requested'   => $value,
+        'after'       => $after,
+        'write_ok'    => ($after === $value)
+    ];
+}
+
+function psm_get_state(int $module2Id): array
+{
+    if (!function_exists('PSM_GetSystemState')) {
+        throw new RuntimeException('PSM_GetSystemState() is not available.');
+    }
+
+    $raw = PSM_GetSystemState($module2Id);
+
+    if (is_array($raw)) {
+        return $raw;
+    }
+
+    if (is_string($raw)) {
+        $trim = trim($raw);
+        if ($trim === '') {
+            throw new RuntimeException('PSM_GetSystemState() returned empty string.');
+        }
+
+        $decoded = json_decode($trim, true);
+        if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+            return $decoded;
+        }
+
+        throw new RuntimeException('PSM_GetSystemState() returned invalid JSON string.');
+    }
+
+    throw new RuntimeException('PSM_GetSystemState() returned unsupported type: ' . gettype($raw));
+}
+
+function psm_state_token(array $state): array
+{
+    return [
+        'last_seen_event_epoch'      => $state['last_seen_event_epoch'] ?? null,
+        'last_seen_event_seq'        => $state['last_seen_event_seq'] ?? null,
+        'last_processed_event_epoch' => $state['last_processed_event_epoch'] ?? null,
+        'last_processed_event_seq'   => $state['last_processed_event_seq'] ?? null,
+        'last_token_missing'         => $state['last_token_missing'] ?? null
+    ];
+}
+
+function psm_token_advanced(array $before, array $after): bool
+{
+    $pairs = [
+        ['last_seen_event_seq', 'seq'],
+        ['last_processed_event_seq', 'processed seq'],
+        ['last_seen_event_epoch', 'epoch'],
+        ['last_processed_event_epoch', 'processed epoch']
+    ];
+
+    foreach ($pairs as [$key, $label]) {
+        if ($before[$key] !== null && $after[$key] !== null) {
+            if ((int) $after[$key] > (int) $before[$key]) {
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
+function psm_contains_active_sensor(array $state, $needle): bool
+{
+    $active = $state['ActiveSensors'] ?? [];
+    $needleStr = (string) $needle;
+
+    foreach ($active as $entry) {
+        if ((string) $entry === $needleStr) {
+            return true;
+        }
+    }
+    return false;
+}
+
+function psm_find_presence_row(array $state, string $groupName): ?array
+{
+    $map = $state['PresenceMap'] ?? [];
+    foreach ($map as $row) {
+        if (($row['GroupName'] ?? '') === $groupName) {
+            return $row;
+        }
+    }
+    return null;
+}
+
+function psm_add_assertion(array &$assertions, bool $ok, string $message, array $context = []): void
+{
+    $assertions[] = [
+        'ok'      => $ok,
+        'message' => $message,
+        'context' => $context
+    ];
+}
+
+function psm_assert_write_results(array $writes, array &$assertions): void
+{
+    foreach ($writes as $write) {
+        psm_add_assertion(
+            $assertions,
+            (bool) $write['write_ok'],
+            'Write confirmed for variable ' . $write['variable_id'],
+            $write
+        );
+    }
+}
+
+function psm_reset_all_inputs(array $allInputIds): void
+{
+    foreach ($allInputIds as $varId) {
+        SetValue((int) $varId, false);
+        psm_sleep_ms(80);
+    }
+    psm_sleep_ms(2400);
+}
+
+// -----------------------------------------------------
+// WAIT / STABILITY HELPERS
+// -----------------------------------------------------
+
+function psm_matches_wait_condition(array $state, array $waitFor): bool
+{
+    if (array_key_exists('StateID', $waitFor)) {
+        if (($state['StateID'] ?? null) !== $waitFor['StateID']) {
+            return false;
+        }
+    }
+
+    if (array_key_exists('IsDelayActive', $waitFor)) {
+        if (($state['IsDelayActive'] ?? null) !== $waitFor['IsDelayActive']) {
+            return false;
+        }
+    }
+
+    if (!empty($waitFor['active_sensors'])) {
+        foreach ($waitFor['active_sensors'] as $sensorKey) {
+            if (!psm_contains_active_sensor($state, $sensorKey)) {
+                return false;
+            }
+        }
+    }
+
+    if (!empty($waitFor['not_active_sensors'])) {
+        foreach ($waitFor['not_active_sensors'] as $sensorKey) {
+            if (psm_contains_active_sensor($state, $sensorKey)) {
+                return false;
+            }
+        }
+    }
+
+    if (!empty($waitFor['presence_map'])) {
+        foreach ($waitFor['presence_map'] as $groupName => $rowExpect) {
+            $row = psm_find_presence_row($state, $groupName);
+            if ($row === null) {
+                return false;
+            }
+
+            foreach ($rowExpect as $field => $value) {
+                if (($row[$field] ?? null) !== $value) {
+                    return false;
+                }
+            }
+        }
+    }
+
+    return true;
+}
+
+function psm_wait_until_stable(int $module2Id, array $waitFor, int $timeoutMs, int $pollMs, int $stableHitsRequired): array
+{
+    $start = microtime(true);
+    $lastState = psm_get_state($module2Id);
+    $stableHits = 0;
+
+    while (((microtime(true) - $start) * 1000) < $timeoutMs) {
+        $lastState = psm_get_state($module2Id);
+
+        if (psm_matches_wait_condition($lastState, $waitFor)) {
+            $stableHits++;
+            if ($stableHits >= $stableHitsRequired) {
+                return [
+                    'ok'          => true,
+                    'state'       => $lastState,
+                    'waited_ms'   => (int) round((microtime(true) - $start) * 1000),
+                    'stable_hits' => $stableHits,
+                    'wait_for'    => $waitFor
+                ];
+            }
+        } else {
+            $stableHits = 0;
+        }
+
+        IPS_Sleep($pollMs);
+    }
+
+    return [
+        'ok'          => false,
+        'state'       => $lastState,
+        'waited_ms'   => (int) round((microtime(true) - $start) * 1000),
+        'stable_hits' => $stableHits,
+        'wait_for'    => $waitFor
+    ];
+}
+
+// -----------------------------------------------------
+// EXPECTATION CHECKS
+// -----------------------------------------------------
+
+function psm_check_expected_state(array $expect, array $state, array $tokenBefore, array $tokenAfter, array &$assertions): void
+{
+    if (array_key_exists('StateID', $expect)) {
+        psm_add_assertion(
+            $assertions,
+            (($state['StateID'] ?? null) === $expect['StateID']),
+            'Expected StateID=' . $expect['StateID'] . ', got ' . json_encode($state['StateID'] ?? null)
+        );
+    }
+
+    if (array_key_exists('IsDelayActive', $expect)) {
+        psm_add_assertion(
+            $assertions,
+            (($state['IsDelayActive'] ?? null) === $expect['IsDelayActive']),
+            'Expected IsDelayActive=' . json_encode($expect['IsDelayActive']) . ', got ' . json_encode($state['IsDelayActive'] ?? null)
+        );
+    }
+
+    if (!empty($expect['active_sensors'])) {
+        foreach ($expect['active_sensors'] as $sensorKey) {
+            psm_add_assertion(
+                $assertions,
+                psm_contains_active_sensor($state, $sensorKey),
+                'Expected active sensor present: ' . (string) $sensorKey
+            );
+        }
+    }
+
+    if (!empty($expect['not_active_sensors'])) {
+        foreach ($expect['not_active_sensors'] as $sensorKey) {
+            psm_add_assertion(
+                $assertions,
+                !psm_contains_active_sensor($state, $sensorKey),
+                'Expected active sensor absent: ' . (string) $sensorKey
+            );
+        }
+    }
+
+    if (!empty($expect['presence_map'])) {
+        foreach ($expect['presence_map'] as $groupName => $rowExpect) {
+            $row = psm_find_presence_row($state, $groupName);
+
+            psm_add_assertion(
+                $assertions,
+                $row !== null,
+                'PresenceMap row exists for "' . $groupName . '"'
+            );
+
+            if ($row !== null) {
+                foreach ($rowExpect as $field => $value) {
+                    psm_add_assertion(
+                        $assertions,
+                        (($row[$field] ?? null) === $value),
+                        'PresenceMap "' . $groupName . '" field "' . $field . '" expected ' . json_encode($value) . ', got ' . json_encode($row[$field] ?? null)
+                    );
+                }
+            }
+        }
+    }
+
+    if (!empty($expect['token_must_advance'])) {
+        psm_add_assertion(
+            $assertions,
+            psm_token_advanced($tokenBefore, $tokenAfter),
+            'Token must advance'
+        );
+
+        if (($tokenAfter['last_token_missing'] ?? null) !== null) {
+            psm_add_assertion(
+                $assertions,
+                ((int) $tokenAfter['last_token_missing'] === 0),
+                'last_token_missing must be 0, got ' . json_encode($tokenAfter['last_token_missing'])
+            );
+        }
+    }
+}
+
+function psm_assert_step(array $writes, array $expect, array $state, array $tokenBefore, array $tokenAfter, ?array $waitResult = null): array
+{
+    $assertions = [];
+
+    psm_assert_write_results($writes, $assertions);
+
+    psm_add_assertion(
+        $assertions,
+        psm_token_advanced($tokenBefore, $tokenAfter),
+        'Module 2 processed a newer snapshot/token'
+    );
+
+    if (($tokenAfter['last_token_missing'] ?? null) !== null) {
+        psm_add_assertion(
+            $assertions,
+            ((int) $tokenAfter['last_token_missing'] === 0),
+            'No missing token condition'
+        );
+    }
+
+    if ($waitResult !== null) {
+        psm_add_assertion(
+            $assertions,
+            (bool) ($waitResult['ok'] ?? false),
+            'Stable wait condition reached',
+            $waitResult
+        );
+    }
+
+    psm_check_expected_state($expect, $state, $tokenBefore, $tokenAfter, $assertions);
+
+    return $assertions;
+}
+
+function psm_status_from_assertions(array $assertions): string
+{
+    foreach ($assertions as $a) {
+        if (!$a['ok']) {
+            return 'FAIL';
+        }
+    }
+    return 'PASS';
+}
+
+// -----------------------------------------------------
+// STEP / SCENARIO EXECUTION
+// -----------------------------------------------------
+
+function psm_run_step(int $module2Id, array $step): array
+{
+    global $ACTION_GAP_MS, $SETTLE_MS, $DEFAULT_WAIT_TIMEOUT_MS, $DEFAULT_WAIT_POLL_MS, $DEFAULT_WAIT_STABLE_HITS;
+
+    $tokenBefore = psm_state_token(psm_get_state($module2Id));
+
+    $writes = [];
+    foreach ($step['actions'] as $varId => $value) {
+        $writes[] = psm_write_value((int) $varId, $value);
+        psm_sleep_ms($ACTION_GAP_MS);
+    }
+
+    $waitResult = null;
+
+    if (!empty($step['wait_for']) && is_array($step['wait_for'])) {
+        $timeoutMs = (int) ($step['wait_for']['timeout_ms'] ?? $DEFAULT_WAIT_TIMEOUT_MS);
+        $pollMs = (int) ($step['wait_for']['poll_ms'] ?? $DEFAULT_WAIT_POLL_MS);
+        $stableHits = (int) ($step['wait_for']['stable_hits'] ?? $DEFAULT_WAIT_STABLE_HITS);
+
+        $waitFor = $step['wait_for'];
+        unset($waitFor['timeout_ms'], $waitFor['poll_ms'], $waitFor['stable_hits']);
+
+        $waitResult = psm_wait_until_stable($module2Id, $waitFor, $timeoutMs, $pollMs, $stableHits);
+        $stateAfter = $waitResult['state'];
+    } else {
+        psm_sleep_ms($SETTLE_MS);
+        $stateAfter = psm_get_state($module2Id);
+    }
+
+    $tokenAfter = psm_state_token($stateAfter);
+
+    $assertions = psm_assert_step(
+        $writes,
+        $step['expect'] ?? [],
+        $stateAfter,
+        $tokenBefore,
+        $tokenAfter,
+        $waitResult
+    );
+
+    $status = psm_status_from_assertions($assertions);
+
+    return [
+        'label'        => $step['label'],
+        'writes'       => $writes,
+        'expect'       => $step['expect'] ?? [],
+        'wait_for'     => $step['wait_for'] ?? null,
+        'wait_result'  => $waitResult,
+        'state'        => $stateAfter,
+        'token_before' => $tokenBefore,
+        'token_after'  => $tokenAfter,
+        'assertions'   => $assertions,
+        'status'       => $status
+    ];
+}
+
+function psm_run_scenario(int $module2Id, array $scenario, array $allInputIds): array
+{
+    psm_reset_all_inputs($allInputIds);
+
+    $result = [
+        'id'       => $scenario['id'],
+        'title'    => $scenario['title'],
+        'kind'     => $scenario['kind'],
+        'started'  => psm_now(),
+        'steps'    => [],
+        'status'   => 'PASS'
+    ];
+
+    foreach ($scenario['steps'] as $step) {
+        $stepResult = psm_run_step($module2Id, $step);
+        $result['steps'][] = $stepResult;
+
+        if ($stepResult['status'] !== 'PASS') {
+            $result['status'] = 'FAIL';
+        }
+    }
+
+    $result['finished'] = psm_now();
+    return $result;
+}
+
+// -----------------------------------------------------
+// INPUTS
+// -----------------------------------------------------
+
+$ALL_INPUT_IDS = [
+    45731,
+    54217, 53418, 41617,
+    10775, 22945, 49829,
+    14125, 25478, 32928, 41718,
+    28379, 38285, 28099,
+    29918, 34618, 36671, 18998
+];
+
+// -----------------------------------------------------
+// SCENARIO MATRIX
+// -----------------------------------------------------
+
+$SCENARIOS = [
+
+    [
+        'id' => 'S01',
+        'title' => 'Baseline reset state',
+        'kind' => 'state',
+        'steps' => [
+            [
+                'label' => 'Reset all inputs to false',
+                'actions' => [
+                    45731 => false,
+                    54217 => false, 53418 => false, 41617 => false,
+                    10775 => false, 22945 => false, 49829 => false,
+                    14125 => false, 25478 => false, 32928 => false, 41718 => false,
+                    28379 => false, 38285 => false, 28099 => false,
+                    29918 => false, 34618 => false, 36671 => false, 18998 => false
+                ],
+                'expect' => [
+                    'StateID' => 0,
+                    'IsDelayActive' => false
+                ]
+            ]
+        ]
+    ],
+
+    [
+        'id' => 'W01',
+        'title' => 'Only one window secure does not arm by itself',
+        'kind' => 'state',
+        'steps' => [
+            [
+                'label' => 'Kitchen window secure only',
+                'actions' => [54217 => true],
+                'expect' => [
+                    'StateID' => 0,
+                    'IsDelayActive' => false
+                ]
+            ]
+        ]
+    ],
+
+    [
+        'id' => 'W02',
+        'title' => 'All windows secure alone does not arm by itself',
+        'kind' => 'state',
+        'steps' => [
+            [
+                'label' => 'All windows secure',
+                'actions' => [54217 => true, 53418 => true, 41617 => true],
+                'expect' => [
+                    'StateID' => 0,
+                    'IsDelayActive' => false
+                ]
+            ]
+        ]
+    ],
+
+    [
+        'id' => 'W03',
+        'title' => 'Breaking one window from a windows-secure-only state stays disarmed',
+        'kind' => 'transition',
+        'steps' => [
+            [
+                'label' => 'All windows secure',
+                'actions' => [54217 => true, 53418 => true, 41617 => true],
+                'expect' => [
+                    'StateID' => 0,
+                    'IsDelayActive' => false
+                ]
+            ],
+            [
+                'label' => 'Break one window',
+                'actions' => [54217 => false],
+                'expect' => [
+                    'StateID' => 0,
+                    'IsDelayActive' => false
+                ]
+            ]
+        ]
+    ],
+
+    [
+        'id' => 'D01',
+        'title' => 'Only one generic door secure does not arm by itself',
+        'kind' => 'state',
+        'steps' => [
+            [
+                'label' => 'Balcony door secure only',
+                'actions' => [10775 => true],
+                'expect' => [
+                    'StateID' => 0,
+                    'IsDelayActive' => false
+                ]
+            ]
+        ]
+    ],
+
+    [
+        'id' => 'D02',
+        'title' => 'All generic doors secure alone does not arm by itself',
+        'kind' => 'state',
+        'steps' => [
+            [
+                'label' => 'All generic doors secure',
+                'actions' => [10775 => true, 22945 => true, 49829 => true],
+                'expect' => [
+                    'StateID' => 0,
+                    'IsDelayActive' => false
+                ]
+            ]
+        ]
+    ],
+
+    [
+        'id' => 'D03',
+        'title' => 'Breaking one generic door from a doors-secure-only state stays disarmed',
+        'kind' => 'transition',
+        'steps' => [
+            [
+                'label' => 'All generic doors secure',
+                'actions' => [10775 => true, 22945 => true, 49829 => true],
+                'expect' => [
+                    'StateID' => 0,
+                    'IsDelayActive' => false
+                ]
+            ],
+            [
+                'label' => 'Break one generic door',
+                'actions' => [22945 => false],
+                'expect' => [
+                    'StateID' => 0,
+                    'IsDelayActive' => false
+                ]
+            ]
+        ]
+    ],
+
+    [
+        'id' => 'E01',
+        'title' => 'GF entrance incomplete with lock only stays disarmed',
+        'kind' => 'state',
+        'steps' => [
+            [
+                'label' => 'GF lock only',
+                'actions' => [14125 => true],
+                'expect' => [
+                    'StateID' => 0,
+                    'IsDelayActive' => false
+                ]
+            ]
+        ]
+    ],
+
+    [
+        'id' => 'E02',
+        'title' => 'GF entrance incomplete with contact only stays disarmed',
+        'kind' => 'state',
+        'steps' => [
+            [
+                'label' => 'GF contact only',
+                'actions' => [25478 => true],
+                'expect' => [
+                    'StateID' => 0,
+                    'IsDelayActive' => false
+                ]
+            ]
+        ]
+    ],
+
+    [
+        'id' => 'E03',
+        'title' => 'GF entrance complete alone stays disarmed',
+        'kind' => 'state',
+        'steps' => [
+            [
+                'label' => 'GF entrance secure',
+                'actions' => [14125 => true, 25478 => true],
+                'expect' => [
+                    'StateID' => 0,
+                    'IsDelayActive' => false
+                ]
+            ]
+        ]
+    ],
+
+    [
+        'id' => 'E04',
+        'title' => 'Basement entrance incomplete with lock only stays disarmed',
+        'kind' => 'state',
+        'steps' => [
+            [
+                'label' => 'Basement lock only',
+                'actions' => [32928 => true],
+                'expect' => [
+                    'StateID' => 0,
+                    'IsDelayActive' => false
+                ]
+            ]
+        ]
+    ],
+
+    [
+        'id' => 'E05',
+        'title' => 'Basement entrance incomplete with contact only stays disarmed',
+        'kind' => 'state',
+        'steps' => [
+            [
+                'label' => 'Basement contact only',
+                'actions' => [41718 => true],
+                'expect' => [
+                    'StateID' => 0,
+                    'IsDelayActive' => false
+                ]
+            ]
+        ]
+    ],
+
+    [
+        'id' => 'E06',
+        'title' => 'Basement entrance complete alone stays disarmed',
+        'kind' => 'state',
+        'steps' => [
+            [
+                'label' => 'Basement entrance secure',
+                'actions' => [32928 => true, 41718 => true],
+                'expect' => [
+                    'StateID' => 0,
+                    'IsDelayActive' => false
+                ]
+            ]
+        ]
+    ],
+
+    [
+        'id' => 'B01',
+        'title' => 'Master bedroom active but insecure',
+        'kind' => 'state',
+        'steps' => [
+            [
+                'label' => 'Master active insecure',
+                'actions' => [28379 => true, 29918 => true, 34618 => false],
+                'expect' => [
+                    'presence_map' => [
+                        'Master Bedroom' => [
+                            'SwitchState' => true,
+                            'DoorTripped' => false
+                        ]
+                    ]
+                ]
+            ]
+        ]
+    ],
+
+    [
+        'id' => 'B02',
+        'title' => 'Master bedroom active and secure',
+        'kind' => 'state',
+        'steps' => [
+            [
+                'label' => 'Master active secure',
+                'actions' => [28379 => true, 29918 => true, 34618 => true],
+                'expect' => [
+                    'presence_map' => [
+                        'Master Bedroom' => [
+                            'SwitchState' => true,
+                            'DoorTripped' => true
+                        ]
+                    ]
+                ]
+            ]
+        ]
+    ],
+
+    [
+        'id' => 'B03',
+        'title' => 'Small guest active but insecure',
+        'kind' => 'state',
+        'steps' => [
+            [
+                'label' => 'Small guest active insecure',
+                'actions' => [38285 => true, 36671 => false],
+                'expect' => [
+                    'presence_map' => [
+                        'Small Guest Bedroom' => [
+                            'SwitchState' => true,
+                            'DoorTripped' => false
+                        ]
+                    ]
+                ]
+            ]
+        ]
+    ],
+
+    [
+        'id' => 'B04',
+        'title' => 'Small guest active and secure',
+        'kind' => 'state',
+        'steps' => [
+            [
+                'label' => 'Small guest active secure',
+                'actions' => [38285 => true, 36671 => true],
+                'expect' => [
+                    'presence_map' => [
+                        'Small Guest Bedroom' => [
+                            'SwitchState' => true,
+                            'DoorTripped' => true
+                        ]
+                    ]
+                ]
+            ]
+        ]
+    ],
+
+    [
+        'id' => 'B05',
+        'title' => 'Big guest active but insecure',
+        'kind' => 'state',
+        'steps' => [
+            [
+                'label' => 'Big guest active insecure',
+                'actions' => [28099 => true, 18998 => false],
+                'expect' => [
+                    'presence_map' => [
+                        'Big Guest Bedroom' => [
+                            'SwitchState' => true,
+                            'DoorTripped' => false
+                        ]
+                    ]
+                ]
+            ]
+        ]
+    ],
+
+    [
+        'id' => 'B06',
+        'title' => 'Big guest active and secure',
+        'kind' => 'state',
+        'steps' => [
+            [
+                'label' => 'Big guest active secure',
+                'actions' => [28099 => true, 18998 => true],
+                'expect' => [
+                    'presence_map' => [
+                        'Big Guest Bedroom' => [
+                            'SwitchState' => true,
+                            'DoorTripped' => true
+                        ]
+                    ]
+                ]
+            ]
+        ]
+    ],
+
+    [
+        'id' => 'H01',
+        'title' => 'Away mode fully secure allows arming path',
+        'kind' => 'state',
+        'steps' => [
+            [
+                'label' => 'Away fully secure',
+                'actions' => [
+                    45731 => false,
+                    54217 => true, 53418 => true, 41617 => true,
+                    10775 => true, 22945 => true, 49829 => true,
+                    14125 => true, 25478 => true,
+                    32928 => true, 41718 => true
+                ],
+                'wait_for' => [
+                    'StateID' => 2,
+                    'IsDelayActive' => true,
+                    'timeout_ms' => 7000,
+                    'poll_ms' => 150,
+                    'stable_hits' => 3
+                ],
+                'expect' => [
+                    'StateID' => 2,
+                    'IsDelayActive' => true
+                ]
+            ]
+        ]
+    ],
+
+    [
+        'id' => 'H02',
+        'title' => 'Home mode secure with no active bedrooms allows arming path',
+        'kind' => 'state',
+        'steps' => [
+            [
+                'label' => 'Home secure no active bedrooms',
+                'actions' => [
+                    45731 => true,
+                    54217 => true, 53418 => true, 41617 => true,
+                    10775 => true, 22945 => true, 49829 => true,
+                    14125 => true, 25478 => true,
+                    32928 => true, 41718 => true
+                ],
+                'wait_for' => [
+                    'StateID' => 2,
+                    'IsDelayActive' => true,
+                    'timeout_ms' => 7000,
+                    'poll_ms' => 150,
+                    'stable_hits' => 3
+                ],
+                'expect' => [
+                    'StateID' => 2,
+                    'IsDelayActive' => true
+                ]
+            ]
+        ]
+    ],
+
+    [
+        'id' => 'H03',
+        'title' => 'Home mode with master active and secure allows arming path',
+        'kind' => 'state',
+        'steps' => [
+            [
+                'label' => 'Home secure with master active secure',
+                'actions' => [
+                    45731 => true,
+                    54217 => true, 53418 => true, 41617 => true,
+                    10775 => true, 22945 => true, 49829 => true,
+                    14125 => true, 25478 => true,
+                    32928 => true, 41718 => true,
+                    28379 => true, 29918 => true, 34618 => true
+                ],
+                'wait_for' => [
+                    'StateID' => 2,
+                    'IsDelayActive' => true,
+                    'presence_map' => [
+                        'Master Bedroom' => [
+                            'SwitchState' => true,
+                            'DoorTripped' => true
+                        ]
+                    ],
+                    'timeout_ms' => 7000,
+                    'poll_ms' => 150,
+                    'stable_hits' => 3
+                ],
+                'expect' => [
+                    'StateID' => 2,
+                    'IsDelayActive' => true,
+                    'presence_map' => [
+                        'Master Bedroom' => [
+                            'SwitchState' => true,
+                            'DoorTripped' => true
+                        ]
+                    ]
+                ]
+            ]
+        ]
+    ],
+
+    [
+        'id' => 'H04',
+        'title' => 'Home mode with master active but insecure blocks arming',
+        'kind' => 'state',
+        'steps' => [
+            [
+                'label' => 'Home secure except master insecure',
+                'actions' => [
+                    45731 => true,
+                    54217 => true, 53418 => true, 41617 => true,
+                    10775 => true, 22945 => true, 49829 => true,
+                    14125 => true, 25478 => true,
+                    32928 => true, 41718 => true,
+                    28379 => true, 29918 => true, 34618 => false
+                ],
+                'wait_for' => [
+                    'StateID' => 0,
+                    'IsDelayActive' => false,
+                    'presence_map' => [
+                        'Master Bedroom' => [
+                            'SwitchState' => true,
+                            'DoorTripped' => false
+                        ]
+                    ],
+                    'timeout_ms' => 7000,
+                    'poll_ms' => 150,
+                    'stable_hits' => 3
+                ],
+                'expect' => [
+                    'StateID' => 0,
+                    'IsDelayActive' => false,
+                    'presence_map' => [
+                        'Master Bedroom' => [
+                            'SwitchState' => true,
+                            'DoorTripped' => false
+                        ]
+                    ]
+                ]
+            ]
+        ]
+    ],
+
+    [
+        'id' => 'H05',
+        'title' => 'Home mode with all active bedrooms secure allows arming path',
+        'kind' => 'state',
+        'steps' => [
+            [
+                'label' => 'Home secure all active bedrooms secure',
+                'actions' => [
+                    45731 => true,
+                    54217 => true, 53418 => true, 41617 => true,
+                    10775 => true, 22945 => true, 49829 => true,
+                    14125 => true, 25478 => true,
+                    32928 => true, 41718 => true,
+                    28379 => true, 29918 => true, 34618 => true,
+                    38285 => true, 36671 => true,
+                    28099 => true, 18998 => true
+                ],
+                'wait_for' => [
+                    'StateID' => 2,
+                    'IsDelayActive' => true,
+                    'timeout_ms' => 7000,
+                    'poll_ms' => 150,
+                    'stable_hits' => 3
+                ],
+                'expect' => [
+                    'StateID' => 2,
+                    'IsDelayActive' => true
+                ]
+            ]
+        ]
+    ],
+
+    [
+        'id' => 'H06',
+        'title' => 'Home mode with one active insecure bedroom blocks arming',
+        'kind' => 'state',
+        'steps' => [
+            [
+                'label' => 'Home secure except big guest insecure',
+                'actions' => [
+                    45731 => true,
+                    54217 => true, 53418 => true, 41617 => true,
+                    10775 => true, 22945 => true, 49829 => true,
+                    14125 => true, 25478 => true,
+                    32928 => true, 41718 => true,
+                    28379 => true, 29918 => true, 34618 => true,
+                    38285 => true, 36671 => true,
+                    28099 => true, 18998 => false
+                ],
+                'wait_for' => [
+                    'StateID' => 0,
+                    'IsDelayActive' => false,
+                    'timeout_ms' => 7000,
+                    'poll_ms' => 150,
+                    'stable_hits' => 3
+                ],
+                'expect' => [
+                    'StateID' => 0,
+                    'IsDelayActive' => false
+                ]
+            ]
+        ]
+    ],
+
+    [
+        'id' => 'V01',
+        'title' => 'One window breaking from allowed state blocks arming',
+        'kind' => 'transition',
+        'steps' => [
+            [
+                'label' => 'Reach allowed secure state',
+                'actions' => [
+                    45731 => true,
+                    54217 => true, 53418 => true, 41617 => true,
+                    10775 => true, 22945 => true, 49829 => true,
+                    14125 => true, 25478 => true,
+                    32928 => true, 41718 => true
+                ],
+                'wait_for' => [
+                    'StateID' => 2,
+                    'IsDelayActive' => true,
+                    'timeout_ms' => 7000,
+                    'poll_ms' => 150,
+                    'stable_hits' => 3
+                ],
+                'expect' => [
+                    'StateID' => 2,
+                    'IsDelayActive' => true
+                ]
+            ],
+            [
+                'label' => 'Break one window',
+                'actions' => [54217 => false],
+                'wait_for' => [
+                    'StateID' => 0,
+                    'IsDelayActive' => false,
+                    'timeout_ms' => 7000,
+                    'poll_ms' => 150,
+                    'stable_hits' => 3
+                ],
+                'expect' => [
+                    'StateID' => 0,
+                    'IsDelayActive' => false
+                ]
+            ]
+        ]
+    ],
+
+    [
+        'id' => 'V02',
+        'title' => 'One generic door breaking from allowed state blocks arming',
+        'kind' => 'transition',
+        'steps' => [
+            [
+                'label' => 'Reach allowed secure state',
+                'actions' => [
+                    45731 => true,
+                    54217 => true, 53418 => true, 41617 => true,
+                    10775 => true, 22945 => true, 49829 => true,
+                    14125 => true, 25478 => true,
+                    32928 => true, 41718 => true
+                ],
+                'wait_for' => [
+                    'StateID' => 2,
+                    'IsDelayActive' => true,
+                    'timeout_ms' => 7000,
+                    'poll_ms' => 150,
+                    'stable_hits' => 3
+                ],
+                'expect' => [
+                    'StateID' => 2,
+                    'IsDelayActive' => true
+                ]
+            ],
+            [
+                'label' => 'Break one generic door',
+                'actions' => [22945 => false],
+                'wait_for' => [
+                    'StateID' => 0,
+                    'IsDelayActive' => false,
+                    'timeout_ms' => 7000,
+                    'poll_ms' => 150,
+                    'stable_hits' => 3
+                ],
+                'expect' => [
+                    'StateID' => 0,
+                    'IsDelayActive' => false
+                ]
+            ]
+        ]
+    ],
+
+    [
+        'id' => 'V03',
+        'title' => 'One GF entrance member breaking from allowed state blocks arming',
+        'kind' => 'transition',
+        'steps' => [
+            [
+                'label' => 'Reach allowed secure state',
+                'actions' => [
+                    45731 => true,
+                    54217 => true, 53418 => true, 41617 => true,
+                    10775 => true, 22945 => true, 49829 => true,
+                    14125 => true, 25478 => true,
+                    32928 => true, 41718 => true
+                ],
+                'wait_for' => [
+                    'StateID' => 2,
+                    'IsDelayActive' => true,
+                    'timeout_ms' => 9000,
+                    'poll_ms' => 150,
+                    'stable_hits' => 4
+                ],
+                'expect' => [
+                    'StateID' => 2,
+                    'IsDelayActive' => true
+                ]
+            ],
+            [
+                'label' => 'Break GF contact',
+                'actions' => [25478 => false],
+                'wait_for' => [
+                    'StateID' => 0,
+                    'IsDelayActive' => false,
+                    'timeout_ms' => 7000,
+                    'poll_ms' => 150,
+                    'stable_hits' => 3
+                ],
+                'expect' => [
+                    'StateID' => 0,
+                    'IsDelayActive' => false
+                ]
+            ]
+        ]
+    ],
+
+    [
+        'id' => 'V04',
+        'title' => 'One basement entrance member breaking from allowed state blocks arming',
+        'kind' => 'transition',
+        'steps' => [
+            [
+                'label' => 'Reach allowed secure state',
+                'actions' => [
+                    45731 => true,
+                    54217 => true, 53418 => true, 41617 => true,
+                    10775 => true, 22945 => true, 49829 => true,
+                    14125 => true, 25478 => true,
+                    32928 => true, 41718 => true
+                ],
+                'wait_for' => [
+                    'StateID' => 2,
+                    'IsDelayActive' => true,
+                    'timeout_ms' => 7000,
+                    'poll_ms' => 150,
+                    'stable_hits' => 3
+                ],
+                'expect' => [
+                    'StateID' => 2,
+                    'IsDelayActive' => true
+                ]
+            ],
+            [
+                'label' => 'Break basement contact',
+                'actions' => [41718 => false],
+                'wait_for' => [
+                    'StateID' => 0,
+                    'IsDelayActive' => false,
+                    'timeout_ms' => 7000,
+                    'poll_ms' => 150,
+                    'stable_hits' => 3
+                ],
+                'expect' => [
+                    'StateID' => 0,
+                    'IsDelayActive' => false
+                ]
+            ]
+        ]
+    ],
+
+    [
+        'id' => 'V05',
+        'title' => 'Active bedroom door opening from allowed state blocks arming',
+        'kind' => 'transition',
+        'steps' => [
+            [
+                'label' => 'Reach allowed home secure state with master active',
+                'actions' => [
+                    45731 => true,
+                    54217 => true, 53418 => true, 41617 => true,
+                    10775 => true, 22945 => true, 49829 => true,
+                    14125 => true, 25478 => true,
+                    32928 => true, 41718 => true,
+                    28379 => true, 29918 => true, 34618 => true
+                ],
+                'wait_for' => [
+                    'StateID' => 2,
+                    'IsDelayActive' => true,
+                    'presence_map' => [
+                        'Master Bedroom' => [
+                            'SwitchState' => true,
+                            'DoorTripped' => true
+                        ]
+                    ],
+                    'timeout_ms' => 7000,
+                    'poll_ms' => 150,
+                    'stable_hits' => 3
+                ],
+                'expect' => [
+                    'StateID' => 2,
+                    'IsDelayActive' => true
+                ]
+            ],
+            [
+                'label' => 'Open one active master door member',
+                'actions' => [34618 => false],
+                'wait_for' => [
+                    'StateID' => 0,
+                    'IsDelayActive' => false,
+                    'presence_map' => [
+                        'Master Bedroom' => [
+                            'SwitchState' => true,
+                            'DoorTripped' => false
+                        ]
+                    ],
+                    'timeout_ms' => 7000,
+                    'poll_ms' => 150,
+                    'stable_hits' => 3
+                ],
+                'expect' => [
+                    'StateID' => 0,
+                    'IsDelayActive' => false,
+                    'presence_map' => [
+                        'Master Bedroom' => [
+                            'SwitchState' => true,
+                            'DoorTripped' => false
+                        ]
+                    ]
+                ]
+            ]
+        ]
+    ],
+
+    [
+        'id' => 'P01',
+        'title' => 'Away mode ignores insecure bedrooms',
+        'kind' => 'state',
+        'steps' => [
+            [
+                'label' => 'Away fully secure perimeter but insecure bedrooms',
+                'actions' => [
+                    45731 => false,
+                    54217 => true, 53418 => true, 41617 => true,
+                    10775 => true, 22945 => true, 49829 => true,
+                    14125 => true, 25478 => true,
+                    32928 => true, 41718 => true,
+                    28379 => true, 29918 => true, 34618 => false,
+                    38285 => true, 36671 => false,
+                    28099 => true, 18998 => false
+                ],
+                'wait_for' => [
+                    'StateID' => 2,
+                    'IsDelayActive' => true,
+                    'timeout_ms' => 7000,
+                    'poll_ms' => 150,
+                    'stable_hits' => 3
+                ],
+                'expect' => [
+                    'StateID' => 2,
+                    'IsDelayActive' => true
+                ]
+            ]
+        ]
+    ],
+
+    [
+        'id' => 'P02',
+        'title' => 'Turning presence off removes bedroom veto',
+        'kind' => 'transition',
+        'steps' => [
+            [
+                'label' => 'Blocked home state because master insecure',
+                'actions' => [
+                    45731 => true,
+                    54217 => true, 53418 => true, 41617 => true,
+                    10775 => true, 22945 => true, 49829 => true,
+                    14125 => true, 25478 => true,
+                    32928 => true, 41718 => true,
+                    28379 => true, 29918 => true, 34618 => false
+                ],
+                'wait_for' => [
+                    'StateID' => 0,
+                    'IsDelayActive' => false,
+                    'timeout_ms' => 7000,
+                    'poll_ms' => 150,
+                    'stable_hits' => 3
+                ],
+                'expect' => [
+                    'StateID' => 0,
+                    'IsDelayActive' => false
+                ]
+            ],
+            [
+                'label' => 'Turn presence off',
+                'actions' => [45731 => false],
+                'wait_for' => [
+                    'StateID' => 2,
+                    'IsDelayActive' => true,
+                    'timeout_ms' => 7000,
+                    'poll_ms' => 150,
+                    'stable_hits' => 3
+                ],
+                'expect' => [
+                    'StateID' => 2,
+                    'IsDelayActive' => true
+                ]
+            ]
+        ]
+    ],
+
+    [
+        'id' => 'T01',
+        'title' => 'Token advances during away arming progression',
+        'kind' => 'transition',
+        'steps' => [
+            [
+                'label' => 'Windows secure',
+                'actions' => [54217 => true, 53418 => true, 41617 => true],
+                'expect' => ['token_must_advance' => true]
+            ],
+            [
+                'label' => 'Doors secure',
+                'actions' => [10775 => true, 22945 => true, 49829 => true],
+                'expect' => ['token_must_advance' => true]
+            ],
+            [
+                'label' => 'GF entrance secure',
+                'actions' => [14125 => true, 25478 => true],
+                'expect' => ['token_must_advance' => true]
+            ],
+            [
+                'label' => 'Basement entrance secure',
+                'actions' => [32928 => true, 41718 => true],
+                'wait_for' => [
+                    'StateID' => 2,
+                    'IsDelayActive' => true,
+                    'timeout_ms' => 7000,
+                    'poll_ms' => 150,
+                    'stable_hits' => 3
+                ],
+                'expect' => [
+                    'token_must_advance' => true,
+                    'StateID' => 2,
+                    'IsDelayActive' => true
+                ]
+            ]
+        ]
+    ],
+];
+
+// -----------------------------------------------------
+// MAIN
+// -----------------------------------------------------
+
+$startedAt = psm_now();
+$scenarioPass = 0;
+$scenarioFail = 0;
+$failedItems = [];
+$results = [];
+
+psm_log('START FULL REGRESSION TEST | module2=' . $MODULE2_ID);
+
+try {
+    foreach ($SCENARIOS as $scenario) {
+        $result = psm_run_scenario($MODULE2_ID, $scenario, $ALL_INPUT_IDS);
+        $results[] = $result;
+
+        if ($result['status'] === 'PASS') {
+            $scenarioPass++;
+            psm_log('PASS | ' . $result['id'] . ' | ' . $result['title']);
+        } else {
+            $scenarioFail++;
+            psm_log('FAIL | ' . $result['id'] . ' | ' . $result['title']);
+
+            foreach ($result['steps'] as $step) {
+                if ($step['status'] !== 'PASS') {
+                    foreach ($step['assertions'] as $assertion) {
+                        if (!$assertion['ok']) {
+                            $failedItems[] = [
+                                'scenario_id'    => $result['id'],
+                                'scenario_title' => $result['title'],
+                                'step'           => $step['label'],
+                                'message'        => $assertion['message']
+                            ];
+                        }
+                    }
+                }
+            }
+        }
+    }
+} catch (Throwable $e) {
+    psm_log('FATAL ERROR: ' . $e->getMessage());
+    psm_log($e->getTraceAsString());
+    $scenarioFail++;
+    $failedItems[] = [
+        'scenario_id'    => 'FATAL',
+        'scenario_title' => 'Unhandled exception',
+        'step'           => 'runtime',
+        'message'        => $e->getMessage()
+    ];
+}
+
+$finishedAt = psm_now();
+
+psm_log('--------------------------------------------------');
+psm_log('SUMMARY | PASS=' . $scenarioPass . ' | FAIL=' . $scenarioFail);
+psm_log('--------------------------------------------------');
+
+if (count($failedItems) > 0) {
+    psm_log('FAILED ASSERTIONS:');
+    foreach ($failedItems as $item) {
+        psm_log(
+            '- ' . $item['scenario_id']
+            . ' | ' . $item['scenario_title']
+            . ' | ' . $item['step']
+            . ' | ' . $item['message']
+        );
+    }
+} else {
+    psm_log('FAILED ASSERTIONS: none');
+}
+
+$report = [
+    'started_at' => $startedAt,
+    'finished_at' => $finishedAt,
+    'module2_id' => $MODULE2_ID,
+    'scenario_pass' => $scenarioPass,
+    'scenario_fail' => $scenarioFail,
+    'failed_assertions' => $failedItems,
+    'scenario_results' => $results
+];
+
+$json = json_encode($report, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+if ($json === false) {
+    throw new RuntimeException('json_encode failed.');
+}
+
+$filename = rtrim($REPORT_DIR, '/') . '/psm_full_regression_' . date('Ymd_His') . '.json';
+$bytes = file_put_contents($filename, $json);
+if ($bytes === false) {
+    throw new RuntimeException('Could not write report file: ' . $filename);
+}
+
+psm_log('REPORT FILE: ' . $filename);
+psm_log('BYTES WRITTEN: ' . $bytes);
+psm_log('END FULL REGRESSION TEST');
