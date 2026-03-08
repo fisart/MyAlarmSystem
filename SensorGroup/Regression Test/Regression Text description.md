@@ -1,4 +1,4 @@
-Yes. Below is a complete documentation package for the current regression test approach, including the versioning additions you should keep in the script.
+Working overall Committ =  9fba167
 
 # 1. Purpose of the test script
 
