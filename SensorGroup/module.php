@@ -3243,7 +3243,7 @@ class SensorGroup extends IPSModule
             // 1. Update Buffer (Source of Truth for Dynamic UI)
             $this->WriteAttributeString('SensorListBuffer', json_encode($currentRules));
 
-            // 2. Update Property (Marks instance as "Dirty" -> Apply button appears)
+            // 2. Update Property  (Marks instance as "Dirty" -> Apply button appears)
             IPS_SetProperty($this->InstanceID, 'SensorList', json_encode($currentRules));
 
             // 3. Refresh Form to show new sensors in folders
