@@ -1568,7 +1568,7 @@ class SensorGroup extends IPSModule
         $activeClasses = [];
         $classNameMap = [];
         $engineActiveSensors = []; // NEW: Keep track of every individual sensor that matches its rule
-
+        $activeSensorDetailsMap = []; // variable_id => full sensor detail for all currently active concrete sensors
         if (is_array($classList)) {
             foreach ($classList as $classDef) {
                 $classID = $classDef['ClassID'] ?? '';
@@ -1636,28 +1636,44 @@ class SensorGroup extends IPSModule
                         );
                     }
                     if ($match) {
-                        $engineActiveSensors[] = $s['VariableID']; // Capture the sensor ID for the dashboard
+                        $vid = (int)($s['VariableID'] ?? 0);
+                        $engineActiveSensors[] = $vid; // Capture the sensor ID for the dashboard
                         $activeCount++;
 
-                        // === BUGFIX 1: Capture details for ANY active sensor, prioritize specific trigger ===
+                        $parentID = IPS_GetParent($vid);
+                        $grandParentID = ($parentID > 0) ? IPS_GetParent($parentID) : 0;
 
-                        if ($lastTriggerDetails === null || ($s['VariableID'] ?? 0) == $TriggeringID) {
-                            if (($s['VariableID'] ?? 0) == $TriggeringID) {
+                        $sensorDetail = [
+                            'variable_id' => $vid,
+                            'value_raw'   => GetValue($vid),
+                            'tag'         => $className,
+                            'class_id'    => $classID,
+                            'class_name'  => $className,
+                            'var_name'    => IPS_GetName($vid),
+                            'parent_name' => ($parentID > 0) ? IPS_GetName($parentID) : "Root",
+                            'grandparent_name' => ($grandParentID > 0) ? IPS_GetName($grandParentID) : "",
+                            'value_human' => GetValueFormatted($vid),
+                            'smart_label' => $this->GetSmartLabel($vid, $labelMode)
+                        ];
+
+                        $activeSensorDetailsMap[$vid] = $sensorDetail;
+
+                        // === BUGFIX 1: Capture details for ANY active sensor, prioritize specific trigger ===
+                        if ($lastTriggerDetails === null || $vid == $TriggeringID) {
+                            if ($vid == $TriggeringID) {
                                 $triggerInClass = true;
                             }
-                            $parentID = IPS_GetParent($s['VariableID']);
-                            $grandParentID = ($parentID > 0) ? IPS_GetParent($parentID) : 0;
 
                             $lastTriggerDetails = [
-                                'variable_id' => $s['VariableID'],
-                                'value_raw'   => GetValue($s['VariableID']),
-                                'tag'         => $className,
-                                'class_id'    => $classID,
-                                'var_name'    => IPS_GetName($s['VariableID']),
-                                'parent_name' => ($parentID > 0) ? IPS_GetName($parentID) : "Root",
-                                'grandparent_name' => ($grandParentID > 0) ? IPS_GetName($grandParentID) : "",
-                                'value_human' => GetValueFormatted($s['VariableID']),
-                                'smart_label' => $this->GetSmartLabel($s['VariableID'], $labelMode)
+                                'variable_id' => $sensorDetail['variable_id'],
+                                'value_raw'   => $sensorDetail['value_raw'],
+                                'tag'         => $sensorDetail['tag'],
+                                'class_id'    => $sensorDetail['class_id'],
+                                'var_name'    => $sensorDetail['var_name'],
+                                'parent_name' => $sensorDetail['parent_name'],
+                                'grandparent_name' => $sensorDetail['grandparent_name'],
+                                'value_human' => $sensorDetail['value_human'],
+                                'smart_label' => $sensorDetail['smart_label']
                             ];
                         }
                     }
@@ -1843,7 +1859,7 @@ class SensorGroup extends IPSModule
         // Initialize targets container for both ALARM and RESET
         $targetsToSend = [];
         $payloadJson = '';
-
+        ksort($activeSensorDetailsMap, SORT_NUMERIC);
         if ($mainStatus) {
             $readableActiveClasses = [];
             foreach (array_keys($activeClasses) as $aid) {
@@ -1868,7 +1884,8 @@ class SensorGroup extends IPSModule
                 'active_classes' => $readableActiveClasses,
                 'active_groups' => $activeGroups,
                 'is_maintenance' => $this->ReadPropertyBoolean('MaintenanceMode'),
-                'trigger_details' => $finalTriggerDetails
+                'trigger_details' => $finalTriggerDetails,
+                'active_sensor_details' => array_values($activeSensorDetailsMap)
             ];
             $this->SetValue('EventData', json_encode($payload));
             $payloadJson = json_encode($payload);
@@ -1897,7 +1914,8 @@ class SensorGroup extends IPSModule
                 'active_classes' => [],
                 'active_groups' => [],
                 'is_maintenance' => $this->ReadPropertyBoolean('MaintenanceMode'),
-                'trigger_details' => null
+                'trigger_details' => null,
+                'active_sensor_details' => []
             ];
             $this->SetValue('EventData', json_encode($payload));
             $payloadJson = json_encode($payload);
