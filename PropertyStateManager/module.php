@@ -1796,9 +1796,14 @@ class PropertyStateManager extends IPSModule
         }
 
         $snapshot = [
-            'schema'              => 'PSM.HouseState.v1',
+            'schema'              => 'PSM.HouseState.v2',
             'timestamp'           => $now,
             'source_instance_id'  => $this->InstanceID,
+
+            'sync' => [
+                'last_processed_event_epoch' => (int)$this->ReadAttributeInteger('LastProcessedEventEpoch'),
+                'last_processed_event_seq'   => (int)$this->ReadAttributeInteger('LastProcessedEventSeq')
+            ],
 
             'system_state_id'     => $stateId,
             'system_state_name'   => $stateName,
