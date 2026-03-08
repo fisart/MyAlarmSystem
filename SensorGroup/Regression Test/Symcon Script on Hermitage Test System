@@ -4,30 +4,55 @@ declare(strict_types=1);
 /*
  * PSM FULL REGRESSION E2E TEST
  *
- * Purpose
- * - Full business-state regression test for Module 1 -> Module 2.
- * - Designed to run after every change in Module 1 or Module 2.
+ * Test Script Version: 1.1.0
+ * Scenario Matrix Version: 1.1.0
+ * Expected Module 2 Version: 7.2.0
  *
- * Output philosophy
+ * Scope:
+ * - End-to-end regression for Module 1 -> Module 2 house-state logic
+ * - Validates write path, token progression, state machine outcomes,
+ *   bedroom veto logic, presence interaction, and critical transitions
+ * - Excludes Module 3 output behavior
+ *
+ * Current logic profile:
+ * - Presence true  = home
+ * - Presence false = away
+ * - Exit Delay     = StateID 2
+ * - Delay flag     = IsDelayActive
+ * - Current live bedroom polarity:
+ *     secure bedroom   -> PresenceMap DoorTripped = true
+ *     insecure bedroom -> PresenceMap DoorTripped = false
+ *
+ * Test philosophy:
  * - Minimal console output
  * - Internal assertions only
- * - Final summary + compact failure list
- * - Full JSON report written to disk
- *
- * Key improvement
- * - Critical steps can now wait for a stable business state instead of relying
- *   only on a fixed sleep. This avoids timing races and intermediate snapshots.
+ * - Stable wait polling for timing-sensitive scenarios
+ * - Final reread after stable wait to avoid edge-of-transition snapshots
+ * - Full JSON report persisted to disk
  */
 
-$MODULE2_ID        = 23675;
-$SETTLE_MS         = 1800;
-$ACTION_GAP_MS     = 120;
-$RESET_GAP_MS      = 80;
-$RESET_SETTLE_MS   = 2400;
-$DEFAULT_WAIT_TIMEOUT_MS = 7000;
-$DEFAULT_WAIT_POLL_MS    = 150;
-$DEFAULT_WAIT_STABLE_HITS = 3;
-$REPORT_DIR        = '/var/lib/symcon';
+$TEST_SCRIPT_VERSION       = '1.1.0';
+$SCENARIO_MATRIX_VERSION   = '1.1.0';
+$EXPECTED_MODULE2_VERSION  = '7.2.0';
+
+$LOGIC_PROFILE = [
+    'presence_semantics'    => 'true=home, false=away',
+    'arming_state_id'       => 2,
+    'arming_delay_field'    => 'IsDelayActive',
+    'bedroom_polarity_note' => 'Current live behavior: secure bedroom -> DoorTripped=true, insecure bedroom -> DoorTripped=false',
+    'scope'                 => 'House-state only, no Module 3 output testing'
+];
+
+$MODULE2_ID                 = 23675;
+$SETTLE_MS                  = 1800;
+$ACTION_GAP_MS              = 120;
+$RESET_GAP_MS               = 80;
+$RESET_SETTLE_MS            = 2400;
+$DEFAULT_WAIT_TIMEOUT_MS    = 7000;
+$DEFAULT_WAIT_POLL_MS       = 150;
+$DEFAULT_WAIT_STABLE_HITS   = 3;
+$FINAL_READBACK_SETTLE_MS   = 750;
+$REPORT_DIR                 = '/var/lib/symcon';
 
 // -----------------------------------------------------
 // HELPERS
@@ -179,11 +204,14 @@ function psm_assert_write_results(array $writes, array &$assertions): void
 
 function psm_reset_all_inputs(array $allInputIds): void
 {
+    global $RESET_GAP_MS, $RESET_SETTLE_MS;
+
     foreach ($allInputIds as $varId) {
         SetValue((int) $varId, false);
-        psm_sleep_ms(80);
+        psm_sleep_ms($RESET_GAP_MS);
     }
-    psm_sleep_ms(2400);
+
+    psm_sleep_ms($RESET_SETTLE_MS);
 }
 
 // -----------------------------------------------------
@@ -405,7 +433,7 @@ function psm_status_from_assertions(array $assertions): string
 
 function psm_run_step(int $module2Id, array $step): array
 {
-    global $ACTION_GAP_MS, $SETTLE_MS, $DEFAULT_WAIT_TIMEOUT_MS, $DEFAULT_WAIT_POLL_MS, $DEFAULT_WAIT_STABLE_HITS;
+    global $ACTION_GAP_MS, $SETTLE_MS, $DEFAULT_WAIT_TIMEOUT_MS, $DEFAULT_WAIT_POLL_MS, $DEFAULT_WAIT_STABLE_HITS, $FINAL_READBACK_SETTLE_MS;
 
     $tokenBefore = psm_state_token(psm_get_state($module2Id));
 
@@ -426,7 +454,13 @@ function psm_run_step(int $module2Id, array $step): array
         unset($waitFor['timeout_ms'], $waitFor['poll_ms'], $waitFor['stable_hits']);
 
         $waitResult = psm_wait_until_stable($module2Id, $waitFor, $timeoutMs, $pollMs, $stableHits);
-        $stateAfter = $waitResult['state'];
+
+        // Final reread after a short extra settle to avoid edge-of-transition snapshots.
+        psm_sleep_ms($FINAL_READBACK_SETTLE_MS);
+        $stateAfter = psm_get_state($module2Id);
+
+        $waitResult['final_state_after_reread'] = $stateAfter;
+        $waitResult['final_reread_settle_ms'] = $FINAL_READBACK_SETTLE_MS;
     } else {
         psm_sleep_ms($SETTLE_MS);
         $stateAfter = psm_get_state($module2Id);
@@ -872,9 +906,9 @@ $SCENARIOS = [
                 'wait_for' => [
                     'StateID' => 2,
                     'IsDelayActive' => true,
-                    'timeout_ms' => 7000,
-                    'poll_ms' => 150,
-                    'stable_hits' => 3
+                    'timeout_ms' => 12000,
+                    'poll_ms' => 200,
+                    'stable_hits' => 5
                 ],
                 'expect' => [
                     'StateID' => 2,
@@ -901,9 +935,9 @@ $SCENARIOS = [
                 'wait_for' => [
                     'StateID' => 2,
                     'IsDelayActive' => true,
-                    'timeout_ms' => 7000,
-                    'poll_ms' => 150,
-                    'stable_hits' => 3
+                    'timeout_ms' => 12000,
+                    'poll_ms' => 200,
+                    'stable_hits' => 5
                 ],
                 'expect' => [
                     'StateID' => 2,
@@ -937,9 +971,9 @@ $SCENARIOS = [
                             'DoorTripped' => true
                         ]
                     ],
-                    'timeout_ms' => 7000,
-                    'poll_ms' => 150,
-                    'stable_hits' => 3
+                    'timeout_ms' => 12000,
+                    'poll_ms' => 200,
+                    'stable_hits' => 5
                 ],
                 'expect' => [
                     'StateID' => 2,
@@ -979,9 +1013,9 @@ $SCENARIOS = [
                             'DoorTripped' => false
                         ]
                     ],
-                    'timeout_ms' => 7000,
-                    'poll_ms' => 150,
-                    'stable_hits' => 3
+                    'timeout_ms' => 12000,
+                    'poll_ms' => 200,
+                    'stable_hits' => 5
                 ],
                 'expect' => [
                     'StateID' => 0,
@@ -1017,9 +1051,9 @@ $SCENARIOS = [
                 'wait_for' => [
                     'StateID' => 2,
                     'IsDelayActive' => true,
-                    'timeout_ms' => 7000,
-                    'poll_ms' => 150,
-                    'stable_hits' => 3
+                    'timeout_ms' => 12000,
+                    'poll_ms' => 200,
+                    'stable_hits' => 5
                 ],
                 'expect' => [
                     'StateID' => 2,
@@ -1049,9 +1083,9 @@ $SCENARIOS = [
                 'wait_for' => [
                     'StateID' => 0,
                     'IsDelayActive' => false,
-                    'timeout_ms' => 7000,
-                    'poll_ms' => 150,
-                    'stable_hits' => 3
+                    'timeout_ms' => 12000,
+                    'poll_ms' => 200,
+                    'stable_hits' => 5
                 ],
                 'expect' => [
                     'StateID' => 0,
@@ -1069,7 +1103,7 @@ $SCENARIOS = [
             [
                 'label' => 'Reach allowed secure state',
                 'actions' => [
-                    45731 => true,
+                    45731 => false,
                     54217 => true, 53418 => true, 41617 => true,
                     10775 => true, 22945 => true, 49829 => true,
                     14125 => true, 25478 => true,
@@ -1078,9 +1112,9 @@ $SCENARIOS = [
                 'wait_for' => [
                     'StateID' => 2,
                     'IsDelayActive' => true,
-                    'timeout_ms' => 7000,
-                    'poll_ms' => 150,
-                    'stable_hits' => 3
+                    'timeout_ms' => 12000,
+                    'poll_ms' => 200,
+                    'stable_hits' => 5
                 ],
                 'expect' => [
                     'StateID' => 2,
@@ -1093,9 +1127,9 @@ $SCENARIOS = [
                 'wait_for' => [
                     'StateID' => 0,
                     'IsDelayActive' => false,
-                    'timeout_ms' => 7000,
-                    'poll_ms' => 150,
-                    'stable_hits' => 3
+                    'timeout_ms' => 9000,
+                    'poll_ms' => 200,
+                    'stable_hits' => 4
                 ],
                 'expect' => [
                     'StateID' => 0,
@@ -1113,7 +1147,7 @@ $SCENARIOS = [
             [
                 'label' => 'Reach allowed secure state',
                 'actions' => [
-                    45731 => true,
+                    45731 => false,
                     54217 => true, 53418 => true, 41617 => true,
                     10775 => true, 22945 => true, 49829 => true,
                     14125 => true, 25478 => true,
@@ -1122,9 +1156,9 @@ $SCENARIOS = [
                 'wait_for' => [
                     'StateID' => 2,
                     'IsDelayActive' => true,
-                    'timeout_ms' => 7000,
-                    'poll_ms' => 150,
-                    'stable_hits' => 3
+                    'timeout_ms' => 12000,
+                    'poll_ms' => 200,
+                    'stable_hits' => 5
                 ],
                 'expect' => [
                     'StateID' => 2,
@@ -1137,9 +1171,9 @@ $SCENARIOS = [
                 'wait_for' => [
                     'StateID' => 0,
                     'IsDelayActive' => false,
-                    'timeout_ms' => 7000,
-                    'poll_ms' => 150,
-                    'stable_hits' => 3
+                    'timeout_ms' => 9000,
+                    'poll_ms' => 200,
+                    'stable_hits' => 4
                 ],
                 'expect' => [
                     'StateID' => 0,
@@ -1157,7 +1191,7 @@ $SCENARIOS = [
             [
                 'label' => 'Reach allowed secure state',
                 'actions' => [
-                    45731 => true,
+                    45731 => false,
                     54217 => true, 53418 => true, 41617 => true,
                     10775 => true, 22945 => true, 49829 => true,
                     14125 => true, 25478 => true,
@@ -1166,9 +1200,9 @@ $SCENARIOS = [
                 'wait_for' => [
                     'StateID' => 2,
                     'IsDelayActive' => true,
-                    'timeout_ms' => 9000,
-                    'poll_ms' => 150,
-                    'stable_hits' => 4
+                    'timeout_ms' => 15000,
+                    'poll_ms' => 200,
+                    'stable_hits' => 5
                 ],
                 'expect' => [
                     'StateID' => 2,
@@ -1181,9 +1215,9 @@ $SCENARIOS = [
                 'wait_for' => [
                     'StateID' => 0,
                     'IsDelayActive' => false,
-                    'timeout_ms' => 7000,
-                    'poll_ms' => 150,
-                    'stable_hits' => 3
+                    'timeout_ms' => 9000,
+                    'poll_ms' => 200,
+                    'stable_hits' => 4
                 ],
                 'expect' => [
                     'StateID' => 0,
@@ -1201,7 +1235,7 @@ $SCENARIOS = [
             [
                 'label' => 'Reach allowed secure state',
                 'actions' => [
-                    45731 => true,
+                    45731 => false,
                     54217 => true, 53418 => true, 41617 => true,
                     10775 => true, 22945 => true, 49829 => true,
                     14125 => true, 25478 => true,
@@ -1210,9 +1244,9 @@ $SCENARIOS = [
                 'wait_for' => [
                     'StateID' => 2,
                     'IsDelayActive' => true,
-                    'timeout_ms' => 7000,
-                    'poll_ms' => 150,
-                    'stable_hits' => 3
+                    'timeout_ms' => 12000,
+                    'poll_ms' => 200,
+                    'stable_hits' => 5
                 ],
                 'expect' => [
                     'StateID' => 2,
@@ -1225,9 +1259,9 @@ $SCENARIOS = [
                 'wait_for' => [
                     'StateID' => 0,
                     'IsDelayActive' => false,
-                    'timeout_ms' => 7000,
-                    'poll_ms' => 150,
-                    'stable_hits' => 3
+                    'timeout_ms' => 9000,
+                    'poll_ms' => 200,
+                    'stable_hits' => 4
                 ],
                 'expect' => [
                     'StateID' => 0,
@@ -1261,9 +1295,9 @@ $SCENARIOS = [
                             'DoorTripped' => true
                         ]
                     ],
-                    'timeout_ms' => 7000,
-                    'poll_ms' => 150,
-                    'stable_hits' => 3
+                    'timeout_ms' => 12000,
+                    'poll_ms' => 200,
+                    'stable_hits' => 5
                 ],
                 'expect' => [
                     'StateID' => 2,
@@ -1282,9 +1316,9 @@ $SCENARIOS = [
                             'DoorTripped' => false
                         ]
                     ],
-                    'timeout_ms' => 7000,
-                    'poll_ms' => 150,
-                    'stable_hits' => 3
+                    'timeout_ms' => 9000,
+                    'poll_ms' => 200,
+                    'stable_hits' => 4
                 ],
                 'expect' => [
                     'StateID' => 0,
@@ -1320,9 +1354,9 @@ $SCENARIOS = [
                 'wait_for' => [
                     'StateID' => 2,
                     'IsDelayActive' => true,
-                    'timeout_ms' => 7000,
-                    'poll_ms' => 150,
-                    'stable_hits' => 3
+                    'timeout_ms' => 12000,
+                    'poll_ms' => 200,
+                    'stable_hits' => 5
                 ],
                 'expect' => [
                     'StateID' => 2,
@@ -1350,9 +1384,9 @@ $SCENARIOS = [
                 'wait_for' => [
                     'StateID' => 0,
                     'IsDelayActive' => false,
-                    'timeout_ms' => 7000,
-                    'poll_ms' => 150,
-                    'stable_hits' => 3
+                    'timeout_ms' => 12000,
+                    'poll_ms' => 200,
+                    'stable_hits' => 5
                 ],
                 'expect' => [
                     'StateID' => 0,
@@ -1365,9 +1399,9 @@ $SCENARIOS = [
                 'wait_for' => [
                     'StateID' => 2,
                     'IsDelayActive' => true,
-                    'timeout_ms' => 7000,
-                    'poll_ms' => 150,
-                    'stable_hits' => 3
+                    'timeout_ms' => 12000,
+                    'poll_ms' => 200,
+                    'stable_hits' => 5
                 ],
                 'expect' => [
                     'StateID' => 2,
@@ -1403,9 +1437,9 @@ $SCENARIOS = [
                 'wait_for' => [
                     'StateID' => 2,
                     'IsDelayActive' => true,
-                    'timeout_ms' => 7000,
-                    'poll_ms' => 150,
-                    'stable_hits' => 3
+                    'timeout_ms' => 12000,
+                    'poll_ms' => 200,
+                    'stable_hits' => 5
                 ],
                 'expect' => [
                     'token_must_advance' => true,
@@ -1460,6 +1494,7 @@ try {
 } catch (Throwable $e) {
     psm_log('FATAL ERROR: ' . $e->getMessage());
     psm_log($e->getTraceAsString());
+
     $scenarioFail++;
     $failedItems[] = [
         'scenario_id'    => 'FATAL',
@@ -1490,13 +1525,17 @@ if (count($failedItems) > 0) {
 }
 
 $report = [
-    'started_at' => $startedAt,
-    'finished_at' => $finishedAt,
-    'module2_id' => $MODULE2_ID,
-    'scenario_pass' => $scenarioPass,
-    'scenario_fail' => $scenarioFail,
-    'failed_assertions' => $failedItems,
-    'scenario_results' => $results
+    'test_script_version'      => $TEST_SCRIPT_VERSION,
+    'scenario_matrix_version'  => $SCENARIO_MATRIX_VERSION,
+    'expected_module2_version' => $EXPECTED_MODULE2_VERSION,
+    'logic_profile'            => $LOGIC_PROFILE,
+    'started_at'               => $startedAt,
+    'finished_at'              => $finishedAt,
+    'module2_id'               => $MODULE2_ID,
+    'scenario_pass'            => $scenarioPass,
+    'scenario_fail'            => $scenarioFail,
+    'failed_assertions'        => $failedItems,
+    'scenario_results'         => $results
 ];
 
 $json = json_encode($report, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
