@@ -31,15 +31,22 @@
     {
       "type": "List",
       "name": "GroupStateMappings",
-      "caption": "Group → State → Output Mapping",
-      "rowCount": 12,
+      "caption": "Rule Overview",
+      "rowCount": 10,
       "add": false,
-      "delete": false,
+      "delete": true,
       "sort": {
-        "column": "GroupName",
+        "column": "HouseState",
         "direction": "ascending"
       },
       "columns": [
+        {
+          "name": "RuleID",
+          "caption": "RuleID",
+          "width": "140px",
+          "visible": false,
+          "add": ""
+        },
         {
           "name": "Enabled",
           "caption": "On",
@@ -50,18 +57,16 @@
           }
         },
         {
-          "name": "GroupName",
-          "caption": "Module 1 Group",
-          "width": "170px",
+          "name": "GroupsSummary",
+          "caption": "Groups",
+          "width": "220px",
           "add": "",
-          "edit": {
-            "type": "ValidationTextBox"
-          }
+          "save": false
         },
         {
           "name": "HouseState",
           "caption": "House State",
-          "width": "150px",
+          "width": "140px",
           "add": "0",
           "edit": {
             "type": "Select",
@@ -88,20 +93,61 @@
           }
         },
         {
-          "name": "OutputNamesCsv",
+          "name": "OutputsSummary",
           "caption": "Outputs",
           "width": "auto",
           "add": "",
-          "edit": {
-            "type": "ValidationTextBox"
-          }
+          "save": false
         }
       ],
       "values": []
     },
     {
-      "type": "Label",
-      "caption": "Outputs column: enter one or more Output Resource names, separated by commas."
+      "type": "ExpansionPanel",
+      "caption": "Selected Rule Editor",
+      "items": [
+        {
+          "type": "ValidationTextBox",
+          "name": "EditorRuleID",
+          "caption": "Rule ID"
+        },
+        {
+          "type": "CheckBox",
+          "name": "EditorEnabled",
+          "caption": "Enabled"
+        },
+        {
+          "type": "Select",
+          "name": "EditorGroupIDs",
+          "caption": "Groups",
+          "multiSelect": true,
+          "options": []
+        },
+        {
+          "type": "Select",
+          "name": "EditorHouseState",
+          "caption": "House State",
+          "options": []
+        },
+        {
+          "type": "Select",
+          "name": "EditorSeverity",
+          "caption": "Severity",
+          "options": []
+        },
+        {
+          "type": "CheckBox",
+          "name": "EditorBypassThrottle",
+          "caption": "Bypass Throttle"
+        },
+        {
+          "type": "Select",
+          "name": "EditorOutputResourceIDs",
+          "caption": "Outputs",
+          "multiSelect": true,
+          "options": []
+        }
+      ]
     },
     {
       "type": "List",
@@ -115,6 +161,13 @@
         "direction": "ascending"
       },
       "columns": [
+        {
+          "name": "ResourceID",
+          "caption": "ResourceID",
+          "width": "140px",
+          "visible": false,
+          "add": ""
+        },
         {
           "name": "Enabled",
           "caption": "On",
@@ -258,8 +311,51 @@
       "onClick": "IPS_RequestAction($id, \"BuildRowsFromMyRouting\", true);"
     },
     {
+      "type": "Button",
+      "caption": "Load Selected Rule Into Editor",
+      "onClick": [
+        "IPS_SetProperty($id, 'EditorRuleID', (string) $GroupStateMappings['RuleID']);",
+        "IPS_SetProperty($id, 'EditorEnabled', (bool) $GroupStateMappings['Enabled']);",
+        "IPS_SetProperty($id, 'EditorGroupIDs', json_encode($GroupStateMappings['GroupIDs'] ?? []));",
+        "IPS_SetProperty($id, 'EditorHouseState', (string) $GroupStateMappings['HouseState']);",
+        "IPS_SetProperty($id, 'EditorSeverity', (string) $GroupStateMappings['Severity']);",
+        "IPS_SetProperty($id, 'EditorBypassThrottle', (bool) $GroupStateMappings['BypassThrottle']);",
+        "IPS_SetProperty($id, 'EditorOutputResourceIDs', json_encode($GroupStateMappings['OutputResourceIDs'] ?? []));",
+        "IPS_ApplyChanges($id);"
+      ]
+    },
+    {
+      "type": "Button",
+      "caption": "Apply Editor To Selected Rule",
+      "onClick": [
+        "$rows = json_decode(IPS_GetProperty($id, 'GroupStateMappings'), true);",
+        "$editorRuleID = (string) IPS_GetProperty($id, 'EditorRuleID');",
+        "$editorEnabled = (bool) IPS_GetProperty($id, 'EditorEnabled');",
+        "$editorGroupIDs = json_decode((string) IPS_GetProperty($id, 'EditorGroupIDs'), true);",
+        "$editorHouseState = (string) IPS_GetProperty($id, 'EditorHouseState');",
+        "$editorSeverity = (string) IPS_GetProperty($id, 'EditorSeverity');",
+        "$editorBypassThrottle = (bool) IPS_GetProperty($id, 'EditorBypassThrottle');",
+        "$editorOutputIDs = json_decode((string) IPS_GetProperty($id, 'EditorOutputResourceIDs'), true);",
+        "if (!is_array($rows)) { $rows = []; }",
+        "foreach ($rows as &$row) {",
+        "    if (((string) ($row['RuleID'] ?? '')) !== $editorRuleID) {",
+        "        continue;",
+        "    }",
+        "    $row['Enabled'] = $editorEnabled;",
+        "    $row['GroupIDs'] = is_array($editorGroupIDs) ? array_values($editorGroupIDs) : [];",
+        "    $row['HouseState'] = $editorHouseState;",
+        "    $row['Severity'] = $editorSeverity;",
+        "    $row['BypassThrottle'] = $editorBypassThrottle;",
+        "    $row['OutputResourceIDs'] = is_array($editorOutputIDs) ? array_values($editorOutputIDs) : [];",
+        "}",
+        "unset($row);",
+        "IPS_SetProperty($id, 'GroupStateMappings', json_encode($rows));",
+        "IPS_ApplyChanges($id);"
+      ]
+    },
+    {
       "type": "Label",
-      "caption": "Target Object ID must be a script or an instance."
+      "caption": "Select a row in Rule Overview, load it into the editor, edit groups/outputs with multi-select, then apply it back."
     }
   ],
   "status": [
