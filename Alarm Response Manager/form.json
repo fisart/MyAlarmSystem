@@ -94,12 +94,12 @@
     {
       "type": "Button",
       "caption": "Read Module 1 Configuration",
-      "onClick": "ARMM_ReadModule1Configuration($id);"
+      "onClick": "IPS_RequestAction($id, \"ReadModule1Configuration\", true);"
     },
     {
       "type": "Button",
       "caption": "Build Rows From My Module 1 Routing",
-      "onClick": "ARMM_BuildRowsFromMyRouting($id);"
+      "onClick": "IPS_RequestAction($id, \"BuildRowsFromMyRouting\", true);"
     },
     {
       "type": "Label",

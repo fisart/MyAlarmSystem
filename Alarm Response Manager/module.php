@@ -39,6 +39,22 @@ class ARMResponseManagerMock extends IPSModule
         }
     }
 
+    public function RequestAction($Ident, $Value)
+    {
+        switch ($Ident) {
+            case 'ReadModule1Configuration':
+                $this->ReadModule1Configuration();
+                break;
+
+            case 'BuildRowsFromMyRouting':
+                $this->BuildRowsFromMyRouting();
+                break;
+
+            default:
+                throw new Exception('Invalid Ident');
+        }
+    }
+
     public function GetConfigurationForm()
     {
         $formPath = __DIR__ . '/form.json';
@@ -196,61 +212,5 @@ class ARMResponseManagerMock extends IPSModule
         }
 
         return $rows;
-    }
-}
-
-if (!function_exists('ARMM_ReadModule1Configuration')) {
-    function ARMM_ReadModule1Configuration(int $InstanceID): void
-    {
-        if (!IPS_InstanceExists($InstanceID)) {
-            throw new Exception('Instance does not exist.');
-        }
-
-        $instance = IPS_GetInstance($InstanceID);
-        if (($instance['ModuleInfo']['ModuleID'] ?? '') !== '{A6C3F4B1-7E8D-4E66-8D39-11F2D6E21001}') {
-            throw new Exception('Instance is not ARMResponseManagerMock.');
-        }
-
-        $script = '
-            $instanceID = ' . $InstanceID . ';
-            $instance = IPS_GetInstance($instanceID);
-            if (($instance["ModuleInfo"]["ModuleID"] ?? "") !== "{A6C3F4B1-7E8D-4E66-8D39-11F2D6E21001}") {
-                throw new Exception("Instance is not ARMResponseManagerMock.");
-            }
-            $module = IPSModule::getInstance($instanceID);
-            if (!($module instanceof ARMResponseManagerMock)) {
-                throw new Exception("Unable to access module instance.");
-            }
-            $module->ReadModule1Configuration();
-        ';
-        eval($script);
-    }
-}
-
-if (!function_exists('ARMM_BuildRowsFromMyRouting')) {
-    function ARMM_BuildRowsFromMyRouting(int $InstanceID): void
-    {
-        if (!IPS_InstanceExists($InstanceID)) {
-            throw new Exception('Instance does not exist.');
-        }
-
-        $instance = IPS_GetInstance($InstanceID);
-        if (($instance['ModuleInfo']['ModuleID'] ?? '') !== '{A6C3F4B1-7E8D-4E66-8D39-11F2D6E21001}') {
-            throw new Exception('Instance is not ARMResponseManagerMock.');
-        }
-
-        $script = '
-            $instanceID = ' . $InstanceID . ';
-            $instance = IPS_GetInstance($instanceID);
-            if (($instance["ModuleInfo"]["ModuleID"] ?? "") !== "{A6C3F4B1-7E8D-4E66-8D39-11F2D6E21001}") {
-                throw new Exception("Instance is not ARMResponseManagerMock.");
-            }
-            $module = IPSModule::getInstance($instanceID);
-            if (!($module instanceof ARMResponseManagerMock)) {
-                throw new Exception("Unable to access module instance.");
-            }
-            $module->BuildRowsFromMyRouting();
-        ';
-        eval($script);
     }
 }
