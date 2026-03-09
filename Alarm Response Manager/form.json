@@ -2,22 +2,22 @@
   "elements": [
     {
       "type": "Label",
-      "caption": "Minimum persistence test UI for Module 3 mockup"
+      "caption": "Persistence test UI for Module 3 mockup – selector stage"
     },
     {
-      "type": "NumberSpinner",
+      "type": "SelectInstance",
       "name": "Module1InstanceID",
-      "caption": "Module 1 Instance ID"
+      "caption": "Module 1 Instance"
     },
     {
-      "type": "NumberSpinner",
+      "type": "SelectInstance",
       "name": "Module2InstanceID",
-      "caption": "Module 2 Instance ID"
+      "caption": "Module 2 Instance"
     },
     {
-      "type": "NumberSpinner",
+      "type": "SelectInstance",
       "name": "VaultInstanceID",
-      "caption": "Vault Instance ID"
+      "caption": "Vault Instance"
     },
     {
       "type": "ValidationTextBox",
@@ -89,7 +89,7 @@
   "actions": [
     {
       "type": "Label",
-      "caption": "Edit values above, click Apply, then reopen the form to verify persistence."
+      "caption": "Test selector persistence first. Then we will add import and row regeneration logic."
     }
   ],
   "status": [
