@@ -222,7 +222,7 @@
           "name": "Enabled",
           "caption": "On",
           "width": "45px",
-          "add": true,
+          "add": false,
           "edit": {
             "type": "CheckBox"
           }
@@ -293,7 +293,7 @@
             "options": []
           },
           {
-            "type": "NumberSpinner",
+            "type": "SelectObject",
             "name": "TargetObjectID",
             "caption": "Target Object ID"
           },
