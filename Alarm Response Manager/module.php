@@ -12,6 +12,21 @@ class ARMResponseManagerMock extends IPSModule
         9 => 'Alarm'
     ];
 
+    private const OUTPUT_COLUMNS = [
+        'Bell',
+        'Siren',
+        'Email',
+        'SMS',
+        'Notif',
+        'Voice',
+        'VOIP',
+        'Screen',
+        'Script',
+        'ExtSvc',
+        'RemoteVoice',
+        'RemoteBell'
+    ];
+
     public function Create()
     {
         parent::Create();
@@ -75,6 +90,8 @@ class ARMResponseManagerMock extends IPSModule
         if (!is_array($rows)) {
             $rows = [];
         }
+
+        $rows = $this->NormalizeRows($rows);
 
         $stateOptions = [];
         foreach (self::HOUSE_STATES as $id => $label) {
@@ -201,16 +218,47 @@ class ARMResponseManagerMock extends IPSModule
 
         foreach ($groups as $groupName) {
             foreach (self::HOUSE_STATES as $stateId => $stateLabel) {
-                $rows[] = [
-                    'Enabled'         => false,
-                    'GroupName'       => $groupName,
-                    'HouseState'      => (string) $stateId,
-                    'AssignedOutputs' => '',
-                    'MinSeconds'      => 60
+                $row = [
+                    'Enabled'    => false,
+                    'GroupName'  => $groupName,
+                    'HouseState' => (string) $stateId,
+                    'MinSeconds' => 60
                 ];
+
+                foreach (self::OUTPUT_COLUMNS as $columnName) {
+                    $row[$columnName] = false;
+                }
+
+                $rows[] = $row;
             }
         }
 
         return $rows;
+    }
+
+    private function NormalizeRows(array $rows): array
+    {
+        $normalized = [];
+
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $newRow = [
+                'Enabled'    => (bool) ($row['Enabled'] ?? false),
+                'GroupName'  => (string) ($row['GroupName'] ?? ''),
+                'HouseState' => (string) ($row['HouseState'] ?? '0'),
+                'MinSeconds' => (int) ($row['MinSeconds'] ?? 60)
+            ];
+
+            foreach (self::OUTPUT_COLUMNS as $columnName) {
+                $newRow[$columnName] = (bool) ($row[$columnName] ?? false);
+            }
+
+            $normalized[] = $newRow;
+        }
+
+        return $normalized;
     }
 }

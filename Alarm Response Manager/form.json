@@ -2,7 +2,7 @@
   "elements": [
     {
       "type": "Label",
-      "caption": "Persistence test UI for Module 3 mockup – self-routing import stage"
+      "caption": "Persistence test UI for Module 3 mockup – output selection stage"
     },
     {
       "type": "SelectInstance",
@@ -43,7 +43,7 @@
         {
           "name": "Enabled",
           "caption": "On",
-          "width": "50px",
+          "width": "45px",
           "add": false,
           "edit": {
             "type": "CheckBox"
@@ -52,7 +52,7 @@
         {
           "name": "GroupName",
           "caption": "Module 1 Group",
-          "width": "180px",
+          "width": "170px",
           "add": "",
           "edit": {
             "type": "ValidationTextBox"
@@ -61,7 +61,7 @@
         {
           "name": "HouseState",
           "caption": "House State",
-          "width": "160px",
+          "width": "150px",
           "add": "0",
           "edit": {
             "type": "Select",
@@ -69,18 +69,117 @@
           }
         },
         {
-          "name": "AssignedOutputs",
-          "caption": "Assigned Outputs",
-          "width": "260px",
-          "add": "",
+          "name": "Bell",
+          "caption": "Bell",
+          "width": "55px",
+          "add": false,
           "edit": {
-            "type": "ValidationTextBox"
+            "type": "CheckBox"
+          }
+        },
+        {
+          "name": "Siren",
+          "caption": "Siren",
+          "width": "55px",
+          "add": false,
+          "edit": {
+            "type": "CheckBox"
+          }
+        },
+        {
+          "name": "Email",
+          "caption": "Email",
+          "width": "55px",
+          "add": false,
+          "edit": {
+            "type": "CheckBox"
+          }
+        },
+        {
+          "name": "SMS",
+          "caption": "SMS",
+          "width": "50px",
+          "add": false,
+          "edit": {
+            "type": "CheckBox"
+          }
+        },
+        {
+          "name": "Notif",
+          "caption": "Notif",
+          "width": "55px",
+          "add": false,
+          "edit": {
+            "type": "CheckBox"
+          }
+        },
+        {
+          "name": "Voice",
+          "caption": "Voice",
+          "width": "55px",
+          "add": false,
+          "edit": {
+            "type": "CheckBox"
+          }
+        },
+        {
+          "name": "VOIP",
+          "caption": "VOIP",
+          "width": "55px",
+          "add": false,
+          "edit": {
+            "type": "CheckBox"
+          }
+        },
+        {
+          "name": "Screen",
+          "caption": "Screen",
+          "width": "60px",
+          "add": false,
+          "edit": {
+            "type": "CheckBox"
+          }
+        },
+        {
+          "name": "Script",
+          "caption": "Script",
+          "width": "60px",
+          "add": false,
+          "edit": {
+            "type": "CheckBox"
+          }
+        },
+        {
+          "name": "ExtSvc",
+          "caption": "ExtSvc",
+          "width": "60px",
+          "add": false,
+          "edit": {
+            "type": "CheckBox"
+          }
+        },
+        {
+          "name": "RemoteVoice",
+          "caption": "RVoice",
+          "width": "65px",
+          "add": false,
+          "edit": {
+            "type": "CheckBox"
+          }
+        },
+        {
+          "name": "RemoteBell",
+          "caption": "RBell",
+          "width": "65px",
+          "add": false,
+          "edit": {
+            "type": "CheckBox"
           }
         },
         {
           "name": "MinSeconds",
           "caption": "Min Sec",
-          "width": "90px",
+          "width": "85px",
           "add": 60,
           "edit": {
             "type": "NumberSpinner"
@@ -103,7 +202,7 @@
     },
     {
       "type": "Label",
-      "caption": "Read first, then build rows. Row generation uses this Module 3 instance ID and GroupDispatch entries from the imported Module 1 configuration."
+      "caption": "This stage uses direct checkbox columns for predefined outputs so persistence can be tested safely."
     }
   ],
   "status": [
