@@ -69,142 +69,39 @@
           }
         },
         {
-          "name": "Bell",
-          "caption": "Bell",
-          "width": "55px",
+          "name": "Severity",
+          "caption": "Severity",
+          "width": "100px",
+          "add": "Medium",
+          "edit": {
+            "type": "Select",
+            "options": []
+          }
+        },
+        {
+          "name": "BypassThrottle",
+          "caption": "Bypass",
+          "width": "70px",
           "add": false,
           "edit": {
             "type": "CheckBox"
           }
         },
         {
-          "name": "Siren",
-          "caption": "Siren",
-          "width": "55px",
-          "add": false,
+          "name": "OutputNamesCsv",
+          "caption": "Outputs",
+          "width": "auto",
+          "add": "",
           "edit": {
-            "type": "CheckBox"
-          }
-        },
-        {
-          "name": "Email",
-          "caption": "Email",
-          "width": "55px",
-          "add": false,
-          "edit": {
-            "type": "CheckBox"
-          }
-        },
-        {
-          "name": "SMS",
-          "caption": "SMS",
-          "width": "50px",
-          "add": false,
-          "edit": {
-            "type": "CheckBox"
-          }
-        },
-        {
-          "name": "Notif",
-          "caption": "Notif",
-          "width": "55px",
-          "add": false,
-          "edit": {
-            "type": "CheckBox"
-          }
-        },
-        {
-          "name": "Voice",
-          "caption": "Voice",
-          "width": "55px",
-          "add": false,
-          "edit": {
-            "type": "CheckBox"
-          }
-        },
-        {
-          "name": "VOIP",
-          "caption": "VOIP",
-          "width": "55px",
-          "add": false,
-          "edit": {
-            "type": "CheckBox"
-          }
-        },
-        {
-          "name": "Screen",
-          "caption": "Screen",
-          "width": "60px",
-          "add": false,
-          "edit": {
-            "type": "CheckBox"
-          }
-        },
-        {
-          "name": "Script",
-          "caption": "Script",
-          "width": "60px",
-          "add": false,
-          "edit": {
-            "type": "CheckBox"
-          }
-        },
-        {
-          "name": "ExtSvc",
-          "caption": "ExtSvc",
-          "width": "60px",
-          "add": false,
-          "edit": {
-            "type": "CheckBox"
-          }
-        },
-        {
-          "name": "RemoteVoice",
-          "caption": "RVoice",
-          "width": "65px",
-          "add": false,
-          "edit": {
-            "type": "CheckBox"
-          }
-        },
-        {
-          "name": "RemoteBell",
-          "caption": "RBell",
-          "width": "65px",
-          "add": false,
-          "edit": {
-            "type": "CheckBox"
-          }
-        },
-        {
-          "name": "OP1",
-          "caption": "OP1",
-          "width": "55px",
-          "add": false,
-          "edit": {
-            "type": "CheckBox"
-          }
-        },
-        {
-          "name": "OP2",
-          "caption": "OP2",
-          "width": "55px",
-          "add": false,
-          "edit": {
-            "type": "CheckBox"
-          }
-        },
-        {
-          "name": "OP3",
-          "caption": "OP3",
-          "width": "55px",
-          "add": false,
-          "edit": {
-            "type": "CheckBox"
+            "type": "ValidationTextBox"
           }
         }
       ],
       "values": []
+    },
+    {
+      "type": "Label",
+      "caption": "Outputs column: enter one or more Output Resource names, separated by commas."
     },
     {
       "type": "List",
@@ -362,7 +259,7 @@
     },
     {
       "type": "Label",
-      "caption": "Output Resources is now edited inline in the list. Target Object ID must be a script or an instance."
+      "caption": "Target Object ID must be a script or an instance."
     }
   ],
   "status": [

@@ -12,24 +12,6 @@ class ARMResponseManagerMock extends IPSModule
         9 => 'Alarm'
     ];
 
-    private const OUTPUT_COLUMNS = [
-        'Bell',
-        'Siren',
-        'Email',
-        'SMS',
-        'Notif',
-        'Voice',
-        'VOIP',
-        'Screen',
-        'Script',
-        'ExtSvc',
-        'RemoteVoice',
-        'RemoteBell',
-        'OP1',
-        'OP2',
-        'OP3'
-    ];
-
     private const OUTPUT_TYPES = [
         'Bell',
         'Siren',
@@ -46,6 +28,13 @@ class ARMResponseManagerMock extends IPSModule
         'OP1',
         'OP2',
         'OP3'
+    ];
+
+    private const SEVERITY_LEVELS = [
+        'Low',
+        'Medium',
+        'High',
+        'Critical'
     ];
 
     public function Create()
@@ -81,6 +70,13 @@ class ARMResponseManagerMock extends IPSModule
         $normalizedOutputRows = $this->NormalizeOutputRows($outputRows);
         if (json_encode($normalizedOutputRows) !== json_encode($outputRows)) {
             IPS_SetProperty($this->InstanceID, 'OutputResources', json_encode($normalizedOutputRows));
+            IPS_ApplyChanges($this->InstanceID);
+            return;
+        }
+
+        $normalizedGroupRows = $this->NormalizeGroupRows($groupRows, $normalizedOutputRows);
+        if (json_encode($normalizedGroupRows) !== json_encode($groupRows)) {
+            IPS_SetProperty($this->InstanceID, 'GroupStateMappings', json_encode($normalizedGroupRows));
             IPS_ApplyChanges($this->InstanceID);
             return;
         }
@@ -122,23 +118,31 @@ class ARMResponseManagerMock extends IPSModule
             ]);
         }
 
-        $groupRows = json_decode($this->ReadPropertyString('GroupStateMappings'), true);
-        if (!is_array($groupRows)) {
-            $groupRows = [];
-        }
-        $groupRows = $this->NormalizeGroupRows($groupRows);
-
         $outputRows = json_decode($this->ReadPropertyString('OutputResources'), true);
         if (!is_array($outputRows)) {
             $outputRows = [];
         }
         $outputRows = $this->NormalizeOutputRows($outputRows);
 
+        $groupRows = json_decode($this->ReadPropertyString('GroupStateMappings'), true);
+        if (!is_array($groupRows)) {
+            $groupRows = [];
+        }
+        $groupRows = $this->NormalizeGroupRows($groupRows, $outputRows);
+
         $stateOptions = [];
         foreach (self::HOUSE_STATES as $id => $label) {
             $stateOptions[] = [
                 'caption' => $label,
                 'value'   => (string) $id
+            ];
+        }
+
+        $severityOptions = [];
+        foreach (self::SEVERITY_LEVELS as $level) {
+            $severityOptions[] = [
+                'caption' => $level,
+                'value'   => $level
             ];
         }
 
@@ -157,6 +161,9 @@ class ARMResponseManagerMock extends IPSModule
                 foreach ($element['columns'] as &$column) {
                     if (($column['name'] ?? '') === 'HouseState') {
                         $column['edit']['options'] = $stateOptions;
+                    }
+                    if (($column['name'] ?? '') === 'Severity') {
+                        $column['edit']['options'] = $severityOptions;
                     }
                 }
                 unset($column);
@@ -278,43 +285,43 @@ class ARMResponseManagerMock extends IPSModule
 
         foreach ($groups as $groupName) {
             foreach (self::HOUSE_STATES as $stateId => $stateLabel) {
-                $row = [
-                    'Enabled'    => false,
-                    'GroupName'  => $groupName,
-                    'HouseState' => (string) $stateId
+                $rows[] = [
+                    'Enabled'         => false,
+                    'GroupName'       => $groupName,
+                    'HouseState'      => (string) $stateId,
+                    'Severity'        => 'Medium',
+                    'BypassThrottle'  => false,
+                    'OutputNamesCsv'  => ''
                 ];
-
-                foreach (self::OUTPUT_COLUMNS as $columnName) {
-                    $row[$columnName] = false;
-                }
-
-                $rows[] = $row;
             }
         }
 
         return $rows;
     }
 
-    private function NormalizeGroupRows(array $rows): array
+    private function NormalizeGroupRows(array $rows, array $outputRows): array
     {
         $normalized = [];
+        $validOutputNames = $this->GetValidOutputNames($outputRows);
 
         foreach ($rows as $row) {
             if (!is_array($row)) {
                 continue;
             }
 
-            $newRow = [
-                'Enabled'    => (bool) ($row['Enabled'] ?? false),
-                'GroupName'  => (string) ($row['GroupName'] ?? ''),
-                'HouseState' => (string) ($row['HouseState'] ?? '0')
-            ];
-
-            foreach (self::OUTPUT_COLUMNS as $columnName) {
-                $newRow[$columnName] = (bool) ($row[$columnName] ?? false);
+            $severity = (string) ($row['Severity'] ?? 'Medium');
+            if (!in_array($severity, self::SEVERITY_LEVELS, true)) {
+                $severity = 'Medium';
             }
 
-            $normalized[] = $newRow;
+            $normalized[] = [
+                'Enabled'        => (bool) ($row['Enabled'] ?? false),
+                'GroupName'      => (string) ($row['GroupName'] ?? ''),
+                'HouseState'     => (string) ($row['HouseState'] ?? '0'),
+                'Severity'       => $severity,
+                'BypassThrottle' => (bool) ($row['BypassThrottle'] ?? false),
+                'OutputNamesCsv' => $this->NormalizeOutputNamesCsv((string) ($row['OutputNamesCsv'] ?? ''), $validOutputNames)
+            ];
         }
 
         return $normalized;
@@ -358,6 +365,56 @@ class ARMResponseManagerMock extends IPSModule
         }
 
         return $normalized;
+    }
+
+    private function GetValidOutputNames(array $outputRows): array
+    {
+        $names = [];
+
+        foreach ($outputRows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $name = trim((string) ($row['OutputName'] ?? ''));
+            if ($name === '') {
+                continue;
+            }
+
+            $names[strtolower($name)] = $name;
+        }
+
+        return $names;
+    }
+
+    private function NormalizeOutputNamesCsv(string $csv, array $validOutputNames): string
+    {
+        $parts = explode(',', $csv);
+        $result = [];
+        $seen = [];
+
+        foreach ($parts as $part) {
+            $name = trim($part);
+            if ($name === '') {
+                continue;
+            }
+
+            $key = strtolower($name);
+            if (!isset($validOutputNames[$key])) {
+                continue;
+            }
+
+            $canonical = $validOutputNames[$key];
+            $canonicalKey = strtolower($canonical);
+            if (isset($seen[$canonicalKey])) {
+                continue;
+            }
+
+            $seen[$canonicalKey] = true;
+            $result[] = $canonical;
+        }
+
+        return implode(', ', $result);
     }
 
     private function IsAllowedTargetObject(int $objectID): bool
