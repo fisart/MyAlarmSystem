@@ -2,7 +2,7 @@
   "elements": [
     {
       "type": "Label",
-      "caption": "Persistence test UI for Module 3 mockup – import stage"
+      "caption": "Persistence test UI for Module 3 mockup – self-routing import stage"
     },
     {
       "type": "SelectInstance",
@@ -23,6 +23,10 @@
       "type": "ValidationTextBox",
       "name": "ImportedModule1ConfigJson",
       "caption": "Imported Module 1 Config JSON"
+    },
+    {
+      "type": "Label",
+      "caption": "This Module 3 instance automatically uses its own InstanceID to find matching GroupDispatch routes in the imported Module 1 configuration."
     },
     {
       "type": "List",
@@ -89,12 +93,17 @@
   "actions": [
     {
       "type": "Button",
-      "caption": "Import Module 1 Configuration (Rebuild)",
-      "onClick": "ARMM_ImportModule1Configuration($id);"
+      "caption": "Read Module 1 Configuration",
+      "onClick": "ARMM_ReadModule1Configuration($id);"
+    },
+    {
+      "type": "Button",
+      "caption": "Build Rows From My Module 1 Routing",
+      "onClick": "ARMM_BuildRowsFromMyRouting($id);"
     },
     {
       "type": "Label",
-      "caption": "This stage imports Module 1 immediately and rebuilds all Group × State rows."
+      "caption": "Read first, then build rows. Row generation uses this Module 3 instance ID and GroupDispatch entries from the imported Module 1 configuration."
     }
   ],
   "status": [
@@ -116,7 +125,22 @@
     {
       "code": 200,
       "icon": "error",
-      "caption": "Import failed"
+      "caption": "Module 1 read failed"
+    },
+    {
+      "code": 201,
+      "icon": "error",
+      "caption": "No routing found for this Module 3 instance in imported Module 1 GroupDispatch"
+    },
+    {
+      "code": 202,
+      "icon": "active",
+      "caption": "Module 1 configuration imported"
+    },
+    {
+      "code": 203,
+      "icon": "active",
+      "caption": "Rows built from this Module 3 routing"
     }
   ]
 }

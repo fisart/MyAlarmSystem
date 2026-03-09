@@ -28,13 +28,15 @@ class ARMResponseManagerMock extends IPSModule
         parent::ApplyChanges();
 
         $rows = json_decode($this->ReadPropertyString('GroupStateMappings'), true);
-        if (!is_array($rows) || count($rows) === 0) {
-            IPS_SetProperty($this->InstanceID, 'GroupStateMappings', json_encode($this->BuildDefaultRows()));
+        if (!is_array($rows)) {
+            IPS_SetProperty($this->InstanceID, 'GroupStateMappings', '[]');
             IPS_ApplyChanges($this->InstanceID);
             return;
         }
 
-        $this->SetStatus(102);
+        if ($this->GetStatus() === 100 || $this->GetStatus() === 101) {
+            $this->SetStatus(102);
+        }
     }
 
     public function GetConfigurationForm()
@@ -83,7 +85,7 @@ class ARMResponseManagerMock extends IPSModule
         return json_encode($form);
     }
 
-    public function ImportModule1Configuration(): void
+    public function ReadModule1Configuration(): void
     {
         $module1ID = $this->ReadPropertyInteger('Module1InstanceID');
         if ($module1ID <= 0 || !@IPS_InstanceExists($module1ID)) {
@@ -108,34 +110,67 @@ class ARMResponseManagerMock extends IPSModule
             throw new Exception('Module 1 returned invalid JSON.');
         }
 
-        $groups = $this->ExtractGroupNames($config);
-        $rows   = $this->BuildRowsFromImportedGroups($groups);
-
         IPS_SetProperty($this->InstanceID, 'ImportedModule1ConfigJson', $json);
-        IPS_SetProperty($this->InstanceID, 'GroupStateMappings', json_encode($rows));
         IPS_ApplyChanges($this->InstanceID);
+
+        $this->SetStatus(202);
     }
 
-    private function ExtractGroupNames(array $config): array
+    public function BuildRowsFromMyRouting(): void
     {
-        $result = [];
-
-        $groupList = $config['GroupList'] ?? [];
-        if (!is_array($groupList)) {
-            return $result;
+        $json = $this->ReadPropertyString('ImportedModule1ConfigJson');
+        if (trim($json) === '') {
+            $this->SetStatus(200);
+            throw new Exception('No imported Module 1 configuration is available. Read Module 1 configuration first.');
         }
 
-        foreach ($groupList as $group) {
-            if (!is_array($group)) {
+        $config = json_decode($json, true);
+        if (!is_array($config)) {
+            $this->SetStatus(200);
+            throw new Exception('Imported Module 1 configuration is invalid JSON.');
+        }
+
+        $myInstanceID = $this->InstanceID;
+        $groups = $this->ExtractGroupsForTargetInstance($config, $myInstanceID);
+
+        if (count($groups) === 0) {
+            $this->SetStatus(201);
+            throw new Exception('No GroupDispatch entry in Module 1 routes to this Module 3 instance ID (' . $myInstanceID . ').');
+        }
+
+        $rows = $this->BuildRowsFromImportedGroups($groups);
+
+        IPS_SetProperty($this->InstanceID, 'GroupStateMappings', json_encode($rows));
+        IPS_ApplyChanges($this->InstanceID);
+
+        $this->SetStatus(203);
+    }
+
+    private function ExtractGroupsForTargetInstance(array $config, int $targetInstanceID): array
+    {
+        $result = [];
+        $dispatchList = $config['GroupDispatch'] ?? [];
+
+        if (!is_array($dispatchList)) {
+            return [];
+        }
+
+        foreach ($dispatchList as $dispatchRow) {
+            if (!is_array($dispatchRow)) {
                 continue;
             }
 
-            $name = trim((string) ($group['GroupName'] ?? ''));
-            if ($name === '') {
+            $instanceID = (int) ($dispatchRow['InstanceID'] ?? 0);
+            if ($instanceID !== $targetInstanceID) {
                 continue;
             }
 
-            $result[] = $name;
+            $groupName = trim((string) ($dispatchRow['GroupName'] ?? ''));
+            if ($groupName === '') {
+                continue;
+            }
+
+            $result[] = $groupName;
         }
 
         $result = array_values(array_unique($result));
@@ -162,22 +197,10 @@ class ARMResponseManagerMock extends IPSModule
 
         return $rows;
     }
-
-    private function BuildDefaultRows(): array
-    {
-        $groups = [
-            'Burglar Alarm',
-            'Fire Alarm',
-            'Water Alarm',
-            'Technical Fault'
-        ];
-
-        return $this->BuildRowsFromImportedGroups($groups);
-    }
 }
 
-if (!function_exists('ARMM_ImportModule1Configuration')) {
-    function ARMM_ImportModule1Configuration(int $InstanceID): void
+if (!function_exists('ARMM_ReadModule1Configuration')) {
+    function ARMM_ReadModule1Configuration(int $InstanceID): void
     {
         if (!IPS_InstanceExists($InstanceID)) {
             throw new Exception('Instance does not exist.');
@@ -188,11 +211,46 @@ if (!function_exists('ARMM_ImportModule1Configuration')) {
             throw new Exception('Instance is not ARMResponseManagerMock.');
         }
 
-        $module = IPSModule::getInstance($InstanceID);
-        if (!($module instanceof ARMResponseManagerMock)) {
-            throw new Exception('Unable to access module instance.');
+        $script = '
+            $instanceID = ' . $InstanceID . ';
+            $instance = IPS_GetInstance($instanceID);
+            if (($instance["ModuleInfo"]["ModuleID"] ?? "") !== "{A6C3F4B1-7E8D-4E66-8D39-11F2D6E21001}") {
+                throw new Exception("Instance is not ARMResponseManagerMock.");
+            }
+            $module = IPSModule::getInstance($instanceID);
+            if (!($module instanceof ARMResponseManagerMock)) {
+                throw new Exception("Unable to access module instance.");
+            }
+            $module->ReadModule1Configuration();
+        ';
+        eval($script);
+    }
+}
+
+if (!function_exists('ARMM_BuildRowsFromMyRouting')) {
+    function ARMM_BuildRowsFromMyRouting(int $InstanceID): void
+    {
+        if (!IPS_InstanceExists($InstanceID)) {
+            throw new Exception('Instance does not exist.');
         }
 
-        $module->ImportModule1Configuration();
+        $instance = IPS_GetInstance($InstanceID);
+        if (($instance['ModuleInfo']['ModuleID'] ?? '') !== '{A6C3F4B1-7E8D-4E66-8D39-11F2D6E21001}') {
+            throw new Exception('Instance is not ARMResponseManagerMock.');
+        }
+
+        $script = '
+            $instanceID = ' . $InstanceID . ';
+            $instance = IPS_GetInstance($instanceID);
+            if (($instance["ModuleInfo"]["ModuleID"] ?? "") !== "{A6C3F4B1-7E8D-4E66-8D39-11F2D6E21001}") {
+                throw new Exception("Instance is not ARMResponseManagerMock.");
+            }
+            $module = IPSModule::getInstance($instanceID);
+            if (!($module instanceof ARMResponseManagerMock)) {
+                throw new Exception("Unable to access module instance.");
+            }
+            $module->BuildRowsFromMyRouting();
+        ';
+        eval($script);
     }
 }
