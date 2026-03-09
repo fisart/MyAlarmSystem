@@ -2,7 +2,7 @@
   "elements": [
     {
       "type": "Label",
-      "caption": "Persistence test UI for Module 3 mockup – selector stage"
+      "caption": "Persistence test UI for Module 3 mockup – import stage"
     },
     {
       "type": "SelectInstance",
@@ -22,13 +22,13 @@
     {
       "type": "ValidationTextBox",
       "name": "ImportedModule1ConfigJson",
-      "caption": "Imported Module 1 Config JSON (mock)"
+      "caption": "Imported Module 1 Config JSON"
     },
     {
       "type": "List",
       "name": "GroupStateMappings",
       "caption": "Group → State → Output Mapping",
-      "rowCount": 10,
+      "rowCount": 12,
       "add": false,
       "delete": false,
       "sort": {
@@ -88,8 +88,13 @@
   ],
   "actions": [
     {
+      "type": "Button",
+      "caption": "Import Module 1 Configuration (Rebuild)",
+      "onClick": "ARMM_ImportModule1Configuration($id);"
+    },
+    {
       "type": "Label",
-      "caption": "Test selector persistence first. Then we will add import and row regeneration logic."
+      "caption": "This stage imports Module 1 immediately and rebuilds all Group × State rows."
     }
   ],
   "status": [
@@ -107,6 +112,11 @@
       "code": 104,
       "icon": "inactive",
       "caption": "Instance is inactive"
+    },
+    {
+      "code": 200,
+      "icon": "error",
+      "caption": "Import failed"
     }
   ]
 }
