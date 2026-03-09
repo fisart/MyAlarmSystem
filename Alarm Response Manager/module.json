@@ -1,0 +1,13 @@
+{
+  "id": "{A6C3F4B1-7E8D-4E66-8D39-11F2D6E21001}",
+  "name": "ARMResponseManagerMock",
+  "type": 3,
+  "vendor": "OpenAI",
+  "aliases": [
+    "Alarm Response Manager Mock"
+  ],
+  "parentRequirements": [],
+  "childRequirements": [],
+  "implemented": [],
+  "prefix": "ARMM"
+}

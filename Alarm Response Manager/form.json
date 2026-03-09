@@ -1,0 +1,112 @@
+{
+  "elements": [
+    {
+      "type": "Label",
+      "caption": "Minimum persistence test UI for Module 3 mockup"
+    },
+    {
+      "type": "NumberSpinner",
+      "name": "Module1InstanceID",
+      "caption": "Module 1 Instance ID"
+    },
+    {
+      "type": "NumberSpinner",
+      "name": "Module2InstanceID",
+      "caption": "Module 2 Instance ID"
+    },
+    {
+      "type": "NumberSpinner",
+      "name": "VaultInstanceID",
+      "caption": "Vault Instance ID"
+    },
+    {
+      "type": "ValidationTextBox",
+      "name": "ImportedModule1ConfigJson",
+      "caption": "Imported Module 1 Config JSON (mock)"
+    },
+    {
+      "type": "List",
+      "name": "GroupStateMappings",
+      "caption": "Group → State → Output Mapping",
+      "rowCount": 10,
+      "add": false,
+      "delete": false,
+      "sort": {
+        "column": "GroupName",
+        "direction": "ascending"
+      },
+      "columns": [
+        {
+          "name": "Enabled",
+          "caption": "On",
+          "width": "50px",
+          "add": false,
+          "edit": {
+            "type": "CheckBox"
+          }
+        },
+        {
+          "name": "GroupName",
+          "caption": "Module 1 Group",
+          "width": "180px",
+          "add": "",
+          "edit": {
+            "type": "ValidationTextBox"
+          }
+        },
+        {
+          "name": "HouseState",
+          "caption": "House State",
+          "width": "160px",
+          "add": "0",
+          "edit": {
+            "type": "Select",
+            "options": []
+          }
+        },
+        {
+          "name": "AssignedOutputs",
+          "caption": "Assigned Outputs",
+          "width": "260px",
+          "add": "",
+          "edit": {
+            "type": "ValidationTextBox"
+          }
+        },
+        {
+          "name": "MinSeconds",
+          "caption": "Min Sec",
+          "width": "90px",
+          "add": 60,
+          "edit": {
+            "type": "NumberSpinner"
+          }
+        }
+      ],
+      "values": []
+    }
+  ],
+  "actions": [
+    {
+      "type": "Label",
+      "caption": "Edit values above, click Apply, then reopen the form to verify persistence."
+    }
+  ],
+  "status": [
+    {
+      "code": 101,
+      "icon": "inactive",
+      "caption": "Creating instance"
+    },
+    {
+      "code": 102,
+      "icon": "active",
+      "caption": "Instance is active"
+    },
+    {
+      "code": 104,
+      "icon": "inactive",
+      "caption": "Instance is inactive"
+    }
+  ]
+}

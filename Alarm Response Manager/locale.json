@@ -1,0 +1,23 @@
+{
+  "translations": [
+    {
+      "de": {
+        "Minimum persistence test UI for Module 3 mockup": "Minimale Persistenz-Testoberfläche für Modul-3-Mockup",
+        "Module 1 Instance ID": "Modul-1-Instanz-ID",
+        "Module 2 Instance ID": "Modul-2-Instanz-ID",
+        "Vault Instance ID": "Vault-Instanz-ID",
+        "Imported Module 1 Config JSON (mock)": "Importiertes Modul-1-Konfigurations-JSON (Mock)",
+        "Group → State → Output Mapping": "Gruppe → Zustand → Ausgangszuordnung",
+        "Edit values above, click Apply, then reopen the form to verify persistence.": "Werte oben ändern, Übernehmen klicken und das Formular erneut öffnen, um die Persistenz zu prüfen.",
+        "Creating instance": "Instanz wird erstellt",
+        "Instance is active": "Instanz ist aktiv",
+        "Instance is inactive": "Instanz ist inaktiv",
+        "On": "Ein",
+        "Module 1 Group": "Modul-1-Gruppe",
+        "House State": "Hauszustand",
+        "Assigned Outputs": "Zugewiesene Ausgänge",
+        "Min Sec": "Min Sek"
+      }
+    }
+  ]
+}
