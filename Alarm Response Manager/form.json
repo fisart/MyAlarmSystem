@@ -252,7 +252,7 @@
           "width": "110px",
           "add": 0,
           "edit": {
-            "type": "NumberSpinner"
+            "type": "SelectObject"
           }
         },
         {
