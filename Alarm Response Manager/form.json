@@ -177,12 +177,30 @@
           }
         },
         {
-          "name": "MinSeconds",
-          "caption": "Min Sec",
-          "width": "85px",
-          "add": 60,
+          "name": "OP1",
+          "caption": "OP1",
+          "width": "55px",
+          "add": false,
           "edit": {
-            "type": "NumberSpinner"
+            "type": "CheckBox"
+          }
+        },
+        {
+          "name": "OP2",
+          "caption": "OP2",
+          "width": "55px",
+          "add": false,
+          "edit": {
+            "type": "CheckBox"
+          }
+        },
+        {
+          "name": "OP3",
+          "caption": "OP3",
+          "width": "55px",
+          "add": false,
+          "edit": {
+            "type": "CheckBox"
           }
         }
       ],

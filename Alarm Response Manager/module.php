@@ -24,7 +24,10 @@ class ARMResponseManagerMock extends IPSModule
         'Script',
         'ExtSvc',
         'RemoteVoice',
-        'RemoteBell'
+        'RemoteBell',
+        'OP1',
+        'OP2',
+        'OP3'
     ];
 
     public function Create()
@@ -221,8 +224,7 @@ class ARMResponseManagerMock extends IPSModule
                 $row = [
                     'Enabled'    => false,
                     'GroupName'  => $groupName,
-                    'HouseState' => (string) $stateId,
-                    'MinSeconds' => 60
+                    'HouseState' => (string) $stateId
                 ];
 
                 foreach (self::OUTPUT_COLUMNS as $columnName) {
@@ -248,8 +250,7 @@ class ARMResponseManagerMock extends IPSModule
             $newRow = [
                 'Enabled'    => (bool) ($row['Enabled'] ?? false),
                 'GroupName'  => (string) ($row['GroupName'] ?? ''),
-                'HouseState' => (string) ($row['HouseState'] ?? '0'),
-                'MinSeconds' => (int) ($row['MinSeconds'] ?? 60)
+                'HouseState' => (string) ($row['HouseState'] ?? '0')
             ];
 
             foreach (self::OUTPUT_COLUMNS as $columnName) {
