@@ -53,9 +53,7 @@
           "name": "GroupName",
           "caption": "Module 1 Group",
           "width": "170px",
-          "add": "",
-          "edit": {
-            "type": "ValidationTextBox"
+          "add": ""
           }
         },
         {
