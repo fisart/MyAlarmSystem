@@ -12,6 +12,24 @@ class ARMResponseManagerMock extends IPSModule
         9 => 'Alarm'
     ];
 
+    private const OUTPUT_COLUMNS = [
+        'Bell',
+        'Siren',
+        'Email',
+        'SMS',
+        'Notif',
+        'Voice',
+        'VOIP',
+        'Screen',
+        'Script',
+        'ExtSvc',
+        'RemoteVoice',
+        'RemoteBell',
+        'OP1',
+        'OP2',
+        'OP3'
+    ];
+
     private const OUTPUT_TYPES = [
         'Bell',
         'Siren',
@@ -285,14 +303,19 @@ class ARMResponseManagerMock extends IPSModule
 
         foreach ($groups as $groupName) {
             foreach (self::HOUSE_STATES as $stateId => $stateLabel) {
-                $rows[] = [
-                    'Enabled'         => false,
-                    'GroupName'       => $groupName,
-                    'HouseState'      => (string) $stateId,
-                    'Severity'        => 'Medium',
-                    'BypassThrottle'  => false,
-                    'OutputNamesCsv'  => ''
+                $row = [
+                    'Enabled'        => false,
+                    'GroupName'      => $groupName,
+                    'HouseState'     => (string) $stateId,
+                    'Severity'       => 'Medium',
+                    'BypassThrottle' => false
                 ];
+
+                foreach (self::OUTPUT_COLUMNS as $columnName) {
+                    $row[$columnName] = false;
+                }
+
+                $rows[] = $row;
             }
         }
 
@@ -302,7 +325,6 @@ class ARMResponseManagerMock extends IPSModule
     private function NormalizeGroupRows(array $rows, array $outputRows): array
     {
         $normalized = [];
-        $validOutputNames = $this->GetValidOutputNames($outputRows);
 
         foreach ($rows as $row) {
             if (!is_array($row)) {
@@ -314,14 +336,19 @@ class ARMResponseManagerMock extends IPSModule
                 $severity = 'Medium';
             }
 
-            $normalized[] = [
+            $newRow = [
                 'Enabled'        => (bool) ($row['Enabled'] ?? false),
                 'GroupName'      => (string) ($row['GroupName'] ?? ''),
                 'HouseState'     => (string) ($row['HouseState'] ?? '0'),
                 'Severity'       => $severity,
-                'BypassThrottle' => (bool) ($row['BypassThrottle'] ?? false),
-                'OutputNamesCsv' => $this->NormalizeOutputNamesCsv((string) ($row['OutputNamesCsv'] ?? ''), $validOutputNames)
+                'BypassThrottle' => (bool) ($row['BypassThrottle'] ?? false)
             ];
+
+            foreach (self::OUTPUT_COLUMNS as $columnName) {
+                $newRow[$columnName] = (bool) ($row[$columnName] ?? false);
+            }
+
+            $normalized[] = $newRow;
         }
 
         return $normalized;
@@ -367,55 +394,7 @@ class ARMResponseManagerMock extends IPSModule
         return $normalized;
     }
 
-    private function GetValidOutputNames(array $outputRows): array
-    {
-        $names = [];
 
-        foreach ($outputRows as $row) {
-            if (!is_array($row)) {
-                continue;
-            }
-
-            $name = trim((string) ($row['OutputName'] ?? ''));
-            if ($name === '') {
-                continue;
-            }
-
-            $names[strtolower($name)] = $name;
-        }
-
-        return $names;
-    }
-
-    private function NormalizeOutputNamesCsv(string $csv, array $validOutputNames): string
-    {
-        $parts = explode(',', $csv);
-        $result = [];
-        $seen = [];
-
-        foreach ($parts as $part) {
-            $name = trim($part);
-            if ($name === '') {
-                continue;
-            }
-
-            $key = strtolower($name);
-            if (!isset($validOutputNames[$key])) {
-                continue;
-            }
-
-            $canonical = $validOutputNames[$key];
-            $canonicalKey = strtolower($canonical);
-            if (isset($seen[$canonicalKey])) {
-                continue;
-            }
-
-            $seen[$canonicalKey] = true;
-            $result[] = $canonical;
-        }
-
-        return implode(', ', $result);
-    }
 
     private function IsAllowedTargetObject(int $objectID): bool
     {
