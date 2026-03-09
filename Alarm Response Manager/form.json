@@ -2,7 +2,7 @@
   "elements": [
     {
       "type": "Label",
-      "caption": "Persistence test UI for Module 3 mockup – output selection stage"
+      "caption": "Persistence test UI for Module 3 mockup – output resource stage"
     },
     {
       "type": "SelectInstance",
@@ -205,6 +205,151 @@
         }
       ],
       "values": []
+    },
+    {
+      "type": "List",
+      "name": "OutputResources",
+      "caption": "Output Resources",
+      "rowCount": 8,
+      "add": true,
+      "delete": true,
+      "sort": {
+        "column": "OutputName",
+        "direction": "ascending"
+      },
+      "columns": [
+        {
+          "name": "Enabled",
+          "caption": "On",
+          "width": "45px",
+          "add": true,
+          "edit": {
+            "type": "CheckBox"
+          }
+        },
+        {
+          "name": "OutputName",
+          "caption": "Output Name",
+          "width": "180px",
+          "add": "",
+          "edit": {
+            "type": "ValidationTextBox"
+          }
+        },
+        {
+          "name": "OutputType",
+          "caption": "Output Type",
+          "width": "140px",
+          "add": "Email",
+          "edit": {
+            "type": "Select",
+            "options": []
+          }
+        },
+        {
+          "name": "TargetObjectID",
+          "caption": "Target ObjID",
+          "width": "110px",
+          "add": 0,
+          "edit": {
+            "type": "NumberSpinner"
+          }
+        },
+        {
+          "name": "MaxMessages",
+          "caption": "Max Msg",
+          "width": "85px",
+          "add": 1,
+          "edit": {
+            "type": "NumberSpinner"
+          }
+        },
+        {
+          "name": "PerSeconds",
+          "caption": "Per Sec",
+          "width": "85px",
+          "add": 60,
+          "edit": {
+            "type": "NumberSpinner"
+          }
+        }
+      ],
+      "form": {
+        "elements": [
+          {
+            "type": "CheckBox",
+            "name": "Enabled",
+            "caption": "Enabled"
+          },
+          {
+            "type": "ValidationTextBox",
+            "name": "OutputName",
+            "caption": "Output Name"
+          },
+          {
+            "type": "Select",
+            "name": "OutputType",
+            "caption": "Output Type",
+            "options": []
+          },
+          {
+            "type": "SelectObject",
+            "name": "TargetObjectID",
+            "caption": "Target Object ID"
+          },
+          {
+            "type": "NumberSpinner",
+            "name": "MaxMessages",
+            "caption": "Max Messages"
+          },
+          {
+            "type": "NumberSpinner",
+            "name": "PerSeconds",
+            "caption": "Per Seconds"
+          },
+          {
+            "type": "ValidationTextBox",
+            "name": "PrefixText",
+            "caption": "Prefix Text"
+          },
+          {
+            "type": "CheckBox",
+            "name": "UseSensorName",
+            "caption": "Include Sensor Name"
+          },
+          {
+            "type": "CheckBox",
+            "name": "UseParentName",
+            "caption": "Include Parent Name"
+          },
+          {
+            "type": "CheckBox",
+            "name": "UseGrandparentName",
+            "caption": "Include Grandparent Name"
+          },
+          {
+            "type": "ValidationTextBox",
+            "name": "SuffixText",
+            "caption": "Suffix Text"
+          },
+          {
+            "type": "ValidationTextBox",
+            "name": "EmailAddress",
+            "caption": "Email Address"
+          },
+          {
+            "type": "ValidationTextBox",
+            "name": "PhoneNumber",
+            "caption": "Phone Number"
+          },
+          {
+            "type": "ValidationTextBox",
+            "name": "Volume",
+            "caption": "Volume"
+          }
+        ]
+      },
+      "values": []
     }
   ],
   "actions": [
@@ -220,7 +365,7 @@
     },
     {
       "type": "Label",
-      "caption": "This stage uses direct checkbox columns for predefined outputs so persistence can be tested safely."
+      "caption": "Output Resources uses a popup row editor. Target Object ID should be a script or an instance."
     }
   ],
   "status": [

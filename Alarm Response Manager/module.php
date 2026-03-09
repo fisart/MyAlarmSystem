@@ -30,6 +30,24 @@ class ARMResponseManagerMock extends IPSModule
         'OP3'
     ];
 
+    private const OUTPUT_TYPES = [
+        'Bell',
+        'Siren',
+        'Email',
+        'SMS',
+        'Notification',
+        'Voice',
+        'VOIP',
+        'Screen',
+        'Script',
+        'External Service',
+        'Remote Voice',
+        'Remote Alarm Bell',
+        'OP1',
+        'OP2',
+        'OP3'
+    ];
+
     public function Create()
     {
         parent::Create();
@@ -39,15 +57,30 @@ class ARMResponseManagerMock extends IPSModule
         $this->RegisterPropertyInteger('VaultInstanceID', 0);
         $this->RegisterPropertyString('ImportedModule1ConfigJson', '');
         $this->RegisterPropertyString('GroupStateMappings', '[]');
+        $this->RegisterPropertyString('OutputResources', '[]');
     }
 
     public function ApplyChanges()
     {
         parent::ApplyChanges();
 
-        $rows = json_decode($this->ReadPropertyString('GroupStateMappings'), true);
-        if (!is_array($rows)) {
+        $groupRows = json_decode($this->ReadPropertyString('GroupStateMappings'), true);
+        if (!is_array($groupRows)) {
             IPS_SetProperty($this->InstanceID, 'GroupStateMappings', '[]');
+            IPS_ApplyChanges($this->InstanceID);
+            return;
+        }
+
+        $outputRows = json_decode($this->ReadPropertyString('OutputResources'), true);
+        if (!is_array($outputRows)) {
+            IPS_SetProperty($this->InstanceID, 'OutputResources', '[]');
+            IPS_ApplyChanges($this->InstanceID);
+            return;
+        }
+
+        $normalizedOutputRows = $this->NormalizeOutputRows($outputRows);
+        if (json_encode($normalizedOutputRows) !== json_encode($outputRows)) {
+            IPS_SetProperty($this->InstanceID, 'OutputResources', json_encode($normalizedOutputRows));
             IPS_ApplyChanges($this->InstanceID);
             return;
         }
@@ -89,12 +122,17 @@ class ARMResponseManagerMock extends IPSModule
             ]);
         }
 
-        $rows = json_decode($this->ReadPropertyString('GroupStateMappings'), true);
-        if (!is_array($rows)) {
-            $rows = [];
+        $groupRows = json_decode($this->ReadPropertyString('GroupStateMappings'), true);
+        if (!is_array($groupRows)) {
+            $groupRows = [];
         }
+        $groupRows = $this->NormalizeGroupRows($groupRows);
 
-        $rows = $this->NormalizeRows($rows);
+        $outputRows = json_decode($this->ReadPropertyString('OutputResources'), true);
+        if (!is_array($outputRows)) {
+            $outputRows = [];
+        }
+        $outputRows = $this->NormalizeOutputRows($outputRows);
 
         $stateOptions = [];
         foreach (self::HOUSE_STATES as $id => $label) {
@@ -104,9 +142,17 @@ class ARMResponseManagerMock extends IPSModule
             ];
         }
 
+        $outputTypeOptions = [];
+        foreach (self::OUTPUT_TYPES as $type) {
+            $outputTypeOptions[] = [
+                'caption' => $type,
+                'value'   => $type
+            ];
+        }
+
         foreach ($form['elements'] as &$element) {
             if (($element['type'] ?? '') === 'List' && ($element['name'] ?? '') === 'GroupStateMappings') {
-                $element['values'] = $rows;
+                $element['values'] = $groupRows;
 
                 foreach ($element['columns'] as &$column) {
                     if (($column['name'] ?? '') === 'HouseState') {
@@ -114,6 +160,24 @@ class ARMResponseManagerMock extends IPSModule
                     }
                 }
                 unset($column);
+            }
+
+            if (($element['type'] ?? '') === 'List' && ($element['name'] ?? '') === 'OutputResources') {
+                $element['values'] = $outputRows;
+
+                foreach ($element['columns'] as &$column) {
+                    if (($column['name'] ?? '') === 'OutputType') {
+                        $column['edit']['options'] = $outputTypeOptions;
+                    }
+                }
+                unset($column);
+
+                foreach ($element['form']['elements'] as &$subElement) {
+                    if (($subElement['name'] ?? '') === 'OutputType') {
+                        $subElement['options'] = $outputTypeOptions;
+                    }
+                }
+                unset($subElement);
             }
         }
         unset($element);
@@ -238,7 +302,7 @@ class ARMResponseManagerMock extends IPSModule
         return $rows;
     }
 
-    private function NormalizeRows(array $rows): array
+    private function NormalizeGroupRows(array $rows): array
     {
         $normalized = [];
 
@@ -261,5 +325,58 @@ class ARMResponseManagerMock extends IPSModule
         }
 
         return $normalized;
+    }
+
+    private function NormalizeOutputRows(array $rows): array
+    {
+        $normalized = [];
+
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $targetObjectID = (int) ($row['TargetObjectID'] ?? 0);
+            if (!$this->IsAllowedTargetObject($targetObjectID)) {
+                $targetObjectID = 0;
+            }
+
+            $outputType = (string) ($row['OutputType'] ?? 'Email');
+            if (!in_array($outputType, self::OUTPUT_TYPES, true)) {
+                $outputType = 'Email';
+            }
+
+            $normalized[] = [
+                'Enabled'              => (bool) ($row['Enabled'] ?? true),
+                'OutputName'           => (string) ($row['OutputName'] ?? ''),
+                'OutputType'           => $outputType,
+                'TargetObjectID'       => $targetObjectID,
+                'MaxMessages'          => max(1, (int) ($row['MaxMessages'] ?? 1)),
+                'PerSeconds'           => max(1, (int) ($row['PerSeconds'] ?? 60)),
+                'PrefixText'           => (string) ($row['PrefixText'] ?? ''),
+                'UseSensorName'        => (bool) ($row['UseSensorName'] ?? true),
+                'UseParentName'        => (bool) ($row['UseParentName'] ?? false),
+                'UseGrandparentName'   => (bool) ($row['UseGrandparentName'] ?? false),
+                'SuffixText'           => (string) ($row['SuffixText'] ?? ''),
+                'EmailAddress'         => (string) ($row['EmailAddress'] ?? ''),
+                'PhoneNumber'          => (string) ($row['PhoneNumber'] ?? ''),
+                'Volume'               => (string) ($row['Volume'] ?? '')
+            ];
+        }
+
+        return $normalized;
+    }
+
+    private function IsAllowedTargetObject(int $objectID): bool
+    {
+        if ($objectID <= 0 || !@IPS_ObjectExists($objectID)) {
+            return false;
+        }
+
+        $object = IPS_GetObject($objectID);
+        $type = (int) ($object['ObjectType'] ?? -1);
+
+        // 1 = Instance, 3 = Script
+        return in_array($type, [1, 3], true);
     }
 }
