@@ -47,15 +47,6 @@ class ARMResponseManagerMock extends IPSModule
         $this->RegisterPropertyString('ImportedModule1ConfigJson', '');
         $this->RegisterPropertyString('GroupStateMappings', '[]');
         $this->RegisterPropertyString('OutputResources', '[]');
-
-        // Rule editor helper properties
-        $this->RegisterPropertyString('EditorRuleID', '');
-        $this->RegisterPropertyBoolean('EditorEnabled', false);
-        $this->RegisterPropertyString('EditorGroupIDs', '[]');
-        $this->RegisterPropertyString('EditorHouseState', '0');
-        $this->RegisterPropertyString('EditorSeverity', 'Medium');
-        $this->RegisterPropertyBoolean('EditorBypassThrottle', false);
-        $this->RegisterPropertyString('EditorOutputResourceIDs', '[]');
     }
 
     public function ApplyChanges()
@@ -83,14 +74,12 @@ class ARMResponseManagerMock extends IPSModule
             return;
         }
 
-        $normalizedGroupRows = $this->NormalizeGroupRows($groupRows);
+        $normalizedGroupRows = $this->NormalizeGroupRows($groupRows, $normalizedOutputRows);
         if (json_encode($normalizedGroupRows) !== json_encode($groupRows)) {
             IPS_SetProperty($this->InstanceID, 'GroupStateMappings', json_encode($normalizedGroupRows));
             IPS_ApplyChanges($this->InstanceID);
             return;
         }
-
-        $this->NormalizeEditorProperties($normalizedGroupRows, $normalizedOutputRows);
 
         if ($this->GetStatus() === 100 || $this->GetStatus() === 101) {
             $this->SetStatus(102);
@@ -139,10 +128,7 @@ class ARMResponseManagerMock extends IPSModule
         if (!is_array($groupRows)) {
             $groupRows = [];
         }
-        $groupRows = $this->NormalizeGroupRows($groupRows);
-
-        $groupOptions = $this->BuildGroupOptionsFromImportedConfig();
-        $outputResourceOptions = $this->BuildOutputResourceOptions($outputRows);
+        $groupRows = $this->NormalizeGroupRows($groupRows, $outputRows);
 
         $stateOptions = [];
         foreach (self::HOUSE_STATES as $id => $label) {
@@ -168,15 +154,6 @@ class ARMResponseManagerMock extends IPSModule
             ];
         }
 
-        $groupNameMap = $this->BuildGroupNameMap();
-        $outputNameMap = $this->BuildOutputNameMap($outputRows);
-
-        foreach ($groupRows as &$row) {
-            $row['GroupsSummary'] = $this->BuildSummaryFromIDs($row['GroupIDs'], $groupNameMap);
-            $row['OutputsSummary'] = $this->BuildSummaryFromIDs($row['OutputResourceIDs'], $outputNameMap);
-        }
-        unset($row);
-
         foreach ($form['elements'] as &$element) {
             if (($element['type'] ?? '') === 'List' && ($element['name'] ?? '') === 'GroupStateMappings') {
                 $element['values'] = $groupRows;
@@ -201,22 +178,6 @@ class ARMResponseManagerMock extends IPSModule
                     }
                 }
                 unset($column);
-            }
-
-            if (($element['type'] ?? '') === 'Select' && ($element['name'] ?? '') === 'EditorHouseState') {
-                $element['options'] = $stateOptions;
-            }
-
-            if (($element['type'] ?? '') === 'Select' && ($element['name'] ?? '') === 'EditorSeverity') {
-                $element['options'] = $severityOptions;
-            }
-
-            if (($element['type'] ?? '') === 'Select' && ($element['name'] ?? '') === 'EditorGroupIDs') {
-                $element['options'] = $groupOptions;
-            }
-
-            if (($element['type'] ?? '') === 'Select' && ($element['name'] ?? '') === 'EditorOutputResourceIDs') {
-                $element['options'] = $outputResourceOptions;
             }
         }
         unset($element);
@@ -309,37 +270,28 @@ class ARMResponseManagerMock extends IPSModule
                 continue;
             }
 
-            $groupID = $this->MakeGroupID($groupName);
-            $result[$groupID] = [
-                'GroupID'   => $groupID,
-                'GroupName' => $groupName
-            ];
+            $result[] = $groupName;
         }
 
-        uasort($result, static function (array $a, array $b): int {
-            return strnatcasecmp($a['GroupName'], $b['GroupName']);
-        });
+        $result = array_values(array_unique($result));
+        sort($result, SORT_NATURAL | SORT_FLAG_CASE);
 
-        return array_values($result);
+        return $result;
     }
 
     private function BuildRowsFromImportedGroups(array $groups): array
     {
         $rows = [];
 
-        foreach ($groups as $group) {
-            $groupID = (string) ($group['GroupID'] ?? '');
+        foreach ($groups as $groupName) {
             foreach (self::HOUSE_STATES as $stateId => $stateLabel) {
                 $rows[] = [
-                    'RuleID'             => $this->GenerateStableID('RULE_'),
-                    'Enabled'            => false,
-                    'GroupIDs'           => $groupID === '' ? [] : [$groupID],
-                    'HouseState'         => (string) $stateId,
-                    'Severity'           => 'Medium',
-                    'BypassThrottle'     => false,
-                    'OutputResourceIDs'  => [],
-                    'GroupsSummary'      => '',
-                    'OutputsSummary'     => ''
+                    'Enabled'         => false,
+                    'GroupName'       => $groupName,
+                    'HouseState'      => (string) $stateId,
+                    'Severity'        => 'Medium',
+                    'BypassThrottle'  => false,
+                    'OutputNamesCsv'  => ''
                 ];
             }
         }
@@ -347,9 +299,10 @@ class ARMResponseManagerMock extends IPSModule
         return $rows;
     }
 
-    private function NormalizeGroupRows(array $rows): array
+    private function NormalizeGroupRows(array $rows, array $outputRows): array
     {
         $normalized = [];
+        $validOutputNames = $this->GetValidOutputNames($outputRows);
 
         foreach ($rows as $row) {
             if (!is_array($row)) {
@@ -361,19 +314,13 @@ class ARMResponseManagerMock extends IPSModule
                 $severity = 'Medium';
             }
 
-            $groupIDs = $this->NormalizeStringArray($row['GroupIDs'] ?? []);
-            $outputResourceIDs = $this->NormalizeStringArray($row['OutputResourceIDs'] ?? []);
-
             $normalized[] = [
-                'RuleID'            => $this->NormalizeID((string) ($row['RuleID'] ?? ''), 'RULE_'),
-                'Enabled'           => (bool) ($row['Enabled'] ?? false),
-                'GroupIDs'          => $groupIDs,
-                'HouseState'        => (string) ($row['HouseState'] ?? '0'),
-                'Severity'          => $severity,
-                'BypassThrottle'    => (bool) ($row['BypassThrottle'] ?? false),
-                'OutputResourceIDs' => $outputResourceIDs,
-                'GroupsSummary'     => (string) ($row['GroupsSummary'] ?? ''),
-                'OutputsSummary'    => (string) ($row['OutputsSummary'] ?? '')
+                'Enabled'        => (bool) ($row['Enabled'] ?? false),
+                'GroupName'      => (string) ($row['GroupName'] ?? ''),
+                'HouseState'     => (string) ($row['HouseState'] ?? '0'),
+                'Severity'       => $severity,
+                'BypassThrottle' => (bool) ($row['BypassThrottle'] ?? false),
+                'OutputNamesCsv' => $this->NormalizeOutputNamesCsv((string) ($row['OutputNamesCsv'] ?? ''), $validOutputNames)
             ];
         }
 
@@ -400,7 +347,6 @@ class ARMResponseManagerMock extends IPSModule
             }
 
             $normalized[] = [
-                'ResourceID'         => $this->NormalizeID((string) ($row['ResourceID'] ?? ''), 'OUT_'),
                 'Enabled'            => (bool) ($row['Enabled'] ?? true),
                 'OutputName'         => (string) ($row['OutputName'] ?? ''),
                 'OutputType'         => $outputType,
@@ -421,147 +367,54 @@ class ARMResponseManagerMock extends IPSModule
         return $normalized;
     }
 
-    private function NormalizeEditorProperties(array $groupRows, array $outputRows): void
+    private function GetValidOutputNames(array $outputRows): array
     {
-        $editorRuleID = $this->NormalizeID($this->ReadPropertyString('EditorRuleID'), '');
-        $editorGroupIDs = $this->NormalizeStringArray(json_decode($this->ReadPropertyString('EditorGroupIDs'), true) ?? []);
-        $editorOutputIDs = $this->NormalizeStringArray(json_decode($this->ReadPropertyString('EditorOutputResourceIDs'), true) ?? []);
-
-        $validGroupIDs = array_keys($this->BuildGroupNameMap());
-        $validOutputIDs = array_keys($this->BuildOutputNameMap($outputRows));
-
-        $editorGroupIDs = array_values(array_intersect($editorGroupIDs, $validGroupIDs));
-        $editorOutputIDs = array_values(array_intersect($editorOutputIDs, $validOutputIDs));
-
-        IPS_SetProperty($this->InstanceID, 'EditorRuleID', $editorRuleID);
-        IPS_SetProperty($this->InstanceID, 'EditorGroupIDs', json_encode($editorGroupIDs));
-        IPS_SetProperty($this->InstanceID, 'EditorOutputResourceIDs', json_encode($editorOutputIDs));
-    }
-
-    private function BuildGroupOptionsFromImportedConfig(): array
-    {
-        $json = $this->ReadPropertyString('ImportedModule1ConfigJson');
-        $config = json_decode($json, true);
-        if (!is_array($config)) {
-            return [];
-        }
-
-        $groups = $this->ExtractGroupsForTargetInstance($config, $this->InstanceID);
-        $options = [];
-
-        foreach ($groups as $group) {
-            $options[] = [
-                'caption' => (string) ($group['GroupName'] ?? ''),
-                'value'   => (string) ($group['GroupID'] ?? '')
-            ];
-        }
-
-        return $options;
-    }
-
-    private function BuildGroupNameMap(): array
-    {
-        $map = [];
-        foreach ($this->BuildGroupOptionsFromImportedConfig() as $option) {
-            $map[(string) $option['value']] = (string) $option['caption'];
-        }
-        return $map;
-    }
-
-    private function BuildOutputResourceOptions(array $outputRows): array
-    {
-        $options = [];
+        $names = [];
 
         foreach ($outputRows as $row) {
             if (!is_array($row)) {
                 continue;
             }
 
-            $resourceID = (string) ($row['ResourceID'] ?? '');
-            $outputName = trim((string) ($row['OutputName'] ?? ''));
-            if ($resourceID === '' || $outputName === '') {
+            $name = trim((string) ($row['OutputName'] ?? ''));
+            if ($name === '') {
                 continue;
             }
 
-            $options[] = [
-                'caption' => $outputName,
-                'value'   => $resourceID
-            ];
+            $names[strtolower($name)] = $name;
         }
 
-        usort($options, static function (array $a, array $b): int {
-            return strnatcasecmp((string) $a['caption'], (string) $b['caption']);
-        });
-
-        return $options;
+        return $names;
     }
 
-    private function BuildOutputNameMap(array $outputRows): array
+    private function NormalizeOutputNamesCsv(string $csv, array $validOutputNames): string
     {
-        $map = [];
-        foreach ($outputRows as $row) {
-            if (!is_array($row)) {
-                continue;
-            }
-            $resourceID = (string) ($row['ResourceID'] ?? '');
-            $outputName = trim((string) ($row['OutputName'] ?? ''));
-            if ($resourceID !== '' && $outputName !== '') {
-                $map[$resourceID] = $outputName;
-            }
-        }
-        return $map;
-    }
-
-    private function BuildSummaryFromIDs(array $ids, array $nameMap): string
-    {
-        $parts = [];
-        foreach ($ids as $id) {
-            $parts[] = $nameMap[$id] ?? $id;
-        }
-        return implode(', ', $parts);
-    }
-
-    private function NormalizeStringArray($value): array
-    {
-        if (!is_array($value)) {
-            return [];
-        }
-
+        $parts = explode(',', $csv);
         $result = [];
         $seen = [];
 
-        foreach ($value as $item) {
-            $item = trim((string) $item);
-            if ($item === '') {
+        foreach ($parts as $part) {
+            $name = trim($part);
+            if ($name === '') {
                 continue;
             }
-            if (isset($seen[$item])) {
+
+            $key = strtolower($name);
+            if (!isset($validOutputNames[$key])) {
                 continue;
             }
-            $seen[$item] = true;
-            $result[] = $item;
+
+            $canonical = $validOutputNames[$key];
+            $canonicalKey = strtolower($canonical);
+            if (isset($seen[$canonicalKey])) {
+                continue;
+            }
+
+            $seen[$canonicalKey] = true;
+            $result[] = $canonical;
         }
 
-        return $result;
-    }
-
-    private function NormalizeID(string $id, string $prefix): string
-    {
-        $id = trim($id);
-        if ($id !== '') {
-            return $id;
-        }
-        return $prefix === '' ? '' : $this->GenerateStableID($prefix);
-    }
-
-    private function GenerateStableID(string $prefix): string
-    {
-        return $prefix . bin2hex(random_bytes(6));
-    }
-
-    private function MakeGroupID(string $groupName): string
-    {
-        return 'GRP_' . md5(mb_strtolower(trim($groupName)));
+        return implode(', ', $result);
     }
 
     private function IsAllowedTargetObject(int $objectID): bool
@@ -573,6 +426,7 @@ class ARMResponseManagerMock extends IPSModule
         $object = IPS_GetObject($objectID);
         $type = (int) ($object['ObjectType'] ?? -1);
 
+        // 1 = Instance, 3 = Script
         return in_array($type, [1, 3], true);
     }
 }
