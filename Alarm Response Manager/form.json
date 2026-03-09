@@ -293,7 +293,7 @@
             "options": []
           },
           {
-            "type": "SelectObject",
+            "type": "NumberSpinner",
             "name": "TargetObjectID",
             "caption": "Target Object ID"
           },
