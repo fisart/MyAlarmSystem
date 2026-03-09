@@ -272,83 +272,80 @@
           "edit": {
             "type": "NumberSpinner"
           }
+        },
+        {
+          "name": "PrefixText",
+          "caption": "Prefix",
+          "width": "140px",
+          "add": "",
+          "edit": {
+            "type": "ValidationTextBox"
+          }
+        },
+        {
+          "name": "UseSensorName",
+          "caption": "Sensor",
+          "width": "60px",
+          "add": true,
+          "edit": {
+            "type": "CheckBox"
+          }
+        },
+        {
+          "name": "UseParentName",
+          "caption": "Parent",
+          "width": "60px",
+          "add": false,
+          "edit": {
+            "type": "CheckBox"
+          }
+        },
+        {
+          "name": "UseGrandparentName",
+          "caption": "Grand",
+          "width": "60px",
+          "add": false,
+          "edit": {
+            "type": "CheckBox"
+          }
+        },
+        {
+          "name": "SuffixText",
+          "caption": "Suffix",
+          "width": "140px",
+          "add": "",
+          "edit": {
+            "type": "ValidationTextBox"
+          }
+        },
+        {
+          "name": "EmailAddress",
+          "caption": "Email Address",
+          "width": "170px",
+          "add": "",
+          "edit": {
+            "type": "ValidationTextBox"
+          }
+        },
+        {
+          "name": "PhoneNumber",
+          "caption": "Phone Number",
+          "width": "140px",
+          "add": "",
+          "edit": {
+            "type": "ValidationTextBox"
+          }
+        },
+        {
+          "name": "Volume",
+          "caption": "Volume",
+          "width": "80px",
+          "add": "",
+          "edit": {
+            "type": "ValidationTextBox"
+          }
         }
       ],
-      "form": {
-        "elements": [
-          {
-            "type": "CheckBox",
-            "name": "Enabled",
-            "caption": "Enabled"
-          },
-          {
-            "type": "ValidationTextBox",
-            "name": "OutputName",
-            "caption": "Output Name"
-          },
-          {
-            "type": "Select",
-            "name": "OutputType",
-            "caption": "Output Type",
-            "options": []
-          },
-          {
-            "type": "SelectObject",
-            "name": "TargetObjectID",
-            "caption": "Target Object ID"
-          },
-          {
-            "type": "NumberSpinner",
-            "name": "MaxMessages",
-            "caption": "Max Messages"
-          },
-          {
-            "type": "NumberSpinner",
-            "name": "PerSeconds",
-            "caption": "Per Seconds"
-          },
-          {
-            "type": "ValidationTextBox",
-            "name": "PrefixText",
-            "caption": "Prefix Text"
-          },
-          {
-            "type": "CheckBox",
-            "name": "UseSensorName",
-            "caption": "Include Sensor Name"
-          },
-          {
-            "type": "CheckBox",
-            "name": "UseParentName",
-            "caption": "Include Parent Name"
-          },
-          {
-            "type": "CheckBox",
-            "name": "UseGrandparentName",
-            "caption": "Include Grandparent Name"
-          },
-          {
-            "type": "ValidationTextBox",
-            "name": "SuffixText",
-            "caption": "Suffix Text"
-          },
-          {
-            "type": "ValidationTextBox",
-            "name": "EmailAddress",
-            "caption": "Email Address"
-          },
-          {
-            "type": "ValidationTextBox",
-            "name": "PhoneNumber",
-            "caption": "Phone Number"
-          },
-          {
-            "type": "ValidationTextBox",
-            "name": "Volume",
-            "caption": "Volume"
-          }
-        ]
-      },
       "values": []
     }
   ],
@@ -365,7 +362,7 @@
     },
     {
       "type": "Label",
-      "caption": "Output Resources uses a popup row editor. Target Object ID should be a script or an instance."
+      "caption": "Output Resources is now edited inline in the list. Target Object ID must be a script or an instance."
     }
   ],
   "status": [

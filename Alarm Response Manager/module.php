@@ -171,13 +171,6 @@ class ARMResponseManagerMock extends IPSModule
                     }
                 }
                 unset($column);
-
-                foreach ($element['form']['elements'] as &$subElement) {
-                    if (($subElement['name'] ?? '') === 'OutputType') {
-                        $subElement['options'] = $outputTypeOptions;
-                    }
-                }
-                unset($subElement);
             }
         }
         unset($element);
@@ -347,20 +340,20 @@ class ARMResponseManagerMock extends IPSModule
             }
 
             $normalized[] = [
-                'Enabled'              => (bool) ($row['Enabled'] ?? true),
-                'OutputName'           => (string) ($row['OutputName'] ?? ''),
-                'OutputType'           => $outputType,
-                'TargetObjectID'       => $targetObjectID,
-                'MaxMessages'          => max(1, (int) ($row['MaxMessages'] ?? 1)),
-                'PerSeconds'           => max(1, (int) ($row['PerSeconds'] ?? 60)),
-                'PrefixText'           => (string) ($row['PrefixText'] ?? ''),
-                'UseSensorName'        => (bool) ($row['UseSensorName'] ?? true),
-                'UseParentName'        => (bool) ($row['UseParentName'] ?? false),
-                'UseGrandparentName'   => (bool) ($row['UseGrandparentName'] ?? false),
-                'SuffixText'           => (string) ($row['SuffixText'] ?? ''),
-                'EmailAddress'         => (string) ($row['EmailAddress'] ?? ''),
-                'PhoneNumber'          => (string) ($row['PhoneNumber'] ?? ''),
-                'Volume'               => (string) ($row['Volume'] ?? '')
+                'Enabled'            => (bool) ($row['Enabled'] ?? true),
+                'OutputName'         => (string) ($row['OutputName'] ?? ''),
+                'OutputType'         => $outputType,
+                'TargetObjectID'     => $targetObjectID,
+                'MaxMessages'        => max(1, (int) ($row['MaxMessages'] ?? 1)),
+                'PerSeconds'         => max(1, (int) ($row['PerSeconds'] ?? 60)),
+                'PrefixText'         => (string) ($row['PrefixText'] ?? ''),
+                'UseSensorName'      => (bool) ($row['UseSensorName'] ?? true),
+                'UseParentName'      => (bool) ($row['UseParentName'] ?? false),
+                'UseGrandparentName' => (bool) ($row['UseGrandparentName'] ?? false),
+                'SuffixText'         => (string) ($row['SuffixText'] ?? ''),
+                'EmailAddress'       => (string) ($row['EmailAddress'] ?? ''),
+                'PhoneNumber'        => (string) ($row['PhoneNumber'] ?? ''),
+                'Volume'             => (string) ($row['Volume'] ?? '')
             ];
         }
 
