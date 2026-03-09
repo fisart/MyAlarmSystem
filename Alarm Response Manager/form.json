@@ -222,7 +222,7 @@
           "name": "Enabled",
           "caption": "On",
           "width": "45px",
-          "add": false,
+          "add": true,
           "edit": {
             "type": "CheckBox"
           }
