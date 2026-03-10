@@ -1,134 +1,64 @@
 {
-  "elements": [
+  "type": "ExpansionPanel",
+  "caption": "Output Types",
+  "items": [
     {
-      "type": "Label",
-      "caption": "Step 2 persistence test: two independent property-backed lists. Add rows, press Apply Changes, reopen the form, and verify both lists still contain the rows."
-    },
-    {
-      "type": "ExpansionPanel",
+      "type": "List",
+      "name": "OutputTypes",
       "caption": "Output Types",
-      "items": [
+      "rowCount": 6,
+      "add": true,
+      "delete": true,
+      "columns": [
         {
-          "type": "List",
-          "name": "OutputTypes",
-          "caption": "Output Types",
-          "rowCount": 6,
+          "caption": "Active",
+          "name": "Active",
+          "width": "70px",
           "add": true,
-          "delete": true,
-          "columns": [
-            {
-              "caption": "Active",
-              "name": "Active",
-              "width": "70px",
-              "add": true,
-              "edit": {
-                "type": "CheckBox"
-              }
-            },
-            {
-              "caption": "TypeID",
-              "name": "TypeID",
-              "width": "140px",
-              "add": ""
-            },
-            {
-              "caption": "TypeName",
-              "name": "TypeName",
-              "width": "180px",
-              "add": ""
-            },
-            {
-              "caption": "BaseObjectID",
-              "name": "BaseObjectID",
-              "width": "120px",
-              "add": 0,
-              "edit": {
-                "type": "SelectObject"
-              }
-            },
-            {
-              "caption": "Comment",
-              "name": "Comment",
-              "width": "auto",
-              "add": ""
-            }
-          ]
+          "edit": {
+            "type": "CheckBox"
+          }
+        },
+        {
+          "caption": "TypeID",
+          "name": "TypeID",
+          "width": "120px",
+          "add": ""
+        },
+        {
+          "caption": "TypeName",
+          "name": "TypeName",
+          "width": "140px",
+          "add": ""
+        },
+        {
+          "caption": "BaseObjectID",
+          "name": "BaseObjectID",
+          "width": "120px",
+          "add": 0,
+          "edit": {
+            "type": "SelectObject"
+          }
+        },
+        {
+          "caption": "DefaultSender",
+          "name": "DefaultSender",
+          "width": "180px",
+          "add": ""
+        },
+        {
+          "caption": "DefaultDuration",
+          "name": "DefaultDuration",
+          "width": "120px",
+          "add": 0
+        },
+        {
+          "caption": "Comment",
+          "name": "Comment",
+          "width": "auto",
+          "add": ""
         }
       ]
-    },
-    {
-      "type": "ExpansionPanel",
-      "caption": "Output Resources",
-      "items": [
-        {
-          "type": "List",
-          "name": "OutputResources",
-          "caption": "Output Resources",
-          "rowCount": 8,
-          "add": true,
-          "delete": true,
-          "columns": [
-            {
-              "caption": "Active",
-              "name": "Active",
-              "width": "70px",
-              "add": true,
-              "edit": {
-                "type": "CheckBox"
-              }
-            },
-            {
-              "caption": "OutputID",
-              "name": "OutputID",
-              "width": "140px",
-              "add": ""
-            },
-            {
-              "caption": "Name",
-              "name": "Name",
-              "width": "180px",
-              "add": ""
-            },
-            {
-              "caption": "TypeID",
-              "name": "TypeID",
-              "width": "140px",
-              "add": ""
-            },
-            {
-              "caption": "Recipient",
-              "name": "Recipient",
-              "width": "180px",
-              "add": ""
-            },
-            {
-              "caption": "Sender",
-              "name": "Sender",
-              "width": "180px",
-              "add": ""
-            },
-            {
-              "caption": "Comment",
-              "name": "Comment",
-              "width": "auto",
-              "add": ""
-            }
-          ]
-        }
-      ]
-    }
-  ],
-  "actions": [],
-  "status": [
-    {
-      "code": 102,
-      "icon": "active",
-      "caption": "Instance active"
-    },
-    {
-      "code": 202,
-      "icon": "error",
-      "caption": "Instance error"
     }
   ]
 }
