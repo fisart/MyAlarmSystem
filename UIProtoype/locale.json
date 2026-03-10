@@ -1,38 +1,14 @@
 {
   "translations": {
     "de": {
-      "Prototype status": "Prototyp-Status",
-      "Imported Module 1 Groups (simulated import source)": "Importierte Modul-1-Gruppen (simulierte Importquelle)",
-      "Imported Module 1 Groups": "Importierte Modul-1-Gruppen",
-      "1. Output Types": "1. Ausgabetypen",
-      "Output Types": "Ausgabetypen",
-      "Type Name": "Typname",
-      "Base Object": "Basisobjekt",
-      "Technical Summary": "Technische Zusammenfassung",
-      "2. Customized Outputs": "2. Angepasste Ausgaben",
-      "Customized Outputs": "Angepasste Ausgaben",
-      "Based on Type": "Basiert auf Typ",
-      "Recipient": "Empfänger",
-      "Sender": "Absender",
-      "Config Summary": "Konfigurationszusammenfassung",
-      "3. Group-State Rules": "3. Gruppen-Status-Regeln",
-      "Group-State Rules": "Gruppen-Status-Regeln",
-      "Module 1 Group": "Modul-1-Gruppe",
-      "House State": "Hausstatus",
-      "Severity": "Schweregrad",
-      "Bypass": "Bypass",
-      "Rule Label": "Regelbezeichnung",
-      "Outputs": "Ausgänge",
-      "4. Rule Output Assignments": "4. Regel-Ausgabe-Zuordnungen",
-      "Rule Output Assignments": "Regel-Ausgabe-Zuordnungen",
-      "Output Name": "Ausgabename",
+      "Simple persistence test: add rows, press Apply Changes, reopen the form, and verify the rows are still there.": "Einfacher Persistenztest: Zeilen hinzufügen, Übernehmen drücken, Formular erneut öffnen und prüfen, ob die Zeilen erhalten bleiben.",
+      "Test List": "Testliste",
+      "Active": "Aktiv",
+      "Name": "Name",
       "Type": "Typ",
-      "Load demo data": "Demodaten laden",
-      "Clear prototype data": "Prototypdaten löschen",
-      "Delete all prototype data?": "Alle Prototypdaten löschen?",
-      "Prototype active": "Prototyp aktiv",
-      "Prototype inactive": "Prototyp inaktiv",
-      "Prototype error": "Prototypfehler"
+      "Comment": "Kommentar",
+      "Instance active": "Instanz aktiv",
+      "Instance error": "Instanzfehler"
     }
   }
 }

@@ -1,13 +1,13 @@
 {
-  "id": "{A4A8D6C9-76E1-4F08-8B3B-5A2D0C4A8F11}",
-  "name": "AlarmResponseManagerPrototype",
+  "id": "{9C7B7D89-5F0E-4D9E-8A44-6E4E5D8C1F21}",
+  "name": "SimpleListPersistenceTest",
   "type": 3,
-  "vendor": "AF",
+  "vendor": "OpenAI",
   "aliases": [
-    "UIProtoype"
+    "Simple List Persistence Test"
   ],
   "parentRequirements": [],
   "childRequirements": [],
   "implemented": [],
-  "prefix": "ARM"
+  "prefix": "SLPT"
 }
