@@ -25,25 +25,8 @@ class DynamicListPatternTest extends IPSModule
         $outputTypes = $this->readListProperty('OutputTypes');
         $outputResources = $this->readListProperty('OutputResources');
 
-        $typeOptions = [];
-        $typeLabels = [];
-
-        foreach ($outputTypes as $row) {
-            $typeID = trim((string)($row['TypeID'] ?? ''));
-            $typeName = trim((string)($row['TypeName'] ?? ''));
-
-            if ($typeID === '') {
-                continue;
-            }
-
-            $label = ($typeName !== '') ? $typeName : $typeID;
-
-            $typeOptions[] = [
-                'label' => $label,
-                'value' => $typeID
-            ];
-            $typeLabels[$typeID] = $label;
-        }
+        $typeOptions = $this->buildTypeOptions($outputTypes);
+        $typeLabels  = $this->buildTypeLabels($outputTypes);
 
         $this->setListColumnOptions($form, 'OutputResources', 'TypeID', $typeOptions);
 
@@ -52,14 +35,14 @@ class DynamicListPatternTest extends IPSModule
             $typeID = (string)($row['TypeID'] ?? '');
 
             $resourceValues[] = [
-                'Active'      => (bool)($row['Active'] ?? true),
-                'OutputID'    => (string)($row['OutputID'] ?? ''),
-                'Name'        => (string)($row['Name'] ?? ''),
-                'TypeID'      => $typeID,
-                'Recipient'   => (string)($row['Recipient'] ?? ''),
-                'Sender'      => (string)($row['Sender'] ?? ''),
-                'TypeLabel'   => $typeLabels[$typeID] ?? '',
-                'RowSummary'  => $this->buildSummary($row, $typeLabels)
+                'Active'     => (bool)($row['Active'] ?? true),
+                'OutputID'   => (string)($row['OutputID'] ?? ''),
+                'Name'       => (string)($row['Name'] ?? ''),
+                'TypeID'     => $typeID,
+                'Recipient'  => (string)($row['Recipient'] ?? ''),
+                'Sender'     => (string)($row['Sender'] ?? ''),
+                'TypeLabel'  => $typeLabels[$typeID] ?? '',
+                'RowSummary' => $this->buildSummary($row, $typeLabels)
             ];
         }
 
@@ -75,15 +58,62 @@ class DynamicListPatternTest extends IPSModule
         return is_array($data) ? array_values($data) : [];
     }
 
+    private function buildTypeOptions(array $outputTypes): array
+    {
+        $options = [
+            [
+                'label' => '',
+                'value' => ''
+            ]
+        ];
+
+        foreach ($outputTypes as $row) {
+            $typeID = trim((string)($row['TypeID'] ?? ''));
+            $typeName = trim((string)($row['TypeName'] ?? ''));
+
+            if ($typeID === '') {
+                continue;
+            }
+
+            $label = ($typeName !== '') ? $typeName : $typeID;
+
+            $options[] = [
+                'label' => $label,
+                'value' => $typeID
+            ];
+        }
+
+        return $options;
+    }
+
+    private function buildTypeLabels(array $outputTypes): array
+    {
+        $labels = [];
+
+        foreach ($outputTypes as $row) {
+            $typeID = trim((string)($row['TypeID'] ?? ''));
+            $typeName = trim((string)($row['TypeName'] ?? ''));
+
+            if ($typeID === '') {
+                continue;
+            }
+
+            $labels[$typeID] = ($typeName !== '') ? $typeName : $typeID;
+        }
+
+        return $labels;
+    }
+
     private function buildSummary(array $row, array $typeLabels): string
     {
-        $typeID = (string)($row['TypeID'] ?? '');
+        $typeID    = (string)($row['TypeID'] ?? '');
         $typeLabel = $typeLabels[$typeID] ?? $typeID;
-        $name = trim((string)($row['Name'] ?? ''));
+        $name      = trim((string)($row['Name'] ?? ''));
         $recipient = trim((string)($row['Recipient'] ?? ''));
-        $sender = trim((string)($row['Sender'] ?? ''));
+        $sender    = trim((string)($row['Sender'] ?? ''));
 
         $parts = [];
+
         if ($typeLabel !== '') {
             $parts[] = $typeLabel;
         }
