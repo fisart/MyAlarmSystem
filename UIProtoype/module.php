@@ -128,33 +128,19 @@ class DynamicListPatternTest extends IPSModule
         return implode(' / ', $parts);
     }
 
+
     private function setListValues(array &$form, string $listName, array $values): void
     {
-        if (!isset($form['elements']) || !is_array($form['elements'])) {
-            return;
-        }
-
-        foreach ($form['elements'] as &$element) {
-            if (($element['type'] ?? '') === 'List' && ($element['name'] ?? '') === $listName) {
-                $element['values'] = $values;
-                return;
-            }
-        }
+        $this->walkAndModifyList($form, $listName, function (&$element) use ($values) {
+            $element['values'] = $values;
+        });
     }
 
     private function setListColumnOptions(array &$form, string $listName, string $columnName, array $options): void
     {
-        if (!isset($form['elements']) || !is_array($form['elements'])) {
-            return;
-        }
-
-        foreach ($form['elements'] as &$element) {
-            if (($element['type'] ?? '') !== 'List' || ($element['name'] ?? '') !== $listName) {
-                continue;
-            }
-
+        $this->walkAndModifyList($form, $listName, function (&$element) use ($columnName, $options) {
             if (!isset($element['columns']) || !is_array($element['columns'])) {
-                continue;
+                return;
             }
 
             foreach ($element['columns'] as &$column) {
@@ -169,6 +155,32 @@ class DynamicListPatternTest extends IPSModule
                 $column['edit']['options'] = $options;
                 return;
             }
+        });
+    }
+
+    private function walkAndModifyList(array &$node, string $listName, callable $callback): bool
+    {
+        if (($node['type'] ?? '') === 'List' && ($node['name'] ?? '') === $listName) {
+            $callback($node);
+            return true;
         }
+
+        if (isset($node['elements']) && is_array($node['elements'])) {
+            foreach ($node['elements'] as &$child) {
+                if ($this->walkAndModifyList($child, $listName, $callback)) {
+                    return true;
+                }
+            }
+        }
+
+        if (isset($node['items']) && is_array($node['items'])) {
+            foreach ($node['items'] as &$child) {
+                if ($this->walkAndModifyList($child, $listName, $callback)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 }
