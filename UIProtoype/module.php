@@ -2,23 +2,19 @@
 
 declare(strict_types=1);
 
-class SimpleListPersistenceTest extends IPSModule
+class SimpleTwoListPersistenceTest extends IPSModule
 {
     public function Create()
     {
         parent::Create();
 
-        // One plain property-backed list
-        $this->RegisterPropertyString('TestList', '[]');
+        $this->RegisterPropertyString('OutputTypes', '[]');
+        $this->RegisterPropertyString('OutputResources', '[]');
     }
 
     public function ApplyChanges()
     {
         parent::ApplyChanges();
-
-        // No rewriting of properties here.
-        // No normalization.
-        // No GetConfigurationForm override.
         $this->SetStatus(102);
     }
 }

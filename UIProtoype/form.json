@@ -2,65 +2,118 @@
   "elements": [
     {
       "type": "Label",
-      "caption": "Simple persistence test: add rows, press Apply Changes, reopen the form, and verify the rows are still there."
+      "caption": "Step 2 persistence test: two independent property-backed lists. Add rows, press Apply Changes, reopen the form, and verify both lists still contain the rows."
     },
     {
-      "type": "List",
-      "name": "TestList",
-      "caption": "Test List",
-      "rowCount": 8,
-      "add": true,
-      "delete": true,
-      "columns": [
+      "type": "ExpansionPanel",
+      "caption": "Output Types",
+      "items": [
         {
-          "caption": "Active",
-          "name": "Active",
-          "width": "70px",
+          "type": "List",
+          "name": "OutputTypes",
+          "caption": "Output Types",
+          "rowCount": 6,
           "add": true,
-          "edit": {
-            "type": "CheckBox"
-          }
-        },
+          "delete": true,
+          "columns": [
+            {
+              "caption": "Active",
+              "name": "Active",
+              "width": "70px",
+              "add": true,
+              "edit": {
+                "type": "CheckBox"
+              }
+            },
+            {
+              "caption": "TypeID",
+              "name": "TypeID",
+              "width": "140px",
+              "add": ""
+            },
+            {
+              "caption": "TypeName",
+              "name": "TypeName",
+              "width": "180px",
+              "add": ""
+            },
+            {
+              "caption": "BaseObjectID",
+              "name": "BaseObjectID",
+              "width": "120px",
+              "add": 0,
+              "edit": {
+                "type": "SelectObject"
+              }
+            },
+            {
+              "caption": "Comment",
+              "name": "Comment",
+              "width": "auto",
+              "add": ""
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "ExpansionPanel",
+      "caption": "Output Resources",
+      "items": [
         {
-          "caption": "ID",
-          "name": "ID",
-          "width": "120px",
-          "add": ""
-        },
-        {
-          "caption": "Name",
-          "name": "Name",
-          "width": "220px",
-          "add": ""
-        },
-        {
-          "caption": "Type",
-          "name": "Type",
-          "width": "140px",
-          "add": "Email",
-          "edit": {
-            "type": "Select",
-            "options": [
-              { "label": "Email", "value": "Email" },
-              { "label": "Siren", "value": "Siren" },
-              { "label": "VOIP",  "value": "VOIP" }
-            ]
-          }
-        },
-        {
-          "caption": "ObjectID",
-          "name": "ObjectID",
-          "width": "120px",
-          "add": 0,
-          "edit": {
-            "type": "SelectObject"
-          }
-        },
-        {
-          "caption": "Comment",
-          "name": "Comment",
-          "width": "auto",
-          "add": ""
+          "type": "List",
+          "name": "OutputResources",
+          "caption": "Output Resources",
+          "rowCount": 8,
+          "add": true,
+          "delete": true,
+          "columns": [
+            {
+              "caption": "Active",
+              "name": "Active",
+              "width": "70px",
+              "add": true,
+              "edit": {
+                "type": "CheckBox"
+              }
+            },
+            {
+              "caption": "OutputID",
+              "name": "OutputID",
+              "width": "140px",
+              "add": ""
+            },
+            {
+              "caption": "Name",
+              "name": "Name",
+              "width": "180px",
+              "add": ""
+            },
+            {
+              "caption": "TypeID",
+              "name": "TypeID",
+              "width": "140px",
+              "add": ""
+            },
+            {
+              "caption": "Recipient",
+              "name": "Recipient",
+              "width": "180px",
+              "add": ""
+            },
+            {
+              "caption": "Sender",
+              "name": "Sender",
+              "width": "180px",
+              "add": ""
+            },
+            {
+              "caption": "Comment",
+              "name": "Comment",
+              "width": "auto",
+              "add": ""
+            }
+          ]
         }
       ]
     }
