@@ -75,6 +75,36 @@ class ARMResponseManagerMock extends IPSModule
         }
     }
 
+
+    private function EnsureListRowIDsPersisted(string $propertyName, string $idField, string $prefix): array
+    {
+        $rows = $this->readListProperty($propertyName);
+        $changed = false;
+
+        foreach ($rows as &$row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $current = trim((string) ($row[$idField] ?? ''));
+            if ($current !== '') {
+                continue;
+            }
+
+            $row[$idField] = $this->GenerateTechnicalID($prefix);
+            $changed = true;
+        }
+        unset($row);
+
+        if ($changed) {
+            IPS_SetProperty($this->InstanceID, $propertyName, json_encode(array_values($rows)));
+            IPS_ApplyChanges($this->InstanceID);
+        }
+
+        return $rows;
+    }
+
+
     public function GetConfigurationForm()
     {
         $formPath = __DIR__ . '/form.json';
@@ -94,9 +124,9 @@ class ARMResponseManagerMock extends IPSModule
         $importedGroups = $this->ExtractImportedGroupsFromConfig();
         $outputTypes = $this->GetBuiltInOutputTypes();
 
-        $outputResources = $this->readListProperty('OutputResources');
-        $groupStateRules = $this->readListProperty('GroupStateRules');
-        $ruleOutputAssignments = $this->readListProperty('RuleOutputAssignments');
+        $outputResources = $this->EnsureListRowIDsPersisted('OutputResources', 'OutputID', 'out_');
+        $groupStateRules = $this->EnsureListRowIDsPersisted('GroupStateRules', 'RuleID', 'rule_');
+        $ruleOutputAssignments = $this->EnsureListRowIDsPersisted('RuleOutputAssignments', 'AssignmentID', 'asg_');
 
         $groupOptions = $this->buildGroupOptions($importedGroups, $groupStateRules);
         $groupLabels = $this->buildGroupLabels($importedGroups, $groupStateRules);
@@ -120,7 +150,7 @@ class ARMResponseManagerMock extends IPSModule
 
         $resourceValues = [];
         foreach ($outputResources as $row) {
-            $outputID = $this->EnsureRowID($row, 'OutputID', 'out_');
+            $outputID = trim((string) ($row['OutputID'] ?? ''));
 
             $typeID = trim((string) ($row['TypeID'] ?? ''));
             $resourceValues[] = [
@@ -147,7 +177,7 @@ class ARMResponseManagerMock extends IPSModule
 
         $ruleValues = [];
         foreach ($groupStateRules as $row) {
-            $ruleID = $this->EnsureRowID($row, 'RuleID', 'rule_');
+            $ruleID = trim((string) ($row['RuleID'] ?? ''));
 
             $groupKey = trim((string) ($row['GroupKey'] ?? ''));
             $houseState = trim((string) ($row['HouseState'] ?? ''));
@@ -168,7 +198,7 @@ class ARMResponseManagerMock extends IPSModule
 
         $assignmentValues = [];
         foreach ($ruleOutputAssignments as $row) {
-            $assignmentID = $this->EnsureRowID($row, 'AssignmentID', 'asg_');
+            $assignmentID = trim((string) ($row['AssignmentID'] ?? ''));
 
             $ruleID = trim((string) ($row['RuleID'] ?? ''));
             $outputID = trim((string) ($row['OutputID'] ?? ''));
@@ -701,15 +731,7 @@ class ARMResponseManagerMock extends IPSModule
         return 'grp_' . md5(mb_strtolower(trim($groupLabel)));
     }
 
-    private function EnsureRowID(array $row, string $fieldName, string $prefix): string
-    {
-        $value = trim((string) ($row[$fieldName] ?? ''));
-        if ($value !== '') {
-            return $value;
-        }
 
-        return $this->GenerateTechnicalID($prefix);
-    }
 
     private function IsAllowedTargetObject(int $objectID): bool
     {
