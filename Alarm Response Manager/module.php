@@ -24,7 +24,10 @@ class ARMResponseManagerMock extends IPSModule
     private const OUTPUT_TYPE_CATALOG = [
         ['TypeID' => 'bell',         'TypeName' => 'Bell'],
         ['TypeID' => 'siren',        'TypeName' => 'Siren'],
-        ['TypeID' => 'email',        'TypeName' => 'Email'],
+        ['TypeID' => 'email_1',      'TypeName' => 'Email 1'],
+        ['TypeID' => 'email_2',      'TypeName' => 'Email 2'],
+        ['TypeID' => 'email_3',      'TypeName' => 'Email 3'],
+        ['TypeID' => 'email_4',      'TypeName' => 'Email 4'],
         ['TypeID' => 'sms',          'TypeName' => 'SMS'],
         ['TypeID' => 'notification', 'TypeName' => 'Notification'],
         ['TypeID' => 'voice',        'TypeName' => 'Voice'],
