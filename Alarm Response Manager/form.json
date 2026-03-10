@@ -2,7 +2,7 @@
   "elements": [
     {
       "type": "Label",
-      "caption": "Persistence test UI for Module 3 mockup – output resource stage"
+      "caption": "Module 3 configuration: output resources, group-state rules and rule-output assignments."
     },
     {
       "type": "SelectInstance",
@@ -25,347 +25,329 @@
       "caption": "Imported Module 1 Config JSON"
     },
     {
-      "type": "Label",
-      "caption": "This Module 3 instance automatically uses its own InstanceID to find matching GroupDispatch routes in the imported Module 1 configuration."
-    },
-    {
-      "type": "List",
-      "name": "GroupStateMappings",
-      "caption": "Group → State → Output Mapping",
-      "rowCount": 12,
-      "add": false,
-      "delete": false,
-      "sort": {
-        "column": "GroupName",
-        "direction": "ascending"
-      },
-      "columns": [
+      "type": "ExpansionPanel",
+      "caption": "1. Output Resources",
+      "items": [
         {
-          "name": "Enabled",
-          "caption": "On",
-          "width": "45px",
-          "add": false,
-          "edit": {
-            "type": "CheckBox"
-          }
-        },
-        {
-          "name": "GroupName",
-          "caption": "Module 1 Group",
-          "width": "170px",
-          "add": ""
-        },
-        
-        {
-          "name": "HouseState",
-          "caption": "House State",
-          "width": "150px",
-          "add": "0",
-          "edit": {
-            "type": "Select",
-            "options": []
-          }
-        },
-        {
-          "name": "Severity",
-          "caption": "Severity",
-          "width": "100px",
-          "add": "Medium",
-          "edit": {
-            "type": "Select",
-            "options": []
-          }
-        },
-        {
-          "name": "BypassThrottle",
-          "caption": "Bypass",
-          "width": "70px",
-          "add": false,
-          "edit": {
-            "type": "CheckBox"
-          }     
-        },
-        {
-  "name": "Bell",
-  "caption": "Bell",
-  "width": "55px",
-  "add": false,
-  "edit": {
-    "type": "CheckBox"
-  }
-},
-{
-  "name": "Siren",
-  "caption": "Siren",
-  "width": "55px",
-  "add": false,
-  "edit": {
-    "type": "CheckBox"
-  }
-},
-{
-  "name": "Email",
-  "caption": "Email",
-  "width": "55px",
-  "add": false,
-  "edit": {
-    "type": "CheckBox"
-  }
-},
-{
-  "name": "SMS",
-  "caption": "SMS",
-  "width": "50px",
-  "add": false,
-  "edit": {
-    "type": "CheckBox"
-  }
-},
-{
-  "name": "Notif",
-  "caption": "Notif",
-  "width": "55px",
-  "add": false,
-  "edit": {
-    "type": "CheckBox"
-  }
-},
-{
-  "name": "Voice",
-  "caption": "Voice",
-  "width": "55px",
-  "add": false,
-  "edit": {
-    "type": "CheckBox"
-  }
-},
-{
-  "name": "VOIP",
-  "caption": "VOIP",
-  "width": "55px",
-  "add": false,
-  "edit": {
-    "type": "CheckBox"
-  }
-},
-{
-  "name": "Screen",
-  "caption": "Screen",
-  "width": "60px",
-  "add": false,
-  "edit": {
-    "type": "CheckBox"
-  }
-},
-{
-  "name": "Script",
-  "caption": "Script",
-  "width": "60px",
-  "add": false,
-  "edit": {
-    "type": "CheckBox"
-  }
-},
-{
-  "name": "ExtSvc",
-  "caption": "ExtSvc",
-  "width": "60px",
-  "add": false,
-  "edit": {
-    "type": "CheckBox"
-  }
-},
-{
-  "name": "RemoteVoice",
-  "caption": "RVoice",
-  "width": "65px",
-  "add": false,
-  "edit": {
-    "type": "CheckBox"
-  }
-},
-{
-  "name": "RemoteBell",
-  "caption": "RBell",
-  "width": "65px",
-  "add": false,
-  "edit": {
-    "type": "CheckBox"
-  }
-},
-{
-  "name": "OP1",
-  "caption": "OP1",
-  "width": "55px",
-  "add": false,
-  "edit": {
-    "type": "CheckBox"
-  }
-},
-{
-  "name": "OP2",
-  "caption": "OP2",
-  "width": "55px",
-  "add": false,
-  "edit": {
-    "type": "CheckBox"
-  }
-},
-{
-  "name": "OP3",
-  "caption": "OP3",
-  "width": "55px",
-  "add": false,
-  "edit": {
-    "type": "CheckBox"
-  }
-}
-
-
-      ],
-      "values": []
-    },
-    {
-      "type": "List",
-      "name": "OutputResources",
-      "caption": "Output Resources",
-      "rowCount": 8,
-      "add": true,
-      "delete": true,
-      "sort": {
-        "column": "OutputName",
-        "direction": "ascending"
-      },
-      "columns": [
-        {
-          "name": "Enabled",
-          "caption": "On",
-          "width": "45px",
+          "type": "List",
+          "name": "OutputResources",
+          "caption": "Output Resources",
+          "rowCount": 8,
           "add": true,
-          "edit": {
-            "type": "CheckBox"
-          }
-        },
-        {
-          "name": "OutputName",
-          "caption": "Output Name",
-          "width": "180px",
-          "add": "",
-          "edit": {
-            "type": "ValidationTextBox"
-          }
-        },
-        {
-          "name": "OutputType",
-          "caption": "Output Type",
-          "width": "140px",
-          "add": "Email",
-          "edit": {
-            "type": "Select",
-            "options": []
-          }
-        },
-        {
-          "name": "TargetObjectID",
-          "caption": "Target ObjID",
-          "width": "110px",
-          "add": 0,
-          "edit": {
-            "type": "SelectObject"
-          }
-        },
-        {
-          "name": "MaxMessages",
-          "caption": "Max Msg",
-          "width": "85px",
-          "add": 1,
-          "edit": {
-            "type": "NumberSpinner"
-          }
-        },
-        {
-          "name": "PerSeconds",
-          "caption": "Per Sec",
-          "width": "85px",
-          "add": 60,
-          "edit": {
-            "type": "NumberSpinner"
-          }
-        },
-        {
-          "name": "PrefixText",
-          "caption": "Prefix",
-          "width": "140px",
-          "add": "",
-          "edit": {
-            "type": "ValidationTextBox"
-          }
-        },
-        {
-          "name": "UseSensorName",
-          "caption": "Sensor",
-          "width": "60px",
-          "add": true,
-          "edit": {
-            "type": "CheckBox"
-          }
-        },
-        {
-          "name": "UseParentName",
-          "caption": "Parent",
-          "width": "60px",
-          "add": false,
-          "edit": {
-            "type": "CheckBox"
-          }
-        },
-        {
-          "name": "UseGrandparentName",
-          "caption": "Grand",
-          "width": "60px",
-          "add": false,
-          "edit": {
-            "type": "CheckBox"
-          }
-        },
-        {
-          "name": "SuffixText",
-          "caption": "Suffix",
-          "width": "140px",
-          "add": "",
-          "edit": {
-            "type": "ValidationTextBox"
-          }
-        },
-        {
-          "name": "EmailAddress",
-          "caption": "Email Address",
-          "width": "170px",
-          "add": "",
-          "edit": {
-            "type": "ValidationTextBox"
-          }
-        },
-        {
-          "name": "PhoneNumber",
-          "caption": "Phone Number",
-          "width": "140px",
-          "add": "",
-          "edit": {
-            "type": "ValidationTextBox"
-          }
-        },
-        {
-          "name": "Volume",
-          "caption": "Volume",
-          "width": "80px",
-          "add": "",
-          "edit": {
-            "type": "ValidationTextBox"
-          }
+          "delete": true,
+          "loadValuesFromConfiguration": false,
+          "sort": {
+            "column": "Name",
+            "direction": "ascending"
+          },
+          "columns": [
+            {
+              "caption": "Active",
+              "name": "Active",
+              "width": "70px",
+              "add": true,
+              "edit": { "type": "CheckBox" }
+            },
+            {
+              "caption": "OutputID",
+              "name": "OutputID",
+              "width": "140px",
+              "add": "",
+              "edit": { "type": "ValidationTextBox" },
+              "visible": false
+            },
+            {
+              "caption": "Name",
+              "name": "Name",
+              "width": "180px",
+              "add": "",
+              "edit": { "type": "ValidationTextBox" }
+            },
+            {
+              "caption": "TypeID",
+              "name": "TypeID",
+              "width": "180px",
+              "add": "",
+              "edit": {
+                "type": "Select",
+                "options": []
+              }
+            },
+            {
+              "caption": "Target ObjID",
+              "name": "TargetObjectID",
+              "width": "120px",
+              "add": 0,
+              "edit": { "type": "SelectObject" }
+            },
+            {
+              "caption": "Max Msg",
+              "name": "MaxMessages",
+              "width": "85px",
+              "add": 1,
+              "edit": { "type": "NumberSpinner" }
+            },
+            {
+              "caption": "Per Sec",
+              "name": "PerSeconds",
+              "width": "85px",
+              "add": 60,
+              "edit": { "type": "NumberSpinner" }
+            },
+            {
+              "caption": "Prefix",
+              "name": "PrefixText",
+              "width": "140px",
+              "add": "",
+              "edit": { "type": "ValidationTextBox" }
+            },
+            {
+              "caption": "Sensor",
+              "name": "UseSensorName",
+              "width": "60px",
+              "add": true,
+              "edit": { "type": "CheckBox" }
+            },
+            {
+              "caption": "Parent",
+              "name": "UseParentName",
+              "width": "60px",
+              "add": false,
+              "edit": { "type": "CheckBox" }
+            },
+            {
+              "caption": "Grand",
+              "name": "UseGrandparentName",
+              "width": "60px",
+              "add": false,
+              "edit": { "type": "CheckBox" }
+            },
+            {
+              "caption": "Suffix",
+              "name": "SuffixText",
+              "width": "140px",
+              "add": "",
+              "edit": { "type": "ValidationTextBox" }
+            },
+            {
+              "caption": "Email Address",
+              "name": "EmailAddress",
+              "width": "170px",
+              "add": "",
+              "edit": { "type": "ValidationTextBox" }
+            },
+            {
+              "caption": "Phone Number",
+              "name": "PhoneNumber",
+              "width": "140px",
+              "add": "",
+              "edit": { "type": "ValidationTextBox" }
+            },
+            {
+              "caption": "Volume",
+              "name": "Volume",
+              "width": "80px",
+              "add": "",
+              "edit": { "type": "ValidationTextBox" }
+            },
+            {
+              "caption": "Type Label",
+              "name": "TypeLabel",
+              "width": "140px",
+              "add": "",
+              "save": false
+            },
+            {
+              "caption": "Summary",
+              "name": "RowSummary",
+              "width": "auto",
+              "add": "",
+              "save": false
+            }
+          ],
+          "values": []
         }
-      ],
-      "values": []
+      ]
+    },
+    {
+      "type": "ExpansionPanel",
+      "caption": "2. Group-State Rules",
+      "items": [
+        {
+          "type": "List",
+          "name": "GroupStateRules",
+          "caption": "Group-State Rules",
+          "rowCount": 10,
+          "add": true,
+          "delete": true,
+          "loadValuesFromConfiguration": false,
+          "sort": {
+            "column": "RuleLabel",
+            "direction": "ascending"
+          },
+          "columns": [
+            {
+              "caption": "Active",
+              "name": "Active",
+              "width": "70px",
+              "add": true,
+              "edit": { "type": "CheckBox" }
+            },
+            {
+              "caption": "RuleID",
+              "name": "RuleID",
+              "width": "140px",
+              "add": "",
+              "edit": { "type": "ValidationTextBox" },
+              "visible": false
+            },
+            {
+              "caption": "GroupKey",
+              "name": "GroupKey",
+              "width": "180px",
+              "add": "",
+              "edit": {
+                "type": "Select",
+                "options": []
+              }
+            },
+            {
+              "caption": "House State",
+              "name": "HouseState",
+              "width": "160px",
+              "add": "",
+              "edit": {
+                "type": "Select",
+                "options": []
+              }
+            },
+            {
+              "caption": "Severity",
+              "name": "Severity",
+              "width": "120px",
+              "add": "",
+              "edit": {
+                "type": "Select",
+                "options": []
+              }
+            },
+            {
+              "caption": "Bypass",
+              "name": "Bypass",
+              "width": "80px",
+              "add": false,
+              "edit": { "type": "CheckBox" }
+            },
+            {
+              "caption": "Group Label",
+              "name": "GroupLabel",
+              "width": "160px",
+              "add": "",
+              "save": false
+            },
+            {
+              "caption": "Rule Label",
+              "name": "RuleLabel",
+              "width": "220px",
+              "add": "",
+              "save": false
+            },
+            {
+              "caption": "Summary",
+              "name": "RowSummary",
+              "width": "auto",
+              "add": "",
+              "save": false
+            }
+          ],
+          "values": []
+        }
+      ]
+    },
+    {
+      "type": "ExpansionPanel",
+      "caption": "3. Rule Output Assignments",
+      "items": [
+        {
+          "type": "List",
+          "name": "RuleOutputAssignments",
+          "caption": "Rule Output Assignments",
+          "rowCount": 10,
+          "add": true,
+          "delete": true,
+          "loadValuesFromConfiguration": false,
+          "sort": {
+            "column": "RowSummary",
+            "direction": "ascending"
+          },
+          "columns": [
+            {
+              "caption": "Active",
+              "name": "Active",
+              "width": "70px",
+              "add": true,
+              "edit": { "type": "CheckBox" }
+            },
+            {
+              "caption": "AssignmentID",
+              "name": "AssignmentID",
+              "width": "140px",
+              "add": "",
+              "edit": { "type": "ValidationTextBox" },
+              "visible": false
+            },
+            {
+              "caption": "RuleID",
+              "name": "RuleID",
+              "width": "220px",
+              "add": "",
+              "edit": {
+                "type": "Select",
+                "options": []
+              }
+            },
+            {
+              "caption": "OutputID",
+              "name": "OutputID",
+              "width": "220px",
+              "add": "",
+              "edit": {
+                "type": "Select",
+                "options": []
+              }
+            },
+            {
+              "caption": "Rule Label",
+              "name": "RuleLabel",
+              "width": "220px",
+              "add": "",
+              "save": false
+            },
+            {
+              "caption": "Output Name",
+              "name": "OutputName",
+              "width": "180px",
+              "add": "",
+              "save": false
+            },
+            {
+              "caption": "Output Type",
+              "name": "OutputTypeLabel",
+              "width": "140px",
+              "add": "",
+              "save": false
+            },
+            {
+              "caption": "Summary",
+              "name": "RowSummary",
+              "width": "auto",
+              "add": "",
+              "save": false
+            }
+          ],
+          "values": []
+        }
+      ]
     }
   ],
   "actions": [

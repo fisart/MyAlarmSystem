@@ -5,54 +5,38 @@ declare(strict_types=1);
 class ARMResponseManagerMock extends IPSModule
 {
     private const HOUSE_STATES = [
-        0 => 'Disarmed',
-        2 => 'Exit Delay',
-        3 => 'Armed External',
-        6 => 'Armed Internal',
-        9 => 'Alarm'
-    ];
-
-    private const OUTPUT_COLUMNS = [
-        'Bell',
-        'Siren',
-        'Email',
-        'SMS',
-        'Notif',
-        'Voice',
-        'VOIP',
-        'Screen',
-        'Script',
-        'ExtSvc',
-        'RemoteVoice',
-        'RemoteBell',
-        'OP1',
-        'OP2',
-        'OP3'
-    ];
-
-    private const OUTPUT_TYPES = [
-        'Bell',
-        'Siren',
-        'Email',
-        'SMS',
-        'Notification',
-        'Voice',
-        'VOIP',
-        'Screen',
-        'Script',
-        'External Service',
-        'Remote Voice',
-        'Remote Alarm Bell',
-        'OP1',
-        'OP2',
-        'OP3'
+        ['caption' => '',                'value' => ''],
+        ['caption' => 'Disarmed',        'value' => '0'],
+        ['caption' => 'Exit Delay',      'value' => '2'],
+        ['caption' => 'Armed External',  'value' => '3'],
+        ['caption' => 'Armed Internal',  'value' => '6'],
+        ['caption' => 'Alarm',           'value' => '9']
     ];
 
     private const SEVERITY_LEVELS = [
-        'Low',
-        'Medium',
-        'High',
-        'Critical'
+        ['caption' => '',         'value' => ''],
+        ['caption' => 'Low',      'value' => 'Low'],
+        ['caption' => 'Medium',   'value' => 'Medium'],
+        ['caption' => 'High',     'value' => 'High'],
+        ['caption' => 'Critical', 'value' => 'Critical']
+    ];
+
+    private const OUTPUT_TYPE_CATALOG = [
+        ['TypeID' => 'bell',         'TypeName' => 'Bell'],
+        ['TypeID' => 'siren',        'TypeName' => 'Siren'],
+        ['TypeID' => 'email',        'TypeName' => 'Email'],
+        ['TypeID' => 'sms',          'TypeName' => 'SMS'],
+        ['TypeID' => 'notification', 'TypeName' => 'Notification'],
+        ['TypeID' => 'voice',        'TypeName' => 'Voice'],
+        ['TypeID' => 'voip',         'TypeName' => 'VOIP'],
+        ['TypeID' => 'screen',       'TypeName' => 'Screen'],
+        ['TypeID' => 'script',       'TypeName' => 'Script'],
+        ['TypeID' => 'external',     'TypeName' => 'External Service'],
+        ['TypeID' => 'remote_voice', 'TypeName' => 'Remote Voice'],
+        ['TypeID' => 'remote_bell',  'TypeName' => 'Remote Alarm Bell'],
+        ['TypeID' => 'op1',          'TypeName' => 'OP1'],
+        ['TypeID' => 'op2',          'TypeName' => 'OP2'],
+        ['TypeID' => 'op3',          'TypeName' => 'OP3']
     ];
 
     public function Create()
@@ -63,45 +47,16 @@ class ARMResponseManagerMock extends IPSModule
         $this->RegisterPropertyInteger('Module2InstanceID', 0);
         $this->RegisterPropertyInteger('VaultInstanceID', 0);
         $this->RegisterPropertyString('ImportedModule1ConfigJson', '');
-        $this->RegisterPropertyString('GroupStateMappings', '[]');
+
         $this->RegisterPropertyString('OutputResources', '[]');
+        $this->RegisterPropertyString('GroupStateRules', '[]');
+        $this->RegisterPropertyString('RuleOutputAssignments', '[]');
     }
 
     public function ApplyChanges()
     {
         parent::ApplyChanges();
-
-        $groupRows = json_decode($this->ReadPropertyString('GroupStateMappings'), true);
-        if (!is_array($groupRows)) {
-            IPS_SetProperty($this->InstanceID, 'GroupStateMappings', '[]');
-            IPS_ApplyChanges($this->InstanceID);
-            return;
-        }
-
-        $outputRows = json_decode($this->ReadPropertyString('OutputResources'), true);
-        if (!is_array($outputRows)) {
-            IPS_SetProperty($this->InstanceID, 'OutputResources', '[]');
-            IPS_ApplyChanges($this->InstanceID);
-            return;
-        }
-
-        $normalizedOutputRows = $this->NormalizeOutputRows($outputRows);
-        if (json_encode($normalizedOutputRows) !== json_encode($outputRows)) {
-            IPS_SetProperty($this->InstanceID, 'OutputResources', json_encode($normalizedOutputRows));
-            IPS_ApplyChanges($this->InstanceID);
-            return;
-        }
-
-        $normalizedGroupRows = $this->NormalizeGroupRows($groupRows, $normalizedOutputRows);
-        if (json_encode($normalizedGroupRows) !== json_encode($groupRows)) {
-            IPS_SetProperty($this->InstanceID, 'GroupStateMappings', json_encode($normalizedGroupRows));
-            IPS_ApplyChanges($this->InstanceID);
-            return;
-        }
-
-        if ($this->GetStatus() === 100 || $this->GetStatus() === 101) {
-            $this->SetStatus(102);
-        }
+        $this->SetStatus(102);
     }
 
     public function RequestAction($Ident, $Value)
@@ -136,69 +91,113 @@ class ARMResponseManagerMock extends IPSModule
             ]);
         }
 
-        $outputRows = json_decode($this->ReadPropertyString('OutputResources'), true);
-        if (!is_array($outputRows)) {
-            $outputRows = [];
-        }
-        $outputRows = $this->NormalizeOutputRows($outputRows);
+        $importedGroups = $this->ExtractImportedGroupsFromConfig();
+        $outputTypes = $this->GetBuiltInOutputTypes();
 
-        $groupRows = json_decode($this->ReadPropertyString('GroupStateMappings'), true);
-        if (!is_array($groupRows)) {
-            $groupRows = [];
-        }
-        $groupRows = $this->NormalizeGroupRows($groupRows, $outputRows);
+        $outputResources = $this->readListProperty('OutputResources');
+        $groupStateRules = $this->readListProperty('GroupStateRules');
+        $ruleOutputAssignments = $this->readListProperty('RuleOutputAssignments');
 
-        $stateOptions = [];
-        foreach (self::HOUSE_STATES as $id => $label) {
-            $stateOptions[] = [
-                'caption' => $label,
-                'value'   => (string) $id
-            ];
-        }
+        $groupOptions = $this->buildGroupOptions($importedGroups, $groupStateRules);
+        $groupLabels = $this->buildGroupLabels($importedGroups, $groupStateRules);
 
-        $severityOptions = [];
-        foreach (self::SEVERITY_LEVELS as $level) {
-            $severityOptions[] = [
-                'caption' => $level,
-                'value'   => $level
-            ];
-        }
+        $typeOptions = $this->buildTypeOptions($outputTypes, $outputResources);
+        $typeLabels = $this->buildTypeLabels($outputTypes, $outputResources);
 
-        $outputTypeOptions = [];
-        foreach (self::OUTPUT_TYPES as $type) {
-            $outputTypeOptions[] = [
-                'caption' => $type,
-                'value'   => $type
-            ];
-        }
+        $ruleOptions = $this->buildRuleOptions($groupStateRules, $groupLabels);
+        $ruleLabels = $this->buildRuleLabels($groupStateRules, $groupLabels);
 
-        foreach ($form['elements'] as &$element) {
-            if (($element['type'] ?? '') === 'List' && ($element['name'] ?? '') === 'GroupStateMappings') {
-                $element['values'] = $groupRows;
+        $outputOptions = $this->buildOutputOptions($outputResources, $typeLabels);
+        $outputLabels = $this->buildOutputLabels($outputResources);
+        $outputTypeLabels = $this->buildOutputTypeLabels($outputResources, $typeLabels);
 
-                foreach ($element['columns'] as &$column) {
-                    if (($column['name'] ?? '') === 'HouseState') {
-                        $column['edit']['options'] = $stateOptions;
-                    }
-                    if (($column['name'] ?? '') === 'Severity') {
-                        $column['edit']['options'] = $severityOptions;
-                    }
-                }
-                unset($column);
+        $this->setListColumnOptions($form, 'OutputResources', 'TypeID', $typeOptions);
+        $this->setListColumnOptions($form, 'GroupStateRules', 'GroupKey', $groupOptions);
+        $this->setListColumnOptions($form, 'GroupStateRules', 'HouseState', self::HOUSE_STATES);
+        $this->setListColumnOptions($form, 'GroupStateRules', 'Severity', self::SEVERITY_LEVELS);
+        $this->setListColumnOptions($form, 'RuleOutputAssignments', 'RuleID', $ruleOptions);
+        $this->setListColumnOptions($form, 'RuleOutputAssignments', 'OutputID', $outputOptions);
+
+        $resourceValues = [];
+        foreach ($outputResources as $row) {
+            $outputID = trim((string) ($row['OutputID'] ?? ''));
+            if ($outputID === '') {
+                $outputID = $this->GenerateTechnicalID('out_');
             }
 
-            if (($element['type'] ?? '') === 'List' && ($element['name'] ?? '') === 'OutputResources') {
-                $element['values'] = $outputRows;
-
-                foreach ($element['columns'] as &$column) {
-                    if (($column['name'] ?? '') === 'OutputType') {
-                        $column['edit']['options'] = $outputTypeOptions;
-                    }
-                }
-                unset($column);
-            }
+            $typeID = trim((string) ($row['TypeID'] ?? ''));
+            $resourceValues[] = [
+                'Active'            => (bool) ($row['Active'] ?? true),
+                'OutputID'          => $outputID,
+                'Name'              => (string) ($row['Name'] ?? ''),
+                'TypeID'            => $typeID,
+                'TargetObjectID'    => (int) ($row['TargetObjectID'] ?? 0),
+                'MaxMessages'       => (int) ($row['MaxMessages'] ?? 1),
+                'PerSeconds'        => (int) ($row['PerSeconds'] ?? 60),
+                'PrefixText'        => (string) ($row['PrefixText'] ?? ''),
+                'UseSensorName'     => (bool) ($row['UseSensorName'] ?? true),
+                'UseParentName'     => (bool) ($row['UseParentName'] ?? false),
+                'UseGrandparentName' => (bool) ($row['UseGrandparentName'] ?? false),
+                'SuffixText'        => (string) ($row['SuffixText'] ?? ''),
+                'EmailAddress'      => (string) ($row['EmailAddress'] ?? ''),
+                'PhoneNumber'       => (string) ($row['PhoneNumber'] ?? ''),
+                'Volume'            => (string) ($row['Volume'] ?? ''),
+                'TypeLabel'         => $typeLabels[$typeID] ?? '[missing type]',
+                'RowSummary'        => $this->buildOutputSummary($row, $typeLabels)
+            ];
         }
-        unset($element);
+        $this->setListValues($form, 'OutputResources', $resourceValues);
+
+        $ruleValues = [];
+        foreach ($groupStateRules as $row) {
+            $ruleID = trim((string) ($row['RuleID'] ?? ''));
+            if ($ruleID === '') {
+                $ruleID = $this->GenerateTechnicalID('rule_');
+            }
+
+            $groupKey = trim((string) ($row['GroupKey'] ?? ''));
+            $houseState = trim((string) ($row['HouseState'] ?? ''));
+
+            $ruleValues[] = [
+                'Active'      => (bool) ($row['Active'] ?? true),
+                'RuleID'      => $ruleID,
+                'GroupKey'    => $groupKey,
+                'HouseState'  => $houseState,
+                'Severity'    => (string) ($row['Severity'] ?? ''),
+                'Bypass'      => (bool) ($row['Bypass'] ?? false),
+                'GroupLabel'  => $groupLabels[$groupKey] ?? '[missing group]',
+                'RuleLabel'   => $this->buildRuleLabel($row, $groupLabels),
+                'RowSummary'  => $this->buildRuleSummary($row, $groupLabels)
+            ];
+        }
+        $this->setListValues($form, 'GroupStateRules', $ruleValues);
+
+        $assignmentValues = [];
+        foreach ($ruleOutputAssignments as $row) {
+            $assignmentID = trim((string) ($row['AssignmentID'] ?? ''));
+            if ($assignmentID === '') {
+                $assignmentID = $this->GenerateTechnicalID('asg_');
+            }
+
+            $ruleID = trim((string) ($row['RuleID'] ?? ''));
+            $outputID = trim((string) ($row['OutputID'] ?? ''));
+
+            $assignmentValues[] = [
+                'Active'          => (bool) ($row['Active'] ?? true),
+                'AssignmentID'    => $assignmentID,
+                'RuleID'          => $ruleID,
+                'OutputID'        => $outputID,
+                'RuleLabel'       => $ruleLabels[$ruleID] ?? '[missing rule]',
+                'OutputName'      => $outputLabels[$outputID] ?? '[missing output]',
+                'OutputTypeLabel' => $outputTypeLabels[$outputID] ?? '[missing type]',
+                'RowSummary'      => $this->buildAssignmentSummary(
+                    $ruleLabels[$ruleID] ?? '[missing rule]',
+                    $outputLabels[$outputID] ?? '[missing output]',
+                    $outputTypeLabels[$outputID] ?? '[missing type]'
+                )
+            ];
+        }
+        $this->setListValues($form, 'RuleOutputAssignments', $assignmentValues);
 
         return json_encode($form);
     }
@@ -236,165 +235,480 @@ class ARMResponseManagerMock extends IPSModule
 
     public function BuildRowsFromMyRouting(): void
     {
-        $json = $this->ReadPropertyString('ImportedModule1ConfigJson');
-        if (trim($json) === '') {
-            $this->SetStatus(200);
-            throw new Exception('No imported Module 1 configuration is available. Read Module 1 configuration first.');
-        }
-
-        $config = json_decode($json, true);
-        if (!is_array($config)) {
-            $this->SetStatus(200);
-            throw new Exception('Imported Module 1 configuration is invalid JSON.');
-        }
-
-        $myInstanceID = $this->InstanceID;
-        $groups = $this->ExtractGroupsForTargetInstance($config, $myInstanceID);
-
+        $groups = $this->ExtractImportedGroupsFromConfig();
         if (count($groups) === 0) {
             $this->SetStatus(201);
-            throw new Exception('No GroupDispatch entry in Module 1 routes to this Module 3 instance ID (' . $myInstanceID . ').');
+            throw new Exception('No GroupDispatch entry in Module 1 routes to this Module 3 instance ID (' . $this->InstanceID . ').');
         }
 
-        $rows = $this->BuildRowsFromImportedGroups($groups);
+        $existingRules = $this->readListProperty('GroupStateRules');
+        $existingMap = [];
 
-        IPS_SetProperty($this->InstanceID, 'GroupStateMappings', json_encode($rows));
+        foreach ($existingRules as $row) {
+            $groupKey = trim((string) ($row['GroupKey'] ?? ''));
+            $houseState = trim((string) ($row['HouseState'] ?? ''));
+            if ($groupKey === '' || $houseState === '') {
+                continue;
+            }
+            $existingMap[$groupKey . '|' . $houseState] = $row;
+        }
+
+        foreach ($groups as $group) {
+            $groupKey = (string) ($group['GroupKey'] ?? '');
+            if ($groupKey === '') {
+                continue;
+            }
+
+            foreach (self::HOUSE_STATES as $stateOption) {
+                $houseState = (string) ($stateOption['value'] ?? '');
+                if ($houseState === '') {
+                    continue;
+                }
+
+                $compositeKey = $groupKey . '|' . $houseState;
+                if (isset($existingMap[$compositeKey])) {
+                    continue;
+                }
+
+                $existingRules[] = [
+                    'Active'     => false,
+                    'RuleID'     => $this->GenerateTechnicalID('rule_'),
+                    'GroupKey'   => $groupKey,
+                    'HouseState' => $houseState,
+                    'Severity'   => 'Medium',
+                    'Bypass'     => false
+                ];
+            }
+        }
+
+        IPS_SetProperty($this->InstanceID, 'GroupStateRules', json_encode(array_values($existingRules)));
         IPS_ApplyChanges($this->InstanceID);
 
         $this->SetStatus(203);
     }
 
-    private function ExtractGroupsForTargetInstance(array $config, int $targetInstanceID): array
+    private function readListProperty(string $propertyName): array
     {
-        $result = [];
-        $dispatchList = $config['GroupDispatch'] ?? [];
+        $raw = $this->ReadPropertyString($propertyName);
+        $data = json_decode($raw, true);
+        return is_array($data) ? array_values($data) : [];
+    }
 
+    private function GetBuiltInOutputTypes(): array
+    {
+        return self::OUTPUT_TYPE_CATALOG;
+    }
+
+    private function ExtractImportedGroupsFromConfig(): array
+    {
+        $json = $this->ReadPropertyString('ImportedModule1ConfigJson');
+        if (trim($json) === '') {
+            return [];
+        }
+
+        $config = json_decode($json, true);
+        if (!is_array($config)) {
+            return [];
+        }
+
+        $dispatchList = $config['GroupDispatch'] ?? [];
         if (!is_array($dispatchList)) {
             return [];
         }
 
+        $result = [];
         foreach ($dispatchList as $dispatchRow) {
             if (!is_array($dispatchRow)) {
                 continue;
             }
 
             $instanceID = (int) ($dispatchRow['InstanceID'] ?? 0);
-            if ($instanceID !== $targetInstanceID) {
+            if ($instanceID !== $this->InstanceID) {
                 continue;
             }
 
-            $groupName = trim((string) ($dispatchRow['GroupName'] ?? ''));
-            if ($groupName === '') {
+            $groupLabel = trim((string) ($dispatchRow['GroupName'] ?? ''));
+            if ($groupLabel === '') {
                 continue;
             }
 
-            $result[] = $groupName;
+            $groupKey = $this->MakeGroupKey($groupLabel);
+            $result[$groupKey] = [
+                'GroupKey'   => $groupKey,
+                'GroupLabel' => $groupLabel
+            ];
         }
 
-        $result = array_values(array_unique($result));
-        sort($result, SORT_NATURAL | SORT_FLAG_CASE);
+        uasort($result, static function (array $a, array $b): int {
+            return strnatcasecmp($a['GroupLabel'], $b['GroupLabel']);
+        });
 
-        return $result;
+        return array_values($result);
     }
 
-    private function BuildRowsFromImportedGroups(array $groups): array
+    private function buildGroupOptions(array $groups, array $rules): array
     {
-        $rows = [];
+        $options = [['caption' => '', 'value' => '']];
+        $used = ['' => true];
 
-        foreach ($groups as $groupName) {
-            foreach (self::HOUSE_STATES as $stateId => $stateLabel) {
-                $row = [
-                    'Enabled'        => false,
-                    'GroupName'      => $groupName,
-                    'HouseState'     => (string) $stateId,
-                    'Severity'       => 'Medium',
-                    'BypassThrottle' => false
-                ];
+        foreach ($groups as $row) {
+            $key = trim((string) ($row['GroupKey'] ?? ''));
+            $label = trim((string) ($row['GroupLabel'] ?? ''));
+            if ($key === '' || isset($used[$key])) {
+                continue;
+            }
 
-                foreach (self::OUTPUT_COLUMNS as $columnName) {
-                    $row[$columnName] = false;
+            $options[] = [
+                'caption' => $label !== '' ? $label : $key,
+                'value'   => $key
+            ];
+            $used[$key] = true;
+        }
+
+        foreach ($rules as $row) {
+            $key = trim((string) ($row['GroupKey'] ?? ''));
+            if ($key === '' || isset($used[$key])) {
+                continue;
+            }
+
+            $options[] = [
+                'caption' => '[missing group] ' . $key,
+                'value'   => $key
+            ];
+            $used[$key] = true;
+        }
+
+        return $options;
+    }
+
+    private function buildGroupLabels(array $groups, array $rules): array
+    {
+        $labels = [];
+
+        foreach ($groups as $row) {
+            $key = trim((string) ($row['GroupKey'] ?? ''));
+            $label = trim((string) ($row['GroupLabel'] ?? ''));
+            if ($key === '') {
+                continue;
+            }
+            $labels[$key] = $label !== '' ? $label : $key;
+        }
+
+        foreach ($rules as $row) {
+            $key = trim((string) ($row['GroupKey'] ?? ''));
+            if ($key === '' || isset($labels[$key])) {
+                continue;
+            }
+            $labels[$key] = '[missing group]';
+        }
+
+        return $labels;
+    }
+
+    private function buildTypeOptions(array $outputTypes, array $outputResources): array
+    {
+        $options = [['caption' => '', 'value' => '']];
+        $used = ['' => true];
+
+        foreach ($outputTypes as $row) {
+            $typeID = trim((string) ($row['TypeID'] ?? ''));
+            $typeName = trim((string) ($row['TypeName'] ?? ''));
+            if ($typeID === '' || isset($used[$typeID])) {
+                continue;
+            }
+
+            $options[] = [
+                'caption' => $typeName !== '' ? $typeName : $typeID,
+                'value'   => $typeID
+            ];
+            $used[$typeID] = true;
+        }
+
+        foreach ($outputResources as $row) {
+            $typeID = trim((string) ($row['TypeID'] ?? ''));
+            if ($typeID === '' || isset($used[$typeID])) {
+                continue;
+            }
+
+            $options[] = [
+                'caption' => '[missing type] ' . $typeID,
+                'value'   => $typeID
+            ];
+            $used[$typeID] = true;
+        }
+
+        return $options;
+    }
+
+    private function buildTypeLabels(array $outputTypes, array $outputResources): array
+    {
+        $labels = [];
+
+        foreach ($outputTypes as $row) {
+            $typeID = trim((string) ($row['TypeID'] ?? ''));
+            $typeName = trim((string) ($row['TypeName'] ?? ''));
+            if ($typeID === '') {
+                continue;
+            }
+            $labels[$typeID] = $typeName !== '' ? $typeName : $typeID;
+        }
+
+        foreach ($outputResources as $row) {
+            $typeID = trim((string) ($row['TypeID'] ?? ''));
+            if ($typeID === '' || isset($labels[$typeID])) {
+                continue;
+            }
+            $labels[$typeID] = '[missing type]';
+        }
+
+        return $labels;
+    }
+
+    private function buildRuleOptions(array $rules, array $groupLabels): array
+    {
+        $options = [['caption' => '', 'value' => '']];
+
+        foreach ($rules as $row) {
+            $ruleID = trim((string) ($row['RuleID'] ?? ''));
+            if ($ruleID === '') {
+                continue;
+            }
+
+            $options[] = [
+                'caption' => $this->buildRuleLabel($row, $groupLabels),
+                'value'   => $ruleID
+            ];
+        }
+
+        return $options;
+    }
+
+    private function buildRuleLabels(array $rules, array $groupLabels): array
+    {
+        $labels = [];
+
+        foreach ($rules as $row) {
+            $ruleID = trim((string) ($row['RuleID'] ?? ''));
+            if ($ruleID === '') {
+                continue;
+            }
+            $labels[$ruleID] = $this->buildRuleLabel($row, $groupLabels);
+        }
+
+        return $labels;
+    }
+
+    private function buildOutputOptions(array $resources, array $typeLabels): array
+    {
+        $options = [['caption' => '', 'value' => '']];
+
+        foreach ($resources as $row) {
+            $outputID = trim((string) ($row['OutputID'] ?? ''));
+            $name = trim((string) ($row['Name'] ?? ''));
+            $typeID = trim((string) ($row['TypeID'] ?? ''));
+            if ($outputID === '') {
+                continue;
+            }
+
+            $typeLabel = $typeLabels[$typeID] ?? '[missing type]';
+            $caption = $name !== '' ? $name : $outputID;
+            if ($typeLabel !== '') {
+                $caption .= ' [' . $typeLabel . ']';
+            }
+
+            $options[] = [
+                'caption' => $caption,
+                'value'   => $outputID
+            ];
+        }
+
+        return $options;
+    }
+
+    private function buildOutputLabels(array $resources): array
+    {
+        $labels = [];
+
+        foreach ($resources as $row) {
+            $outputID = trim((string) ($row['OutputID'] ?? ''));
+            $name = trim((string) ($row['Name'] ?? ''));
+            if ($outputID === '') {
+                continue;
+            }
+            $labels[$outputID] = $name !== '' ? $name : $outputID;
+        }
+
+        return $labels;
+    }
+
+    private function buildOutputTypeLabels(array $resources, array $typeLabels): array
+    {
+        $labels = [];
+
+        foreach ($resources as $row) {
+            $outputID = trim((string) ($row['OutputID'] ?? ''));
+            $typeID = trim((string) ($row['TypeID'] ?? ''));
+            if ($outputID === '') {
+                continue;
+            }
+            $labels[$outputID] = $typeLabels[$typeID] ?? '[missing type]';
+        }
+
+        return $labels;
+    }
+
+    private function buildOutputSummary(array $row, array $typeLabels): string
+    {
+        $outputID = trim((string) ($row['OutputID'] ?? ''));
+        $name = trim((string) ($row['Name'] ?? ''));
+        $typeID = trim((string) ($row['TypeID'] ?? ''));
+        $typeLabel = $typeLabels[$typeID] ?? '[missing type]';
+        $targetObjectID = (int) ($row['TargetObjectID'] ?? 0);
+
+        $parts = [];
+        if ($outputID !== '') {
+            $parts[] = $outputID;
+        }
+        if ($name !== '') {
+            $parts[] = $name;
+        }
+        if ($typeLabel !== '') {
+            $parts[] = $typeLabel;
+        }
+        if ($targetObjectID > 0) {
+            $parts[] = 'ObjID: ' . $targetObjectID;
+        }
+
+        return implode(' / ', $parts);
+    }
+
+    private function buildRuleLabel(array $row, array $groupLabels): string
+    {
+        $groupKey = trim((string) ($row['GroupKey'] ?? ''));
+        $houseState = trim((string) ($row['HouseState'] ?? ''));
+        $groupLabel = $groupLabels[$groupKey] ?? '[missing group]';
+        $stateLabel = $this->labelFromOptions(self::HOUSE_STATES, $houseState);
+
+        if ($groupKey === '' && $houseState === '') {
+            return '';
+        }
+        if ($stateLabel === '') {
+            return $groupLabel;
+        }
+
+        return $groupLabel . ' / ' . $stateLabel;
+    }
+
+    private function buildRuleSummary(array $row, array $groupLabels): string
+    {
+        $parts = [];
+        $label = $this->buildRuleLabel($row, $groupLabels);
+        $severity = trim((string) ($row['Severity'] ?? ''));
+        $bypass = (bool) ($row['Bypass'] ?? false);
+
+        if ($label !== '') {
+            $parts[] = $label;
+        }
+        if ($severity !== '') {
+            $parts[] = 'severity: ' . $severity;
+        }
+        if ($bypass) {
+            $parts[] = 'bypass';
+        }
+
+        return implode(' / ', $parts);
+    }
+
+    private function buildAssignmentSummary(string $ruleLabel, string $outputName, string $outputTypeLabel): string
+    {
+        $parts = [];
+        if ($ruleLabel !== '') {
+            $parts[] = $ruleLabel;
+        }
+        if ($outputName !== '') {
+            $parts[] = $outputName;
+        }
+        if ($outputTypeLabel !== '') {
+            $parts[] = '[' . $outputTypeLabel . ']';
+        }
+
+        return implode(' -> ', $parts);
+    }
+
+    private function labelFromOptions(array $options, string $value): string
+    {
+        foreach ($options as $option) {
+            if ((string) ($option['value'] ?? '') === $value) {
+                return (string) ($option['caption'] ?? '');
+            }
+        }
+        return $value;
+    }
+
+    private function setListValues(array &$form, string $listName, array $values): void
+    {
+        $this->walkAndModifyList($form, $listName, function (&$element) use ($values) {
+            $element['values'] = $values;
+        });
+    }
+
+    private function setListColumnOptions(array &$form, string $listName, string $columnName, array $options): void
+    {
+        $this->walkAndModifyList($form, $listName, function (&$element) use ($columnName, $options) {
+            if (!isset($element['columns']) || !is_array($element['columns'])) {
+                return;
+            }
+
+            foreach ($element['columns'] as &$column) {
+                if (($column['name'] ?? '') !== $columnName) {
+                    continue;
                 }
 
-                $rows[] = $row;
-            }
-        }
+                if (!isset($column['edit']) || !is_array($column['edit'])) {
+                    $column['edit'] = ['type' => 'Select'];
+                }
 
-        return $rows;
+                $column['edit']['options'] = $options;
+                return;
+            }
+        });
     }
 
-    private function NormalizeGroupRows(array $rows, array $outputRows): array
+    private function walkAndModifyList(array &$node, string $listName, callable $callback): bool
     {
-        $normalized = [];
-
-        foreach ($rows as $row) {
-            if (!is_array($row)) {
-                continue;
-            }
-
-            $severity = (string) ($row['Severity'] ?? 'Medium');
-            if (!in_array($severity, self::SEVERITY_LEVELS, true)) {
-                $severity = 'Medium';
-            }
-
-            $newRow = [
-                'Enabled'        => (bool) ($row['Enabled'] ?? false),
-                'GroupName'      => (string) ($row['GroupName'] ?? ''),
-                'HouseState'     => (string) ($row['HouseState'] ?? '0'),
-                'Severity'       => $severity,
-                'BypassThrottle' => (bool) ($row['BypassThrottle'] ?? false)
-            ];
-
-            foreach (self::OUTPUT_COLUMNS as $columnName) {
-                $newRow[$columnName] = (bool) ($row[$columnName] ?? false);
-            }
-
-            $normalized[] = $newRow;
+        if (($node['type'] ?? '') === 'List' && ($node['name'] ?? '') === $listName) {
+            $callback($node);
+            return true;
         }
 
-        return $normalized;
+        if (isset($node['elements']) && is_array($node['elements'])) {
+            foreach ($node['elements'] as &$child) {
+                if ($this->walkAndModifyList($child, $listName, $callback)) {
+                    return true;
+                }
+            }
+        }
+
+        if (isset($node['items']) && is_array($node['items'])) {
+            foreach ($node['items'] as &$child) {
+                if ($this->walkAndModifyList($child, $listName, $callback)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
-    private function NormalizeOutputRows(array $rows): array
+    private function GenerateTechnicalID(string $prefix): string
     {
-        $normalized = [];
-
-        foreach ($rows as $row) {
-            if (!is_array($row)) {
-                continue;
-            }
-
-            $targetObjectID = (int) ($row['TargetObjectID'] ?? 0);
-            if (!$this->IsAllowedTargetObject($targetObjectID)) {
-                $targetObjectID = 0;
-            }
-
-            $outputType = (string) ($row['OutputType'] ?? 'Email');
-            if (!in_array($outputType, self::OUTPUT_TYPES, true)) {
-                $outputType = 'Email';
-            }
-
-            $normalized[] = [
-                'Enabled'            => (bool) ($row['Enabled'] ?? true),
-                'OutputName'         => (string) ($row['OutputName'] ?? ''),
-                'OutputType'         => $outputType,
-                'TargetObjectID'     => $targetObjectID,
-                'MaxMessages'        => max(1, (int) ($row['MaxMessages'] ?? 1)),
-                'PerSeconds'         => max(1, (int) ($row['PerSeconds'] ?? 60)),
-                'PrefixText'         => (string) ($row['PrefixText'] ?? ''),
-                'UseSensorName'      => (bool) ($row['UseSensorName'] ?? true),
-                'UseParentName'      => (bool) ($row['UseParentName'] ?? false),
-                'UseGrandparentName' => (bool) ($row['UseGrandparentName'] ?? false),
-                'SuffixText'         => (string) ($row['SuffixText'] ?? ''),
-                'EmailAddress'       => (string) ($row['EmailAddress'] ?? ''),
-                'PhoneNumber'        => (string) ($row['PhoneNumber'] ?? ''),
-                'Volume'             => (string) ($row['Volume'] ?? '')
-            ];
-        }
-
-        return $normalized;
+        return $prefix . bin2hex(random_bytes(6));
     }
 
-
+    private function MakeGroupKey(string $groupLabel): string
+    {
+        return 'grp_' . md5(mb_strtolower(trim($groupLabel)));
+    }
 
     private function IsAllowedTargetObject(int $objectID): bool
     {
@@ -405,7 +719,6 @@ class ARMResponseManagerMock extends IPSModule
         $object = IPS_GetObject($objectID);
         $type = (int) ($object['ObjectType'] ?? -1);
 
-        // 1 = Instance, 3 = Script
         return in_array($type, [1, 3], true);
     }
 }
