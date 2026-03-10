@@ -735,7 +735,69 @@ class ARMResponseManagerMock extends IPSModule
     }
 
 
+    private function FindOutputResourceByID(string $outputID): ?array
+    {
+        $rows = $this->readListProperty('OutputResources');
 
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            if ((string) ($row['OutputID'] ?? '') !== $outputID) {
+                continue;
+            }
+
+            return $row;
+        }
+
+        return null;
+    }
+
+    private function IsEmailTypeID(string $typeID): bool
+    {
+        return in_array($typeID, ['email_1', 'email_2', 'email_3', 'email_4'], true);
+    }
+
+    private function SendEmailOutputResource(array $resource, string $subject, string $body): bool
+    {
+        $typeID = trim((string) ($resource['TypeID'] ?? ''));
+        if (!$this->IsEmailTypeID($typeID)) {
+            $this->LogMessage('SendEmailOutputResource: resource is not an email type', KL_MESSAGE);
+            return false;
+        }
+
+        $targetObjectID = (int) ($resource['TargetObjectID'] ?? 0);
+        if ($targetObjectID <= 0 || !@IPS_InstanceExists($targetObjectID)) {
+            $this->LogMessage('SendEmailOutputResource: invalid SMTP instance', KL_MESSAGE);
+            return false;
+        }
+
+        if (!function_exists('SMTP_SendMail')) {
+            $this->LogMessage('SendEmailOutputResource: SMTP_SendMail not available', KL_MESSAGE);
+            return false;
+        }
+
+        $ok = @SMTP_SendMail($targetObjectID, $subject, $body);
+        if (!$ok) {
+            $name = (string) ($resource['Name'] ?? '');
+            $this->LogMessage('SendEmailOutputResource failed for output "' . $name . '"', KL_MESSAGE);
+            return false;
+        }
+
+        return true;
+    }
+
+    public function TestSendEmailByOutputID(string $outputID, string $subject, string $body): bool
+    {
+        $resource = $this->FindOutputResourceByID($outputID);
+        if ($resource === null) {
+            $this->LogMessage('TestSendEmailByOutputID: OutputID not found: ' . $outputID, KL_MESSAGE);
+            return false;
+        }
+
+        return $this->SendEmailOutputResource($resource, $subject, $body);
+    }
     private function IsAllowedTargetObject(int $objectID): bool
     {
         if ($objectID <= 0 || !@IPS_ObjectExists($objectID)) {
