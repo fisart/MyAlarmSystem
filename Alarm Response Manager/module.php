@@ -120,10 +120,7 @@ class ARMResponseManagerMock extends IPSModule
 
         $resourceValues = [];
         foreach ($outputResources as $row) {
-            $outputID = trim((string) ($row['OutputID'] ?? ''));
-            if ($outputID === '') {
-                $outputID = $this->GenerateTechnicalID('out_');
-            }
+            $outputID = $this->EnsureRowID($row, 'OutputID', 'out_');
 
             $typeID = trim((string) ($row['TypeID'] ?? ''));
             $resourceValues[] = [
@@ -150,10 +147,7 @@ class ARMResponseManagerMock extends IPSModule
 
         $ruleValues = [];
         foreach ($groupStateRules as $row) {
-            $ruleID = trim((string) ($row['RuleID'] ?? ''));
-            if ($ruleID === '') {
-                $ruleID = $this->GenerateTechnicalID('rule_');
-            }
+            $ruleID = $this->EnsureRowID($row, 'RuleID', 'rule_');
 
             $groupKey = trim((string) ($row['GroupKey'] ?? ''));
             $houseState = trim((string) ($row['HouseState'] ?? ''));
@@ -174,10 +168,7 @@ class ARMResponseManagerMock extends IPSModule
 
         $assignmentValues = [];
         foreach ($ruleOutputAssignments as $row) {
-            $assignmentID = trim((string) ($row['AssignmentID'] ?? ''));
-            if ($assignmentID === '') {
-                $assignmentID = $this->GenerateTechnicalID('asg_');
-            }
+            $assignmentID = $this->EnsureRowID($row, 'AssignmentID', 'asg_');
 
             $ruleID = trim((string) ($row['RuleID'] ?? ''));
             $outputID = trim((string) ($row['OutputID'] ?? ''));
@@ -708,6 +699,16 @@ class ARMResponseManagerMock extends IPSModule
     private function MakeGroupKey(string $groupLabel): string
     {
         return 'grp_' . md5(mb_strtolower(trim($groupLabel)));
+    }
+
+    private function EnsureRowID(array $row, string $fieldName, string $prefix): string
+    {
+        $value = trim((string) ($row[$fieldName] ?? ''));
+        if ($value !== '') {
+            return $value;
+        }
+
+        return $this->GenerateTechnicalID($prefix);
     }
 
     private function IsAllowedTargetObject(int $objectID): bool
