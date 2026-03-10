@@ -62,24 +62,22 @@ class DynamicListPatternTest extends IPSModule
     {
         $options = [
             [
-                'label' => '',
-                'value' => ''
+                'caption' => '',
+                'value'   => ''
             ]
         ];
 
         foreach ($outputTypes as $row) {
-            $typeID = trim((string)($row['TypeID'] ?? ''));
+            $typeID   = trim((string)($row['TypeID'] ?? ''));
             $typeName = trim((string)($row['TypeName'] ?? ''));
 
             if ($typeID === '') {
                 continue;
             }
 
-            $label = ($typeName !== '') ? $typeName : $typeID;
-
             $options[] = [
-                'label' => $label,
-                'value' => $typeID
+                'caption' => ($typeName !== '') ? $typeName : $typeID,
+                'value'   => $typeID
             ];
         }
 
