@@ -2,11 +2,11 @@
   "elements": [
     {
       "type": "Label",
-      "caption": "Step 2 persistence test: two independent property-backed lists. Output Types now contain simple technical base content, but there is still no dynamic logic."
+      "caption": "Pattern test: OutputTypes is a normal persisted list. OutputResources is persisted too, but rendered dynamically with derived display columns and dynamic select options."
     },
     {
       "type": "ExpansionPanel",
-      "caption": "Output Types",
+      "caption": "1. Output Types (authoritative persisted list)",
       "items": [
         {
           "type": "List",
@@ -28,14 +28,20 @@
             {
               "caption": "TypeID",
               "name": "TypeID",
-              "width": "120px",
-              "add": ""
+              "width": "140px",
+              "add": "",
+              "edit": {
+                "type": "ValidationTextBox"
+              }
             },
             {
               "caption": "TypeName",
               "name": "TypeName",
-              "width": "140px",
-              "add": ""
+              "width": "180px",
+              "add": "",
+              "edit": {
+                "type": "ValidationTextBox"
+              }
             },
             {
               "caption": "BaseObjectID",
@@ -47,22 +53,13 @@
               }
             },
             {
-              "caption": "DefaultSender",
-              "name": "DefaultSender",
-              "width": "180px",
-              "add": ""
-            },
-            {
-              "caption": "DefaultDuration",
-              "name": "DefaultDuration",
-              "width": "120px",
-              "add": 0
-            },
-            {
               "caption": "Comment",
               "name": "Comment",
               "width": "auto",
-              "add": ""
+              "add": "",
+              "edit": {
+                "type": "ValidationTextBox"
+              }
             }
           ]
         }
@@ -70,7 +67,7 @@
     },
     {
       "type": "ExpansionPanel",
-      "caption": "Output Resources",
+      "caption": "2. Output Resources (dynamic rendered persisted list)",
       "items": [
         {
           "type": "List",
@@ -79,6 +76,7 @@
           "rowCount": 8,
           "add": true,
           "delete": true,
+          "loadValuesFromConfiguration": false,
           "columns": [
             {
               "caption": "Active",
@@ -93,39 +91,62 @@
               "caption": "OutputID",
               "name": "OutputID",
               "width": "140px",
-              "add": ""
+              "add": "",
+              "edit": {
+                "type": "ValidationTextBox"
+              }
             },
             {
               "caption": "Name",
               "name": "Name",
               "width": "180px",
-              "add": ""
+              "add": "",
+              "edit": {
+                "type": "ValidationTextBox"
+              }
             },
             {
               "caption": "TypeID",
               "name": "TypeID",
-              "width": "140px",
-              "add": ""
+              "width": "180px",
+              "add": "",
+              "edit": {
+                "type": "Select",
+                "options": []
+              }
             },
             {
               "caption": "Recipient",
               "name": "Recipient",
               "width": "180px",
-              "add": ""
+              "add": "",
+              "edit": {
+                "type": "ValidationTextBox"
+              }
             },
             {
               "caption": "Sender",
               "name": "Sender",
               "width": "180px",
-              "add": ""
+              "add": "",
+              "edit": {
+                "type": "ValidationTextBox"
+              }
             },
             {
-              "caption": "Comment",
-              "name": "Comment",
+              "caption": "Type Label",
+              "name": "TypeLabel",
+              "width": "140px",
+              "save": false
+            },
+            {
+              "caption": "Summary",
+              "name": "RowSummary",
               "width": "auto",
-              "add": ""
+              "save": false
             }
-          ]
+          ],
+          "values": []
         }
       ]
     }
