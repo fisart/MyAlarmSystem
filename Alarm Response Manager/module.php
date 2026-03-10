@@ -59,7 +59,36 @@ class ARMResponseManagerMock extends IPSModule
     public function ApplyChanges()
     {
         parent::ApplyChanges();
+
+        $this->RegisterHook('/hook/psm_output_' . $this->InstanceID);
+
         $this->SetStatus(102);
+    }
+
+    private function RegisterHook($WebHook)
+    {
+        $ids = IPS_GetInstanceListByModuleID('{015A6EB8-D6E5-4B93-B496-0D3F77AE9FE1}');
+        if (count($ids) > 0) {
+            $hooks = json_decode(IPS_GetProperty($ids[0], 'Hooks'), true) ?: [];
+            $found = false;
+
+            foreach ($hooks as $index => $hook) {
+                if (($hook['Hook'] ?? '') == $WebHook) {
+                    if ((int) ($hook['TargetID'] ?? 0) == $this->InstanceID) {
+                        return;
+                    }
+                    $hooks[$index]['TargetID'] = $this->InstanceID;
+                    $found = true;
+                }
+            }
+
+            if (!$found) {
+                $hooks[] = ['Hook' => $WebHook, 'TargetID' => $this->InstanceID];
+            }
+
+            IPS_SetProperty($ids[0], 'Hooks', json_encode($hooks));
+            IPS_ApplyChanges($ids[0]);
+        }
     }
 
     public function RequestAction($Ident, $Value)
@@ -224,6 +253,139 @@ class ARMResponseManagerMock extends IPSModule
         $this->setListValues($form, 'RuleOutputAssignments', $assignmentValues);
 
         return json_encode($form);
+    }
+
+    protected function ProcessHookData()
+    {
+        // 1. Authentication (Secrets / Vault)
+        $vaultID = $this->ReadPropertyInteger('VaultInstanceID');
+        if ($vaultID > 0 && @IPS_InstanceExists($vaultID)) {
+            if (function_exists('SEC_IsPortalAuthenticated')) {
+                if (!SEC_IsPortalAuthenticated($vaultID)) {
+                    $currentUrl = $_SERVER['REQUEST_URI'] ?? '';
+                    $currentUrl = strtok($currentUrl, '?');
+                    $loginUrl = '/hook/secrets_' . $vaultID . '?portal=1&return=' . urlencode($currentUrl);
+                    header('Location: ' . $loginUrl);
+                    exit;
+                }
+            }
+        }
+
+        // 2. API mode = return only Mermaid graph text
+        if (isset($_GET['api'])) {
+            header('Content-Type: text/plain; charset=utf-8');
+            echo $this->BuildMappingGraph();
+            return;
+        }
+
+        // 3. Full HTML shell
+        header('Content-Type: text/html; charset=utf-8');
+
+        echo '<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Module 3 Mapping</title>
+<style>
+body{
+    background-color:#1e1e1e;color:#cfcfcf;font-family:"Segoe UI",sans-serif;
+    margin:0;padding:20px;height:100vh;box-sizing:border-box;
+    overflow:hidden;display:flex;flex-direction:column;
+}
+.header{flex-shrink:0;text-align:center;margin-bottom:12px;border-bottom:1px solid #333;padding-bottom:10px;}
+.header h2{margin:0;color:#4CAF50;}
+.container{
+    flex-grow:1;background:#252526;border-radius:8px;width:100%;
+    border:1px solid #444;overflow:hidden;position:relative;
+}
+#mermaid-container { position:absolute; inset:0; overflow:hidden; }
+#mermaid-container svg { width:100% !important; height:100% !important; max-width:none !important; display:block; }
+</style>
+
+<script src="https://unpkg.com/svg-pan-zoom@3.6.1/dist/svg-pan-zoom.min.js"></script>
+
+<script type="module">
+import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs";
+
+mermaid.initialize({
+    startOnLoad:false,
+    theme:"dark",
+    flowchart:{ curve:"basis", nodeSpacing:60, rankSpacing:120 }
+});
+
+let isRendering = false;
+let lastGraphString = "";
+let pzInstance = null;
+
+async function fetchAndUpdateGraph() {
+    if (isRendering) return;
+
+    try {
+        const response = await fetch("?api=1&t=" + Date.now(), { credentials: "same-origin" });
+        const graphString = await response.text();
+
+        if (!graphString.trim().startsWith("graph ")) return;
+
+        if (graphString !== lastGraphString) {
+            isRendering = true;
+            lastGraphString = graphString;
+
+            const container = document.getElementById("mermaid-container");
+            const pzContainer = document.querySelector(".container");
+            const oldZoom = pzInstance ? pzInstance.getZoom() : null;
+            const oldPan  = pzInstance ? pzInstance.getPan()  : null;
+
+            if (pzInstance) pzInstance.destroy();
+
+            container.innerHTML = graphString;
+            await mermaid.run({ nodes: [container] });
+
+            const svgEl = container.querySelector("svg");
+            if (!svgEl) return;
+
+            svgEl.removeAttribute("width");
+            svgEl.removeAttribute("height");
+            svgEl.style.width = "100%";
+            svgEl.style.height = "100%";
+            svgEl.style.maxWidth = "none";
+
+            pzInstance = svgPanZoom(svgEl, {
+                zoomEnabled: true,
+                controlIconsEnabled: true,
+                fit: (oldZoom === null),
+                center: (oldPan === null),
+                minZoom: 0.2,
+                maxZoom: 10,
+                eventsListenerElement: pzContainer
+            });
+
+            if (oldZoom !== null) {
+                pzInstance.zoom(oldZoom);
+                pzInstance.pan(oldPan);
+            }
+        }
+    } catch (err) {
+        console.error("Rendering failed", err);
+    } finally {
+        isRendering = false;
+    }
+}
+
+fetchAndUpdateGraph();
+setInterval(fetchAndUpdateGraph, 2000);
+</script>
+</head>
+
+<body>
+<div class="header">
+    <h2>Module 3 Mapping (Live)</h2>
+    <small>Instance ID: ' . $this->InstanceID . '</small>
+</div>
+<div class="container">
+    <div id="mermaid-container">Initializing Live View...</div>
+</div>
+</body>
+</html>';
     }
 
     public function ReadModule1Configuration(): void
@@ -722,6 +884,204 @@ class ARMResponseManagerMock extends IPSModule
         }
 
         return false;
+    }
+
+
+    private function BuildMappingGraph(): string
+    {
+        $groups = $this->ExtractImportedGroupsFromConfig();
+        $rules = $this->readListProperty('GroupStateRules');
+        $assignments = $this->readListProperty('RuleOutputAssignments');
+        $outputs = $this->readListProperty('OutputResources');
+
+        usort($groups, static function (array $a, array $b): int {
+            return strnatcasecmp((string) ($a['GroupLabel'] ?? ''), (string) ($b['GroupLabel'] ?? ''));
+        });
+
+        usort($rules, static function (array $a, array $b): int {
+            $ak = (string) ($a['GroupKey'] ?? '') . '|' . (string) ($a['HouseState'] ?? '');
+            $bk = (string) ($b['GroupKey'] ?? '') . '|' . (string) ($b['HouseState'] ?? '');
+            return strnatcasecmp($ak, $bk);
+        });
+
+        usort($assignments, static function (array $a, array $b): int {
+            $ak = (string) ($a['RuleID'] ?? '') . '|' . (string) ($a['OutputID'] ?? '');
+            $bk = (string) ($b['RuleID'] ?? '') . '|' . (string) ($b['OutputID'] ?? '');
+            return strnatcasecmp($ak, $bk);
+        });
+
+        usort($outputs, static function (array $a, array $b): int {
+            return strnatcasecmp((string) ($a['Name'] ?? ''), (string) ($b['Name'] ?? ''));
+        });
+
+        $groupLabels = $this->buildGroupLabels($groups, $rules);
+        $typeLabels = $this->buildTypeLabels($this->GetBuiltInOutputTypes(), $outputs);
+
+        $rulesByID = [];
+        foreach ($rules as $row) {
+            $ruleID = trim((string) ($row['RuleID'] ?? ''));
+            if ($ruleID !== '') {
+                $rulesByID[$ruleID] = $row;
+            }
+        }
+
+        $outputsByID = [];
+        foreach ($outputs as $row) {
+            $outputID = trim((string) ($row['OutputID'] ?? ''));
+            if ($outputID !== '') {
+                $outputsByID[$outputID] = $row;
+            }
+        }
+
+        $activeGroups = [];
+        foreach ($rules as $rule) {
+            if (!(bool) ($rule['Active'] ?? false)) {
+                continue;
+            }
+            $groupKey = trim((string) ($rule['GroupKey'] ?? ''));
+            if ($groupKey !== '') {
+                $activeGroups[$groupKey] = true;
+            }
+        }
+
+        $lines = [];
+        $lines[] = 'graph LR';
+        $lines[] = 'classDef green fill:#2e7d32,stroke:#a5d6a7,stroke-width:2px,color:#fff;';
+        $lines[] = 'classDef red fill:#c62828,stroke:#ff8a80,stroke-width:2px,color:#fff;';
+        $lines[] = 'classDef grey fill:#37474f,stroke:#546e7a,stroke-width:1px,color:#eee;';
+
+        $linkCounter = 0;
+
+        foreach ($groups as $group) {
+            $groupKey = trim((string) ($group['GroupKey'] ?? ''));
+            if ($groupKey === '') {
+                continue;
+            }
+
+            $groupNode = 'G_' . substr(md5($groupKey), 0, 10);
+            $groupLabel = $groupLabels[$groupKey] ?? $groupKey;
+
+            $lines[] = $groupNode . '["' . $this->MermaidEscape($groupLabel) . '"]';
+            $lines[] = 'class ' . $groupNode . ' ' . (isset($activeGroups[$groupKey]) ? 'red' : 'green') . ';';
+        }
+
+        foreach ($rules as $rule) {
+            $ruleID = trim((string) ($rule['RuleID'] ?? ''));
+            $groupKey = trim((string) ($rule['GroupKey'] ?? ''));
+            if ($ruleID === '' || $groupKey === '') {
+                continue;
+            }
+
+            $groupNode = 'G_' . substr(md5($groupKey), 0, 10);
+            $ruleNode = 'R_' . substr(md5($ruleID), 0, 10);
+            $ruleActive = (bool) ($rule['Active'] ?? false);
+
+            $ruleLabel = $this->buildRuleLabel($rule, $groupLabels);
+            $severity = trim((string) ($rule['Severity'] ?? ''));
+            $bypass = (bool) ($rule['Bypass'] ?? false);
+
+            $parts = [];
+            $parts[] = $ruleLabel !== '' ? $ruleLabel : $ruleID;
+            if ($severity !== '') {
+                $parts[] = 'Severity: ' . $severity;
+            }
+            if ($bypass) {
+                $parts[] = 'Bypass';
+            }
+
+            $lines[] = $ruleNode . '["' . $this->MermaidEscape(implode("\n", $parts)) . '"]';
+            $lines[] = $groupNode . ' --> ' . $ruleNode;
+            $lines[] = 'class ' . $ruleNode . ' ' . ($ruleActive ? 'red' : 'green') . ';';
+            if ($ruleActive) {
+                $lines[] = 'linkStyle ' . $linkCounter . ' stroke:#ff8a80,stroke-width:2px;';
+            } else {
+                $lines[] = 'linkStyle ' . $linkCounter . ' stroke:#a5d6a7,stroke-width:2px;';
+            }
+            $linkCounter++;
+        }
+
+        foreach ($assignments as $assignment) {
+            $assignmentID = trim((string) ($assignment['AssignmentID'] ?? ''));
+            $ruleID = trim((string) ($assignment['RuleID'] ?? ''));
+            $outputID = trim((string) ($assignment['OutputID'] ?? ''));
+
+            if ($assignmentID === '' || $ruleID === '') {
+                continue;
+            }
+
+            $assignmentNode = 'A_' . substr(md5($assignmentID), 0, 10);
+            $ruleNode = 'R_' . substr(md5($ruleID), 0, 10);
+
+            $assignmentActive = (bool) ($assignment['Active'] ?? false);
+
+            $assignmentLabel = 'Assignment';
+            if ($outputID !== '') {
+                $assignmentLabel .= "\n" . $outputID;
+            }
+
+            $lines[] = $assignmentNode . '["' . $this->MermaidEscape($assignmentLabel) . '"]';
+            $lines[] = $ruleNode . ' --> ' . $assignmentNode;
+            $lines[] = 'class ' . $assignmentNode . ' ' . ($assignmentActive ? 'red' : 'green') . ';';
+
+            if ($assignmentActive) {
+                $lines[] = 'linkStyle ' . $linkCounter . ' stroke:#ff8a80,stroke-width:2px;';
+            } else {
+                $lines[] = 'linkStyle ' . $linkCounter . ' stroke:#a5d6a7,stroke-width:2px;';
+            }
+            $linkCounter++;
+
+            if ($outputID === '') {
+                continue;
+            }
+
+            $outputNode = 'O_' . substr(md5($outputID), 0, 10);
+
+            if (!isset($outputsByID[$outputID])) {
+                $lines[] = $outputNode . '["' . $this->MermaidEscape('[missing output]' . "\n" . $outputID) . '"]';
+                $lines[] = $assignmentNode . ' --> ' . $outputNode;
+                $lines[] = 'class ' . $outputNode . ' grey;';
+                $lines[] = 'linkStyle ' . $linkCounter . ' stroke:#546e7a,stroke-width:2px;';
+                $linkCounter++;
+                continue;
+            }
+
+            $output = $outputsByID[$outputID];
+            $outputActive = (bool) ($output['Active'] ?? false);
+            $typeID = trim((string) ($output['TypeID'] ?? ''));
+            $typeLabel = $typeLabels[$typeID] ?? '[missing type]';
+            $targetObjectID = (int) ($output['TargetObjectID'] ?? 0);
+            $outputName = trim((string) ($output['Name'] ?? ''));
+
+            $parts = [];
+            $parts[] = $outputName !== '' ? $outputName : $outputID;
+            $parts[] = 'Type: ' . $typeLabel;
+            if ($targetObjectID > 0) {
+                $parts[] = 'ObjID: ' . $targetObjectID;
+            }
+
+            $isActivePath = $assignmentActive && $outputActive;
+
+            $lines[] = $outputNode . '["' . $this->MermaidEscape(implode("\n", $parts)) . '"]';
+            $lines[] = $assignmentNode . ' --> ' . $outputNode;
+            $lines[] = 'class ' . $outputNode . ' ' . ($isActivePath ? 'red' : 'green') . ';';
+
+            if ($isActivePath) {
+                $lines[] = 'linkStyle ' . $linkCounter . ' stroke:#ff8a80,stroke-width:2px;';
+            } else {
+                $lines[] = 'linkStyle ' . $linkCounter . ' stroke:#a5d6a7,stroke-width:2px;';
+            }
+            $linkCounter++;
+        }
+
+        return implode("\n", $lines) . "\n";
+    }
+
+    private function MermaidEscape(string $value): string
+    {
+        $value = str_replace(["\r\n", "\r"], "\n", $value);
+        $value = str_replace('"', '\\"', $value);
+        $value = str_replace(['[', ']'], ['(', ')'], $value);
+        return $value;
     }
 
     private function GenerateTechnicalID(string $prefix): string
