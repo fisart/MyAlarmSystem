@@ -2,11 +2,11 @@
   "elements": [
     {
       "type": "Label",
-      "caption": "Pattern test: OutputTypes is a normal persisted list. OutputResources is persisted too, but rendered dynamically with derived display columns and dynamic select options."
+      "caption": "Dynamic list test: OutputTypes is persisted normally. OutputResources is rebuilt dynamically from the saved property."
     },
     {
       "type": "ExpansionPanel",
-      "caption": "1. Output Types (authoritative persisted list)",
+      "caption": "1. Output Types",
       "items": [
         {
           "type": "List",
@@ -67,7 +67,7 @@
     },
     {
       "type": "ExpansionPanel",
-      "caption": "2. Output Resources (dynamic rendered persisted list)",
+      "caption": "2. Output Resources",
       "items": [
         {
           "type": "List",
@@ -137,12 +137,14 @@
               "caption": "Type Label",
               "name": "TypeLabel",
               "width": "140px",
+              "add": "",
               "save": false
             },
             {
               "caption": "Summary",
               "name": "RowSummary",
               "width": "auto",
+              "add": "",
               "save": false
             }
           ],

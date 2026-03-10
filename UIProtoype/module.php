@@ -8,7 +8,6 @@ class DynamicListPatternTest extends IPSModule
     {
         parent::Create();
 
-        // Authoritative persisted data
         $this->RegisterPropertyString('OutputTypes', '[]');
         $this->RegisterPropertyString('OutputResources', '[]');
     }
@@ -26,7 +25,6 @@ class DynamicListPatternTest extends IPSModule
         $outputTypes = $this->readListProperty('OutputTypes');
         $outputResources = $this->readListProperty('OutputResources');
 
-        // Build dynamic select options from authoritative OutputTypes property
         $typeOptions = [];
         $typeLabels = [];
 
@@ -38,7 +36,7 @@ class DynamicListPatternTest extends IPSModule
                 continue;
             }
 
-            $label = $typeName !== '' ? $typeName : $typeID;
+            $label = ($typeName !== '') ? $typeName : $typeID;
 
             $typeOptions[] = [
                 'label' => $label,
@@ -47,11 +45,8 @@ class DynamicListPatternTest extends IPSModule
             $typeLabels[$typeID] = $label;
         }
 
-        // Inject dynamic options into OutputResources.TypeID
         $this->setListColumnOptions($form, 'OutputResources', 'TypeID', $typeOptions);
 
-        // Because loadValuesFromConfiguration=false on OutputResources,
-        // we must rebuild values explicitly from the saved property.
         $resourceValues = [];
         foreach ($outputResources as $row) {
             $typeID = (string)($row['TypeID'] ?? '');
