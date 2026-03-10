@@ -1,11 +1,13 @@
 {
   "translations": {
     "de": {
-      "Simple persistence test: add rows, press Apply Changes, reopen the form, and verify the rows are still there.": "Einfacher Persistenztest: Zeilen hinzufügen, Übernehmen drücken, Formular erneut öffnen und prüfen, ob die Zeilen erhalten bleiben.",
-      "Test List": "Testliste",
+      "Step 2 persistence test: two independent property-backed lists. Output Types now contain simple technical base content, but there is still no dynamic logic.": "Schritt-2-Persistenztest: Zwei unabhängige eigenschaftsbasierte Listen. Ausgabetypen enthalten jetzt einfache technische Basisinhalte, aber es gibt noch keine dynamische Logik.",
+      "Output Types": "Ausgabetypen",
+      "Output Resources": "Ausgaberessourcen",
       "Active": "Aktiv",
       "Name": "Name",
-      "Type": "Typ",
+      "Recipient": "Empfänger",
+      "Sender": "Absender",
       "Comment": "Kommentar",
       "Instance active": "Instanz aktiv",
       "Instance error": "Instanzfehler"
