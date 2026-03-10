@@ -2,7 +2,7 @@
   "elements": [
     {
       "type": "Label",
-      "caption": "Dynamic list test: OutputTypes is persisted normally. OutputResources is rebuilt dynamically from the saved property."
+      "caption": "Full dynamic list test: output types, output resources, group-state rules and assignments."
     },
     {
       "type": "ExpansionPanel",
@@ -21,45 +21,35 @@
               "name": "Active",
               "width": "70px",
               "add": true,
-              "edit": {
-                "type": "CheckBox"
-              }
+              "edit": { "type": "CheckBox" }
             },
             {
               "caption": "TypeID",
               "name": "TypeID",
               "width": "140px",
               "add": "",
-              "edit": {
-                "type": "ValidationTextBox"
-              }
+              "edit": { "type": "ValidationTextBox" }
             },
             {
               "caption": "TypeName",
               "name": "TypeName",
               "width": "180px",
               "add": "",
-              "edit": {
-                "type": "ValidationTextBox"
-              }
+              "edit": { "type": "ValidationTextBox" }
             },
             {
               "caption": "BaseObjectID",
               "name": "BaseObjectID",
               "width": "120px",
               "add": 0,
-              "edit": {
-                "type": "SelectObject"
-              }
+              "edit": { "type": "SelectObject" }
             },
             {
               "caption": "Comment",
               "name": "Comment",
               "width": "auto",
               "add": "",
-              "edit": {
-                "type": "ValidationTextBox"
-              }
+              "edit": { "type": "ValidationTextBox" }
             }
           ]
         }
@@ -83,27 +73,21 @@
               "name": "Active",
               "width": "70px",
               "add": true,
-              "edit": {
-                "type": "CheckBox"
-              }
+              "edit": { "type": "CheckBox" }
             },
             {
               "caption": "OutputID",
               "name": "OutputID",
               "width": "140px",
               "add": "",
-              "edit": {
-                "type": "ValidationTextBox"
-              }
+              "edit": { "type": "ValidationTextBox" }
             },
             {
               "caption": "Name",
               "name": "Name",
               "width": "180px",
               "add": "",
-              "edit": {
-                "type": "ValidationTextBox"
-              }
+              "edit": { "type": "ValidationTextBox" }
             },
             {
               "caption": "TypeID",
@@ -120,22 +104,185 @@
               "name": "Recipient",
               "width": "180px",
               "add": "",
-              "edit": {
-                "type": "ValidationTextBox"
-              }
+              "edit": { "type": "ValidationTextBox" }
             },
             {
               "caption": "Sender",
               "name": "Sender",
               "width": "180px",
               "add": "",
-              "edit": {
-                "type": "ValidationTextBox"
-              }
+              "edit": { "type": "ValidationTextBox" }
             },
             {
               "caption": "Type Label",
               "name": "TypeLabel",
+              "width": "140px",
+              "add": "",
+              "save": false
+            },
+            {
+              "caption": "Summary",
+              "name": "RowSummary",
+              "width": "auto",
+              "add": "",
+              "save": false
+            }
+          ],
+          "values": []
+        }
+      ]
+    },
+    {
+      "type": "ExpansionPanel",
+      "caption": "3. Group-State Rules",
+      "items": [
+        {
+          "type": "List",
+          "name": "GroupStateRules",
+          "caption": "Group-State Rules",
+          "rowCount": 8,
+          "add": true,
+          "delete": true,
+          "loadValuesFromConfiguration": false,
+          "columns": [
+            {
+              "caption": "Active",
+              "name": "Active",
+              "width": "70px",
+              "add": true,
+              "edit": { "type": "CheckBox" }
+            },
+            {
+              "caption": "RuleID",
+              "name": "RuleID",
+              "width": "140px",
+              "add": "",
+              "edit": { "type": "ValidationTextBox" }
+            },
+            {
+              "caption": "GroupKey",
+              "name": "GroupKey",
+              "width": "180px",
+              "add": "",
+              "edit": {
+                "type": "Select",
+                "options": []
+              }
+            },
+            {
+              "caption": "HouseState",
+              "name": "HouseState",
+              "width": "160px",
+              "add": "",
+              "edit": {
+                "type": "Select",
+                "options": []
+              }
+            },
+            {
+              "caption": "Severity",
+              "name": "Severity",
+              "width": "120px",
+              "add": "",
+              "edit": { "type": "ValidationTextBox" }
+            },
+            {
+              "caption": "Bypass",
+              "name": "Bypass",
+              "width": "80px",
+              "add": false,
+              "edit": { "type": "CheckBox" }
+            },
+            {
+              "caption": "Group Label",
+              "name": "GroupLabel",
+              "width": "160px",
+              "add": "",
+              "save": false
+            },
+            {
+              "caption": "Rule Label",
+              "name": "RuleLabel",
+              "width": "220px",
+              "add": "",
+              "save": false
+            },
+            {
+              "caption": "Summary",
+              "name": "RowSummary",
+              "width": "auto",
+              "add": "",
+              "save": false
+            }
+          ],
+          "values": []
+        }
+      ]
+    },
+    {
+      "type": "ExpansionPanel",
+      "caption": "4. Rule Output Assignments",
+      "items": [
+        {
+          "type": "List",
+          "name": "RuleOutputAssignments",
+          "caption": "Rule Output Assignments",
+          "rowCount": 10,
+          "add": true,
+          "delete": true,
+          "loadValuesFromConfiguration": false,
+          "columns": [
+            {
+              "caption": "Active",
+              "name": "Active",
+              "width": "70px",
+              "add": true,
+              "edit": { "type": "CheckBox" }
+            },
+            {
+              "caption": "AssignmentID",
+              "name": "AssignmentID",
+              "width": "140px",
+              "add": "",
+              "edit": { "type": "ValidationTextBox" }
+            },
+            {
+              "caption": "RuleID",
+              "name": "RuleID",
+              "width": "220px",
+              "add": "",
+              "edit": {
+                "type": "Select",
+                "options": []
+              }
+            },
+            {
+              "caption": "OutputID",
+              "name": "OutputID",
+              "width": "220px",
+              "add": "",
+              "edit": {
+                "type": "Select",
+                "options": []
+              }
+            },
+            {
+              "caption": "Rule Label",
+              "name": "RuleLabel",
+              "width": "220px",
+              "add": "",
+              "save": false
+            },
+            {
+              "caption": "Output Name",
+              "name": "OutputName",
+              "width": "180px",
+              "add": "",
+              "save": false
+            },
+            {
+              "caption": "Output Type",
+              "name": "OutputTypeLabel",
               "width": "140px",
               "add": "",
               "save": false
