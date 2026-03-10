@@ -129,13 +129,6 @@
               "edit": { "type": "ValidationTextBox" }
             },
             {
-              "caption": "Email Address",
-              "name": "EmailAddress",
-              "width": "170px",
-              "add": "",
-              "edit": { "type": "ValidationTextBox" }
-            },
-            {
               "caption": "Phone Number",
               "name": "PhoneNumber",
               "width": "140px",
