@@ -1,0 +1,358 @@
+{
+  "elements": [
+    {
+      "type": "Label",
+      "name": "PrototypeInfo",
+      "caption": "Prototype status"
+    },
+    {
+      "type": "ExpansionPanel",
+      "caption": "Imported Module 1 Groups (simulated import source)",
+      "items": [
+        {
+          "type": "List",
+          "name": "ImportedModule1Groups",
+          "caption": "Imported Module 1 Groups",
+          "rowCount": 4,
+          "add": true,
+          "delete": true,
+          "loadValuesFromConfiguration": false,
+          "columns": [
+            {
+              "caption": "Active",
+              "name": "Active",
+              "width": "70px",
+              "add": true,
+              "edit": {
+                "type": "CheckBox"
+              }
+            },
+            {
+              "caption": "GroupKey",
+              "name": "GroupKey",
+              "width": "180px",
+              "add": ""
+            },
+            {
+              "caption": "GroupLabel",
+              "name": "GroupLabel",
+              "width": "auto",
+              "add": ""
+            }
+          ],
+          "values": []
+        }
+      ]
+    },
+    {
+      "type": "ExpansionPanel",
+      "caption": "1. Output Types",
+      "items": [
+        {
+          "type": "List",
+          "name": "OutputTypes",
+          "caption": "Output Types",
+          "rowCount": 5,
+          "add": true,
+          "delete": true,
+          "loadValuesFromConfiguration": false,
+          "columns": [
+            {
+              "caption": "TypeID",
+              "name": "TypeID",
+              "visible": false,
+              "save": true,
+              "add": ""
+            },
+            {
+              "caption": "Active",
+              "name": "Active",
+              "width": "70px",
+              "add": true,
+              "edit": {
+                "type": "CheckBox"
+              }
+            },
+            {
+              "caption": "Type Name",
+              "name": "TypeName",
+              "width": "180px",
+              "add": ""
+            },
+            {
+              "caption": "Base Object",
+              "name": "BaseObjectID",
+              "width": "120px",
+              "add": 0,
+              "edit": {
+                "type": "SelectObject"
+              }
+            },
+            {
+              "caption": "Technical Summary",
+              "name": "TechnicalSummary",
+              "width": "auto",
+              "add": ""
+            }
+          ],
+          "values": []
+        }
+      ]
+    },
+    {
+      "type": "ExpansionPanel",
+      "caption": "2. Customized Outputs",
+      "items": [
+        {
+          "type": "List",
+          "name": "OutputResources",
+          "caption": "Customized Outputs",
+          "rowCount": 6,
+          "add": true,
+          "delete": true,
+          "loadValuesFromConfiguration": false,
+          "columns": [
+            {
+              "caption": "OutputID",
+              "name": "OutputID",
+              "visible": false,
+              "save": true,
+              "add": ""
+            },
+            {
+              "caption": "Active",
+              "name": "Active",
+              "width": "70px",
+              "add": true,
+              "edit": {
+                "type": "CheckBox"
+              }
+            },
+            {
+              "caption": "Name",
+              "name": "Name",
+              "width": "180px",
+              "add": ""
+            },
+            {
+              "caption": "Based on Type",
+              "name": "TypeID",
+              "width": "150px",
+              "add": "",
+              "edit": {
+                "type": "Select",
+                "options": []
+              }
+            },
+            {
+              "caption": "Recipient",
+              "name": "Recipient",
+              "width": "190px",
+              "add": ""
+            },
+            {
+              "caption": "Sender",
+              "name": "Sender",
+              "width": "190px",
+              "add": ""
+            },
+            {
+              "caption": "Config Summary",
+              "name": "ConfigSummary",
+              "width": "auto",
+              "add": ""
+            }
+          ],
+          "values": []
+        }
+      ]
+    },
+    {
+      "type": "ExpansionPanel",
+      "caption": "3. Group-State Rules",
+      "items": [
+        {
+          "type": "List",
+          "name": "GroupStateRules",
+          "caption": "Group-State Rules",
+          "rowCount": 6,
+          "add": true,
+          "delete": true,
+          "loadValuesFromConfiguration": false,
+          "columns": [
+            {
+              "caption": "RuleID",
+              "name": "RuleID",
+              "visible": false,
+              "save": true,
+              "add": ""
+            },
+            {
+              "caption": "Active",
+              "name": "Active",
+              "width": "70px",
+              "add": true,
+              "edit": {
+                "type": "CheckBox"
+              }
+            },
+            {
+              "caption": "Module 1 Group",
+              "name": "GroupKey",
+              "width": "180px",
+              "add": "",
+              "edit": {
+                "type": "Select",
+                "options": []
+              }
+            },
+            {
+              "caption": "House State",
+              "name": "HouseState",
+              "width": "140px",
+              "add": "disarmed",
+              "edit": {
+                "type": "Select",
+                "options": []
+              }
+            },
+            {
+              "caption": "Severity",
+              "name": "Severity",
+              "width": "120px",
+              "add": "medium",
+              "edit": {
+                "type": "Select",
+                "options": []
+              }
+            },
+            {
+              "caption": "Bypass",
+              "name": "BypassThrottle",
+              "width": "90px",
+              "add": false,
+              "edit": {
+                "type": "CheckBox"
+              }
+            },
+            {
+              "caption": "Rule Label",
+              "name": "RuleLabel",
+              "width": "200px",
+              "save": false
+            },
+            {
+              "caption": "Outputs",
+              "name": "OutputsSummary",
+              "width": "100px",
+              "save": false
+            }
+          ],
+          "values": []
+        }
+      ]
+    },
+    {
+      "type": "ExpansionPanel",
+      "caption": "4. Rule Output Assignments",
+      "items": [
+        {
+          "type": "List",
+          "name": "RuleOutputAssignments",
+          "caption": "Rule Output Assignments",
+          "rowCount": 8,
+          "add": true,
+          "delete": true,
+          "loadValuesFromConfiguration": false,
+          "columns": [
+            {
+              "caption": "AssignmentID",
+              "name": "AssignmentID",
+              "visible": false,
+              "save": true,
+              "add": ""
+            },
+            {
+              "caption": "Active",
+              "name": "Active",
+              "width": "70px",
+              "add": true,
+              "edit": {
+                "type": "CheckBox"
+              }
+            },
+            {
+              "caption": "Rule",
+              "name": "RuleID",
+              "width": "220px",
+              "add": "",
+              "edit": {
+                "type": "Select",
+                "options": []
+              }
+            },
+            {
+              "caption": "Output",
+              "name": "OutputID",
+              "width": "220px",
+              "add": "",
+              "edit": {
+                "type": "Select",
+                "options": []
+              }
+            },
+            {
+              "caption": "Rule Label",
+              "name": "RuleLabel",
+              "width": "220px",
+              "save": false
+            },
+            {
+              "caption": "Output Name",
+              "name": "OutputName",
+              "width": "180px",
+              "save": false
+            },
+            {
+              "caption": "Type",
+              "name": "OutputTypeName",
+              "width": "100px",
+              "save": false
+            }
+          ],
+          "values": []
+        }
+      ]
+    }
+  ],
+  "actions": [
+    {
+      "type": "Button",
+      "caption": "Load demo data",
+      "onClick": "IPS_RequestAction($id, 'LoadPrototypeData', true);"
+    },
+    {
+      "type": "Button",
+      "caption": "Clear prototype data",
+      "confirm": "Delete all prototype data?",
+      "onClick": "IPS_RequestAction($id, 'ClearPrototypeData', true);"
+    }
+  ],
+  "status": [
+    {
+      "code": 101,
+      "icon": "active",
+      "caption": "Prototype active"
+    },
+    {
+      "code": 201,
+      "icon": "inactive",
+      "caption": "Prototype inactive"
+    },
+    {
+      "code": 202,
+      "icon": "error",
+      "caption": "Prototype error"
+    }
+  ]
+}

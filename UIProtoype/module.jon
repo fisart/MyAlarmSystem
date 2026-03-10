@@ -1,0 +1,13 @@
+{
+  "id": "{A4A8D6C9-76E1-4F08-8B3B-5A2D0C4A8F11}",
+  "name": "AlarmResponseManagerPrototype",
+  "type": 3,
+  "vendor": "OpenAI",
+  "aliases": [
+    "UIProtoype"
+  ],
+  "parentRequirements": [],
+  "childRequirements": [],
+  "implemented": [],
+  "prefix": "ARM"
+}
