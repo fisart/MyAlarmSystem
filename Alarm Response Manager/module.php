@@ -564,20 +564,31 @@ setInterval(fetchAndUpdateGraph, 2000);
             return null;
         }
 
-        for ($i = 0; $i < 3; $i++) {
+        for ($i = 0; $i < 5; $i++) {
             $json = @PSM_GetHouseStateSnapshot($module2ID);
             $house = json_decode((string) $json, true);
 
             if (!is_array($house)) {
-                usleep(200000);
+                $this->LogMessage('GetSynchronizedHouseStateSnapshot: invalid JSON from Module 2', KL_MESSAGE);
+                usleep(300000);
                 continue;
             }
+
+            $processedEpoch = (int) ($house['sync']['last_processed_event_epoch'] ?? 0);
+            $processedSeq = (int) ($house['sync']['last_processed_event_seq'] ?? 0);
+
+            $this->LogMessage(
+                'GetSynchronizedHouseStateSnapshot: try=' . $i .
+                    ' event=(' . $eventEpoch . ',' . $eventSeq . ')' .
+                    ' snapshot=(' . $processedEpoch . ',' . $processedSeq . ')',
+                KL_MESSAGE
+            );
 
             if ($this->IsHouseSnapshotSynchronized($house, $eventEpoch, $eventSeq)) {
                 return $house;
             }
 
-            usleep(200000);
+            usleep(300000);
         }
 
         return null;
