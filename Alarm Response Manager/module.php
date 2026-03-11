@@ -1175,11 +1175,11 @@ setInterval(fetchAndUpdateGraph, 2000);
     private function setListFormFieldOptions(array &$form, string $listName, string $fieldName, array $options): void
     {
         $this->walkAndModifyList($form, $listName, function (&$element) use ($fieldName, $options) {
-            if (!isset($element['form']['elements']) || !is_array($element['form']['elements'])) {
+            if (!isset($element['form']) || !is_array($element['form'])) {
                 return;
             }
 
-            foreach ($element['form']['elements'] as &$subElement) {
+            foreach ($element['form'] as &$subElement) {
                 if (($subElement['name'] ?? '') !== $fieldName) {
                     continue;
                 }
