@@ -102,6 +102,10 @@ class ARMResponseManagerMock extends IPSModule
                 $this->BuildRowsFromMyRouting();
                 break;
 
+            case 'ReceivePayload':
+                $this->ReceivePayload((string) $Value);
+                break;
+
             default:
                 throw new Exception('Invalid Ident');
         }
@@ -477,6 +481,284 @@ setInterval(fetchAndUpdateGraph, 2000);
         IPS_ApplyChanges($this->InstanceID);
 
         $this->SetStatus(203);
+    }
+
+    public function ReceivePayload(string $payloadJson): void
+    {
+        $payload = json_decode($payloadJson, true);
+        if (!is_array($payload)) {
+            $this->LogMessage('ReceivePayload: invalid JSON payload', KL_MESSAGE);
+            return;
+        }
+
+        $eventEpoch = (int) ($payload['event_epoch'] ?? 0);
+        $eventSeq = (int) ($payload['event_seq'] ?? 0);
+
+        $targetGroups = $payload['target_active_groups'] ?? [];
+        if (!is_array($targetGroups) || count($targetGroups) === 0) {
+            $this->LogMessage('ReceivePayload: no target_active_groups', KL_MESSAGE);
+            return;
+        }
+
+        $house = $this->GetSynchronizedHouseStateSnapshot($eventEpoch, $eventSeq);
+        if ($house === null) {
+            $this->LogMessage('ReceivePayload: no synchronized house snapshot available', KL_MESSAGE);
+            return;
+        }
+
+        $houseState = (string) ((int) ($house['system_state_id'] ?? 0));
+        $this->LogMessage('ReceivePayload: houseState=' . $houseState, KL_MESSAGE);
+
+        $executedOutputIDs = [];
+
+        foreach ($targetGroups as $groupLabelRaw) {
+            $groupLabel = trim((string) $groupLabelRaw);
+            if ($groupLabel === '') {
+                continue;
+            }
+
+            $ruleIDs = $this->FindMatchingRuleIDsForGroupAndState($groupLabel, $houseState);
+            $this->LogMessage('ReceivePayload: group=' . $groupLabel . ' matched rules=' . json_encode($ruleIDs), KL_MESSAGE);
+
+            foreach ($ruleIDs as $ruleID) {
+                $assignments = $this->FindAssignmentsForRuleID($ruleID);
+
+                foreach ($assignments as $assignment) {
+                    $outputID = trim((string) ($assignment['OutputID'] ?? ''));
+                    if ($outputID === '') {
+                        continue;
+                    }
+
+                    if (isset($executedOutputIDs[$outputID])) {
+                        continue;
+                    }
+
+                    $resource = $this->FindOutputResourceByID($outputID);
+                    if ($resource === null) {
+                        $this->LogMessage('ReceivePayload: OutputID not found: ' . $outputID, KL_MESSAGE);
+                        continue;
+                    }
+
+                    $ok = $this->ExecuteOutputResource($resource, $payload, $house, $groupLabel);
+                    $this->LogMessage(
+                        'ReceivePayload: execute OutputID=' . $outputID . ' result=' . ($ok ? 'true' : 'false'),
+                        KL_MESSAGE
+                    );
+
+                    $executedOutputIDs[$outputID] = true;
+                }
+            }
+        }
+    }
+
+    private function GetSynchronizedHouseStateSnapshot(int $eventEpoch, int $eventSeq): ?array
+    {
+        $module2ID = $this->ReadPropertyInteger('Module2InstanceID');
+        if ($module2ID <= 0 || !@IPS_InstanceExists($module2ID)) {
+            $this->LogMessage('GetSynchronizedHouseStateSnapshot: Module2InstanceID invalid', KL_MESSAGE);
+            return null;
+        }
+
+        if (!function_exists('PSM_GetHouseStateSnapshot')) {
+            $this->LogMessage('GetSynchronizedHouseStateSnapshot: PSM_GetHouseStateSnapshot not available', KL_MESSAGE);
+            return null;
+        }
+
+        for ($i = 0; $i < 3; $i++) {
+            $json = @PSM_GetHouseStateSnapshot($module2ID);
+            $house = json_decode((string) $json, true);
+
+            if (!is_array($house)) {
+                usleep(200000);
+                continue;
+            }
+
+            if ($this->IsHouseSnapshotSynchronized($house, $eventEpoch, $eventSeq)) {
+                return $house;
+            }
+
+            usleep(200000);
+        }
+
+        return null;
+    }
+
+    private function IsHouseSnapshotSynchronized(array $house, int $eventEpoch, int $eventSeq): bool
+    {
+        $processedEpoch = (int) ($house['sync']['last_processed_event_epoch'] ?? 0);
+        $processedSeq = (int) ($house['sync']['last_processed_event_seq'] ?? 0);
+
+        if ($processedEpoch > $eventEpoch) {
+            return true;
+        }
+
+        if ($processedEpoch === $eventEpoch && $processedSeq >= $eventSeq) {
+            return true;
+        }
+
+        return false;
+    }
+
+    private function FindMatchingRuleIDsForGroupAndState(string $groupLabel, string $houseState): array
+    {
+        $groupKey = $this->MakeGroupKey($groupLabel);
+        $rows = $this->readListProperty('GroupStateRules');
+
+        $ruleIDs = [];
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            if (!(bool) ($row['Active'] ?? false)) {
+                continue;
+            }
+
+            if ((string) ($row['GroupKey'] ?? '') !== $groupKey) {
+                continue;
+            }
+
+            if ((string) ($row['HouseState'] ?? '') !== $houseState) {
+                continue;
+            }
+
+            $ruleID = trim((string) ($row['RuleID'] ?? ''));
+            if ($ruleID !== '') {
+                $ruleIDs[] = $ruleID;
+            }
+        }
+
+        return array_values(array_unique($ruleIDs));
+    }
+
+    private function FindAssignmentsForRuleID(string $ruleID): array
+    {
+        $rows = $this->readListProperty('RuleOutputAssignments');
+        $result = [];
+
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            if (!(bool) ($row['Active'] ?? false)) {
+                continue;
+            }
+
+            if ((string) ($row['RuleID'] ?? '') !== $ruleID) {
+                continue;
+            }
+
+            $result[] = $row;
+        }
+
+        return $result;
+    }
+
+    private function ExecuteOutputResource(array $resource, array $payload, array $house, string $groupLabel): bool
+    {
+        $typeID = trim((string) ($resource['TypeID'] ?? ''));
+
+        if ($this->IsEmailTypeID($typeID)) {
+            $subject = $this->BuildEmailSubject($groupLabel, $house);
+            $body = $this->BuildEmailBody($resource, $payload, $house, $groupLabel);
+            return $this->SendEmailOutputResource($resource, $subject, $body);
+        }
+
+        $this->LogMessage('ExecuteOutputResource: unsupported TypeID=' . $typeID, KL_MESSAGE);
+        return false;
+    }
+
+    private function BuildEmailSubject(string $groupLabel, array $house): string
+    {
+        $stateID = (string) ((int) ($house['system_state_id'] ?? 0));
+        $stateLabel = $this->labelFromOptions(self::HOUSE_STATES, $stateID);
+
+        if ($stateLabel === '') {
+            return 'Alarm: ' . $groupLabel;
+        }
+
+        return 'Alarm: ' . $groupLabel . ' / ' . $stateLabel;
+    }
+
+    private function BuildEmailBody(array $resource, array $payload, array $house, string $groupLabel): string
+    {
+        $message = $this->BuildOutputMessageText($resource, $payload);
+
+        $stateID = (string) ((int) ($house['system_state_id'] ?? 0));
+        $stateLabel = $this->labelFromOptions(self::HOUSE_STATES, $stateID);
+
+        $lines = [];
+        $lines[] = 'Module 3 alarm notification';
+        $lines[] = '';
+        $lines[] = 'Group: ' . $groupLabel;
+        $lines[] = 'House State: ' . ($stateLabel !== '' ? $stateLabel : $stateID);
+        $lines[] = '';
+        $lines[] = 'Message:';
+        $lines[] = $message;
+
+        return implode("\n", $lines);
+    }
+
+    private function BuildOutputMessageText(array $resource, array $payload): string
+    {
+        $prefix = trim((string) ($resource['PrefixText'] ?? ''));
+        $suffix = trim((string) ($resource['SuffixText'] ?? ''));
+
+        $sensorName = '';
+        $parentName = '';
+        $grandparentName = '';
+
+        $trigger = $payload['target_trigger_details'] ?? [];
+        if (is_array($trigger)) {
+            $sensorName = trim((string) ($trigger['smart_label'] ?? $trigger['SensorName'] ?? ''));
+            $parentName = trim((string) ($trigger['ParentName'] ?? $trigger['parent_name'] ?? ''));
+            $grandparentName = trim((string) ($trigger['GrandParentName'] ?? $trigger['grandparent_name'] ?? ''));
+        }
+
+        $sensorDetails = $payload['target_active_sensor_details'] ?? [];
+        if (is_array($sensorDetails) && count($sensorDetails) > 0 && is_array($sensorDetails[0])) {
+            $first = $sensorDetails[0];
+
+            if ($sensorName === '') {
+                $sensorName = trim((string) ($first['smart_label'] ?? $first['SensorName'] ?? ''));
+            }
+            if ($parentName === '') {
+                $parentName = trim((string) ($first['ParentName'] ?? $first['parent_name'] ?? ''));
+            }
+            if ($grandparentName === '') {
+                $grandparentName = trim((string) ($first['GrandParentName'] ?? $first['grandparent_name'] ?? ''));
+            }
+        }
+
+        $parts = [];
+
+        if ($prefix !== '') {
+            $parts[] = $prefix;
+        }
+
+        if ((bool) ($resource['UseSensorName'] ?? false) && $sensorName !== '') {
+            $parts[] = $sensorName;
+        }
+
+        if ((bool) ($resource['UseParentName'] ?? false) && $parentName !== '') {
+            $parts[] = $parentName;
+        }
+
+        if ((bool) ($resource['UseGrandparentName'] ?? false) && $grandparentName !== '') {
+            $parts[] = $grandparentName;
+        }
+
+        if ($suffix !== '') {
+            $parts[] = $suffix;
+        }
+
+        $text = trim(implode(' ', $parts));
+        if ($text !== '') {
+            return $text;
+        }
+
+        return 'Alarm event detected';
     }
 
     private function readListProperty(string $propertyName): array
