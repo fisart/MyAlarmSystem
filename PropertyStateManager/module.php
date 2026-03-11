@@ -35,11 +35,11 @@ class PropertyStateManager extends IPSModule
         $this->RegisterAttributeInteger("LastPayloadTime", 0);
         $this->RegisterAttributeString("PayloadHistory", "[]"); // NEW: History Buffer
         // ---- Sync token: "processed up to" marker (restart-safe ordering comes from Module 1) ----
-        $this->RegisterAttributeInteger("LastProcessedEventEpoch", 0);
+        $this->RegisterAttributeString("LastProcessedEventEpoch", "0");
         $this->RegisterAttributeInteger("LastProcessedEventSeq", 0);
 
         // Optional: diagnostics
-        $this->RegisterAttributeInteger("LastSeenEventEpoch", 0);
+        $this->RegisterAttributeString("LastSeenEventEpoch", "0");
         $this->RegisterAttributeInteger("LastSeenEventSeq", 0);
         $this->RegisterAttributeInteger("LastTokenMissing", 0); // 1 if last payload had no token
 
@@ -602,7 +602,7 @@ class PropertyStateManager extends IPSModule
                 'uiBits' => $uiBits,
                 'bedrooms' => $bedrooms,
                 'perimeterDetails' => $perimeterDetails,
-                'last_processed_event_epoch' => (int)$this->ReadAttributeInteger('LastProcessedEventEpoch'),
+                'last_processed_event_epoch' => (string)$this->ReadAttributeString('LastProcessedEventEpoch'),
                 'last_processed_event_seq'   => (int)$this->ReadAttributeInteger('LastProcessedEventSeq'),
                 'last_token_missing'         => (int)$this->ReadAttributeInteger('LastTokenMissing')
             ]);
@@ -964,20 +964,34 @@ class PropertyStateManager extends IPSModule
 
 
 
-    private function TokenIsNewer(int $epoch, int $seq, int $curEpoch, int $curSeq): bool
+    private function TokenIsNewer(string $epoch, int $seq, string $curEpoch, int $curSeq): bool
     {
+        $epoch = trim($epoch);
+        $curEpoch = trim($curEpoch);
+
+        if ($epoch === '') $epoch = '0';
+        if ($curEpoch === '') $curEpoch = '0';
+
+        // Safe decimal-string comparison for millisecond epochs
+        $lenA = strlen($epoch);
+        $lenB = strlen($curEpoch);
+
+        if ($lenA > $lenB) return true;
+        if ($lenA < $lenB) return false;
+
         if ($epoch > $curEpoch) return true;
         if ($epoch < $curEpoch) return false;
+
         return ($seq > $curSeq);
     }
 
-    private function UpdateLastProcessedToken(int $epoch, int $seq): void
+    private function UpdateLastProcessedToken(string $epoch, int $seq): void
     {
-        $curEpoch = (int)$this->ReadAttributeInteger("LastProcessedEventEpoch");
+        $curEpoch = (string)$this->ReadAttributeString("LastProcessedEventEpoch");
         $curSeq   = (int)$this->ReadAttributeInteger("LastProcessedEventSeq");
 
         if ($this->TokenIsNewer($epoch, $seq, $curEpoch, $curSeq)) {
-            $this->WriteAttributeInteger("LastProcessedEventEpoch", $epoch);
+            $this->WriteAttributeString("LastProcessedEventEpoch", $epoch);
             $this->WriteAttributeInteger("LastProcessedEventSeq", $seq);
         }
     }
@@ -1001,16 +1015,16 @@ class PropertyStateManager extends IPSModule
 
         // ---- Event token from Module 1 (may be missing for legacy payloads) ----
         $hasToken = isset($data['event_epoch'], $data['event_seq']);
-        $evtEpoch = $hasToken ? (int)$data['event_epoch'] : 0;
+        $evtEpoch = $hasToken ? trim((string)$data['event_epoch']) : '0';
         $evtSeq   = $hasToken ? (int)$data['event_seq'] : 0;
 
         // Optional diagnostics: record "seen" token as highest token observed (NOT merely last arrival)
         if ($hasToken) {
-            $seenEpoch = (int)$this->ReadAttributeInteger("LastSeenEventEpoch");
+            $seenEpoch = (string)$this->ReadAttributeString("LastSeenEventEpoch");
             $seenSeq   = (int)$this->ReadAttributeInteger("LastSeenEventSeq");
 
             if ($this->TokenIsNewer($evtEpoch, $evtSeq, $seenEpoch, $seenSeq)) {
-                $this->WriteAttributeInteger("LastSeenEventEpoch", $evtEpoch);
+                $this->WriteAttributeString("LastSeenEventEpoch", $evtEpoch);
                 $this->WriteAttributeInteger("LastSeenEventSeq", $evtSeq);
             }
 
@@ -1018,7 +1032,7 @@ class PropertyStateManager extends IPSModule
 
             // Minimum-stability token gate:
             // reject duplicates and stale/out-of-order events BEFORE any state mutation
-            $curEpoch = (int)$this->ReadAttributeInteger("LastProcessedEventEpoch");
+            $curEpoch = (string)$this->ReadAttributeString("LastProcessedEventEpoch");
             $curSeq   = (int)$this->ReadAttributeInteger("LastProcessedEventSeq");
 
             $isNewer = $this->TokenIsNewer($evtEpoch, $evtSeq, $curEpoch, $curSeq);
@@ -1509,10 +1523,10 @@ class PropertyStateManager extends IPSModule
             'PresenceMap'   => json_decode($this->ReadAttributeString('PresenceMap'), true),
             'ActiveSensors' => json_decode($this->ReadAttributeString('ActiveSensors'), true),
             'IsDelayActive' => ($this->GetTimerInterval('DelayTimer') > 0),
-            'last_processed_event_epoch' => (int)$this->ReadAttributeInteger('LastProcessedEventEpoch'),
+            'last_processed_event_epoch' => (string)$this->ReadAttributeString('LastProcessedEventEpoch'),
             'last_processed_event_seq'   => (int)$this->ReadAttributeInteger('LastProcessedEventSeq'),
             'last_token_missing'         => (int)$this->ReadAttributeInteger('LastTokenMissing'),
-            'last_seen_event_epoch'      => (int)$this->ReadAttributeInteger('LastSeenEventEpoch'),
+            'last_seen_event_epoch'      => (string)$this->ReadAttributeString('LastSeenEventEpoch'),
             'last_seen_event_seq'        => (int)$this->ReadAttributeInteger('LastSeenEventSeq')
         ];
 
@@ -1801,7 +1815,7 @@ class PropertyStateManager extends IPSModule
             'source_instance_id'  => $this->InstanceID,
 
             'sync' => [
-                'last_processed_event_epoch' => (int)$this->ReadAttributeInteger('LastProcessedEventEpoch'),
+                'last_processed_event_epoch' => (string)$this->ReadAttributeString('LastProcessedEventEpoch'),
                 'last_processed_event_seq'   => (int)$this->ReadAttributeInteger('LastProcessedEventSeq')
             ],
 
