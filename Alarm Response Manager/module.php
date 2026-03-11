@@ -499,7 +499,7 @@ setInterval(fetchAndUpdateGraph, 2000);
             $this->LogMessage('ReceivePayload: no target_active_groups', KL_MESSAGE);
             return;
         }
-
+        /*
         $house = $this->GetSynchronizedHouseStateSnapshot($eventEpoch, $eventSeq);
         if ($house === null) {
             $this->LogMessage('ReceivePayload: no synchronized house snapshot available', KL_MESSAGE);
@@ -508,7 +508,11 @@ setInterval(fetchAndUpdateGraph, 2000);
 
         $houseState = (string) ((int) ($house['system_state_id'] ?? 0));
         $this->LogMessage('ReceivePayload: houseState=' . $houseState, KL_MESSAGE);
+*/
 
+        $house = [];
+        $houseState = '3'; // test only: Armed External
+        $this->LogMessage('ReceivePayload: TEST MODE houseState=' . $houseState, KL_MESSAGE);
         $executedOutputIDs = [];
 
         foreach ($targetGroups as $groupLabelRaw) {
