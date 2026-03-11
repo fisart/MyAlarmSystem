@@ -491,7 +491,7 @@ setInterval(fetchAndUpdateGraph, 2000);
             return;
         }
 
-        $eventEpoch = (int) ($payload['event_epoch'] ?? 0);
+        $eventEpoch = (string) ($payload['event_epoch'] ?? '0');
         $eventSeq = (int) ($payload['event_seq'] ?? 0);
 
         $targetGroups = $payload['target_active_groups'] ?? [];
@@ -551,7 +551,7 @@ setInterval(fetchAndUpdateGraph, 2000);
         }
     }
 
-    private function GetSynchronizedHouseStateSnapshot(int $eventEpoch, int $eventSeq): ?array
+    private function GetSynchronizedHouseStateSnapshot(string $eventEpoch, int $eventSeq): ?array
     {
         $module2ID = $this->ReadPropertyInteger('Module2InstanceID');
         if ($module2ID <= 0 || !@IPS_InstanceExists($module2ID)) {
@@ -574,7 +574,7 @@ setInterval(fetchAndUpdateGraph, 2000);
                 continue;
             }
 
-            $processedEpoch = (int) ($house['sync']['last_processed_event_epoch'] ?? 0);
+            $processedEpoch = (string) ($house['sync']['last_processed_event_epoch'] ?? '0');
             $processedSeq = (int) ($house['sync']['last_processed_event_seq'] ?? 0);
 
             $this->LogMessage(
@@ -594,16 +594,18 @@ setInterval(fetchAndUpdateGraph, 2000);
         return null;
     }
 
-    private function IsHouseSnapshotSynchronized(array $house, int $eventEpoch, int $eventSeq): bool
+    private function IsHouseSnapshotSynchronized(array $house, string $eventEpoch, int $eventSeq): bool
     {
-        $processedEpoch = (int) ($house['sync']['last_processed_event_epoch'] ?? 0);
+        $processedEpoch = (string) ($house['sync']['last_processed_event_epoch'] ?? '0');
         $processedSeq = (int) ($house['sync']['last_processed_event_seq'] ?? 0);
 
-        if ($processedEpoch > $eventEpoch) {
+        $epochCompare = $this->CompareNumericStrings($processedEpoch, $eventEpoch);
+
+        if ($epochCompare > 0) {
             return true;
         }
 
-        if ($processedEpoch === $eventEpoch && $processedSeq >= $eventSeq) {
+        if ($epochCompare === 0 && $processedSeq >= $eventSeq) {
             return true;
         }
 
@@ -1483,6 +1485,27 @@ setInterval(fetchAndUpdateGraph, 2000);
         });
     }
 
+    private function CompareNumericStrings(string $a, string $b): int
+    {
+        $a = ltrim(trim($a), '0');
+        $b = ltrim(trim($b), '0');
+
+        if ($a === '') {
+            $a = '0';
+        }
+        if ($b === '') {
+            $b = '0';
+        }
+
+        if (strlen($a) > strlen($b)) {
+            return 1;
+        }
+        if (strlen($a) < strlen($b)) {
+            return -1;
+        }
+
+        return strcmp($a, $b);
+    }
     private function IsAllowedTargetObject(int $objectID): bool
     {
         if ($objectID <= 0 || !@IPS_ObjectExists($objectID)) {
