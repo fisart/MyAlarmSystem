@@ -158,6 +158,83 @@
               "save": false
             }
           ],
+          "form": {
+            "elements": [
+              {
+                "type": "ValidationTextBox",
+                "name": "OutputID",
+                "caption": "OutputID",
+                "visible": false,
+                "enabled": false
+              },
+              {
+                "type": "CheckBox",
+                "name": "Active",
+                "caption": "Active"
+              },
+              {
+                "type": "ValidationTextBox",
+                "name": "Name",
+                "caption": "Name"
+              },
+              {
+                "type": "Select",
+                "name": "TypeID",
+                "caption": "Type",
+                "options": []
+              },
+              {
+                "type": "SelectObject",
+                "name": "TargetObjectID",
+                "caption": "Target Object"
+              },
+              {
+                "type": "NumberSpinner",
+                "name": "MaxMessages",
+                "caption": "Max Messages"
+              },
+              {
+                "type": "NumberSpinner",
+                "name": "PerSeconds",
+                "caption": "Per Seconds"
+              },
+              {
+                "type": "ValidationTextBox",
+                "name": "PrefixText",
+                "caption": "Prefix"
+              },
+              {
+                "type": "CheckBox",
+                "name": "UseSensorName",
+                "caption": "Use Sensor Name"
+              },
+              {
+                "type": "CheckBox",
+                "name": "UseParentName",
+                "caption": "Use Parent Name"
+              },
+              {
+                "type": "CheckBox",
+                "name": "UseGrandparentName",
+                "caption": "Use Grandparent Name"
+              },
+              {
+                "type": "ValidationTextBox",
+                "name": "SuffixText",
+                "caption": "Suffix"
+              },
+              {
+                "type": "ValidationTextBox",
+                "name": "PhoneNumber",
+                "caption": "Phone Number"
+              },
+              {
+                "type": "ValidationTextBox",
+                "name": "Volume",
+                "caption": "Volume"
+              }
+            ]
+          },
           "values": []
         }
       ]
@@ -253,6 +330,45 @@
               "save": false
             }
           ],
+          "form": {
+            "elements": [
+              {
+                "type": "ValidationTextBox",
+                "name": "RuleID",
+                "caption": "RuleID",
+                "visible": false,
+                "enabled": false
+              },
+              {
+                "type": "CheckBox",
+                "name": "Active",
+                "caption": "Active"
+              },
+              {
+                "type": "Select",
+                "name": "GroupKey",
+                "caption": "Group",
+                "options": []
+              },
+              {
+                "type": "Select",
+                "name": "HouseState",
+                "caption": "House State",
+                "options": []
+              },
+              {
+                "type": "Select",
+                "name": "Severity",
+                "caption": "Severity",
+                "options": []
+              },
+              {
+                "type": "CheckBox",
+                "name": "Bypass",
+                "caption": "Bypass"
+              }
+            ]
+          },
           "values": []
         }
       ]
@@ -338,6 +454,34 @@
               "save": false
             }
           ],
+          "form": {
+            "elements": [
+              {
+                "type": "ValidationTextBox",
+                "name": "AssignmentID",
+                "caption": "AssignmentID",
+                "visible": false,
+                "enabled": false
+              },
+              {
+                "type": "CheckBox",
+                "name": "Active",
+                "caption": "Active"
+              },
+              {
+                "type": "Select",
+                "name": "RuleID",
+                "caption": "Rule",
+                "options": []
+              },
+              {
+                "type": "Select",
+                "name": "OutputID",
+                "caption": "Output",
+                "options": []
+              }
+            ]
+          },
           "values": []
         }
       ]

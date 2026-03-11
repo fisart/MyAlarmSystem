@@ -179,6 +179,12 @@ class ARMResponseManagerMock extends IPSModule
         $this->setListColumnOptions($form, 'GroupStateRules', 'Severity', self::SEVERITY_LEVELS);
         $this->setListColumnOptions($form, 'RuleOutputAssignments', 'RuleID', $ruleOptions);
         $this->setListColumnOptions($form, 'RuleOutputAssignments', 'OutputID', $outputOptions);
+        $this->setListFormFieldOptions($form, 'OutputResources', 'TypeID', $typeOptions);
+        $this->setListFormFieldOptions($form, 'GroupStateRules', 'GroupKey', $groupOptions);
+        $this->setListFormFieldOptions($form, 'GroupStateRules', 'HouseState', self::HOUSE_STATES);
+        $this->setListFormFieldOptions($form, 'GroupStateRules', 'Severity', self::SEVERITY_LEVELS);
+        $this->setListFormFieldOptions($form, 'RuleOutputAssignments', 'RuleID', $ruleOptions);
+        $this->setListFormFieldOptions($form, 'RuleOutputAssignments', 'OutputID', $outputOptions);
 
         $resourceValues = [];
         foreach ($outputResources as $row) {
@@ -1166,6 +1172,24 @@ setInterval(fetchAndUpdateGraph, 2000);
 
         return $result;
     }
+    private function setListFormFieldOptions(array &$form, string $listName, string $fieldName, array $options): void
+    {
+        $this->walkAndModifyList($form, $listName, function (&$element) use ($fieldName, $options) {
+            if (!isset($element['form']['elements']) || !is_array($element['form']['elements'])) {
+                return;
+            }
+
+            foreach ($element['form']['elements'] as &$subElement) {
+                if (($subElement['name'] ?? '') !== $fieldName) {
+                    continue;
+                }
+
+                $subElement['options'] = $options;
+                return;
+            }
+        });
+    }
+
     private function IsAllowedTargetObject(int $objectID): bool
     {
         if ($objectID <= 0 || !@IPS_ObjectExists($objectID)) {
