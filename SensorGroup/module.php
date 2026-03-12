@@ -41,8 +41,7 @@ class SensorGroup extends IPSModule
 
 
         $this->RegisterAttributeString('DispatchTargetsBuffer', '[]');
-$this->RegisterAttributeString('DispatchTargetsBuffer', '[]');
-$this->RegisterAttributeString('LastTargetProjectionState', '{}');
+
         $this->RegisterAttributeString('LastMainStatus', '0');
         IPS_SetHidden($this->GetIDForIdent('EventData'), true);
     }
@@ -1569,7 +1568,8 @@ $this->RegisterAttributeString('LastTargetProjectionState', '{}');
         $activeClasses = [];
         $classNameMap = [];
         $engineActiveSensors = []; // NEW: Keep track of every individual sensor that matches its rule
-    $activeSensorDetailsMap = []; // variable_id => full sensor detail for all currently active concrete sensors    if (is_array($classList)) {
+        $activeSensorDetailsMap = []; // variable_id => full sensor detail for all currently active concrete sensors        $activeSensorDetailsMap = []; // variable_id => full sensor detail for all currently active concrete sensors
+        if (is_array($classList)) {
             foreach ($classList as $classDef) {
                 $classID = $classDef['ClassID'] ?? '';
                 if (empty($classID)) continue;
@@ -1873,214 +1873,191 @@ $this->RegisterAttributeString('LastTargetProjectionState', '{}');
             $dispatchMap[$g][$iid] = true;
         }
 
-// Initialize targets container for both ALARM and RESET
-$payloadJson = '';
-ksort($activeSensorDetailsMap, SORT_NUMERIC);
-$globalActiveSensorDetails = [];
-foreach ($activeSensorDetailsMap as $vid => $detail) {
-    $cID = (string)($detail['class_id'] ?? '');
-    $groupNames = isset($classToActiveGroups[$cID]) ? array_values(array_keys($classToActiveGroups[$cID])) : [];
-    sort($groupNames, SORT_STRING);
-    $detail['group_names'] = $groupNames;
-    $globalActiveSensorDetails[] = $detail;
-}
-
-if ($mainStatus) {
-    $readableActiveClasses = [];
-    foreach (array_keys($activeClasses) as $aid) {
-        $readableActiveClasses[] = $classNameMap[$aid] ?? $aid;
-    }
-
-    $finalTriggerDetails = (isset($specificTriggerEvent) && $specificTriggerEvent !== null)
-        ? $specificTriggerEvent
-        : $primaryPayload;
-
-    $token = $this->GetNextEventToken();
-    $payload = [
-        'event_type'  => 'ALARM',
-        'event_epoch' => $token['epoch'],
-        'event_seq'   => $token['seq'],
-        'event_id'    => uniqid(),
-        'timestamp'   => time(),
-        'source_id' => $this->InstanceID,
-        'source_name' => IPS_GetName($this->InstanceID),
-        'primary_class' => $finalTriggerDetails['tag'] ?? 'General',
-        'primary_group' => $activeGroups[0] ?? 'General',
-        'active_classes' => $readableActiveClasses,
-        'active_groups' => $activeGroups,
-        'is_maintenance' => $this->ReadPropertyBoolean('MaintenanceMode'),
-        'trigger_details' => $finalTriggerDetails,
-        'active_sensor_details' => $globalActiveSensorDetails
-    ];
-    $this->SetValue('EventData', json_encode($payload));
-    $payloadJson = json_encode($payload);
-
-    foreach ($activeGroups as $gName) {
-        if (!isset($dispatchMap[$gName]) && $this->ReadPropertyBoolean('DebugMode')) {
-            $this->LogMessage("DEBUG [Dispatch]: Group '{$gName}' is Active but has NO route.", KL_WARNING);
+        // Initialize targets container for both ALARM and RESET
+        $targetsToSend = [];
+        $payloadJson = '';
+        ksort($activeSensorDetailsMap, SORT_NUMERIC);
+        $globalActiveSensorDetails = [];
+        foreach ($activeSensorDetailsMap as $vid => $detail) {
+            $cID = (string)($detail['class_id'] ?? '');
+            $groupNames = isset($classToActiveGroups[$cID]) ? array_values(array_keys($classToActiveGroups[$cID])) : [];
+            sort($groupNames, SORT_STRING);
+            $detail['group_names'] = $groupNames;
+            $globalActiveSensorDetails[] = $detail;
         }
-    }
-} else {
-    $token = $this->GetNextEventToken();
-    $payload = [
-        'event_type'  => 'ALARM',
-        'event_epoch' => $token['epoch'],
-        'event_seq'   => $token['seq'],
-        'event_id'    => uniqid(),
-        'timestamp'   => time(),
-        'source_id' => $this->InstanceID,
-        'source_name' => IPS_GetName($this->InstanceID),
-        'primary_class' => '',
-        'primary_group' => '',
-        'active_classes' => [],
-        'active_groups' => [],
-        'is_maintenance' => $this->ReadPropertyBoolean('MaintenanceMode'),
-        'trigger_details' => null,
-        'active_sensor_details' => []
-    ];
-    $this->SetValue('EventData', json_encode($payload));
-    $payloadJson = json_encode($payload);
-}
+        if ($mainStatus) {
+            $readableActiveClasses = [];
+            foreach (array_keys($activeClasses) as $aid) {
+                $readableActiveClasses[] = $classNameMap[$aid] ?? $aid;
+            }
 
-// Build authoritative target list from ALL routed targets
-$allRoutedTargets = [];
-foreach ($dispatchMap as $groupTargets) {
-    foreach (array_keys($groupTargets) as $iid) {
-        $allRoutedTargets[(int)$iid] = true;
-    }
-}
+            $finalTriggerDetails = (isset($specificTriggerEvent) && $specificTriggerEvent !== null)
+                ? $specificTriggerEvent
+                : $primaryPayload;
 
-// Load last sent target-local projection state
-$lastTargetProjectionState = json_decode($this->ReadAttributeString('LastTargetProjectionState'), true);
-if (!is_array($lastTargetProjectionState)) {
-    $lastTargetProjectionState = [];
-}
+            $token = $this->GetNextEventToken();
+            $payload = [
+                'event_type'  => 'ALARM',
+                'event_epoch' => $token['epoch'],
+                'event_seq'   => $token['seq'],
+                'event_id'    => uniqid(),
+                'timestamp'   => time(),
+                'source_id' => $this->InstanceID,
+                'source_name' => IPS_GetName($this->InstanceID),
+                'primary_class' => $finalTriggerDetails['tag'] ?? 'General',
+                'primary_group' => $activeGroups[0] ?? 'General',
+                'active_classes' => $readableActiveClasses,
+                'active_groups' => $activeGroups,
+                'is_maintenance' => $this->ReadPropertyBoolean('MaintenanceMode'),
+                'trigger_details' => $finalTriggerDetails,
+                'active_sensor_details' => $globalActiveSensorDetails,
+                'active_sensor_details' => array_values($activeSensorDetailsMap)
+            ];
+            $this->SetValue('EventData', json_encode($payload));
+            $payloadJson = json_encode($payload);
 
-// Final Dispatch Execution
-$lastPayloadJson = '';
-$newTargetProjectionState = [];
+            foreach ($activeGroups as $gName) {
+                if (isset($dispatchMap[$gName])) {
+                    foreach (array_keys($dispatchMap[$gName]) as $iid) {
+                        $targetsToSend[(int)$iid] = true;
+                    }
+                } elseif ($this->ReadPropertyBoolean('DebugMode')) {
+                    $this->LogMessage("DEBUG [Dispatch]: Group '{$gName}' is Active but has NO route.", KL_WARNING);
+                }
+            }
+        } else {
+            $token = $this->GetNextEventToken();
+            $payload = [
+                'event_type'  => 'ALARM',
+                'event_epoch' => $token['epoch'],
+                'event_seq'   => $token['seq'],
+                'event_id'    => uniqid(),
+                'timestamp'   => time(),
+                'source_id' => $this->InstanceID,
+                'source_name' => IPS_GetName($this->InstanceID),
+                'primary_class' => '',
+                'primary_group' => '',
+                'active_classes' => [],
+                'active_groups' => [],
+                'is_maintenance' => $this->ReadPropertyBoolean('MaintenanceMode'),
+                'trigger_details' => null,
+                'active_sensor_details' => [],
+                'active_sensor_details' => []
+            ];
+            $this->SetValue('EventData', json_encode($payload));
+            $payloadJson = json_encode($payload);
 
-foreach (array_keys($allRoutedTargets) as $iid) {
-    $iid = (int)$iid;
-    if (!IPS_InstanceExists($iid)) {
-        continue;
-    }
-
-    $targetActiveGroups = [];
-    foreach ($activeGroups as $gName) {
-        if (isset($dispatchMap[$gName][$iid])) {
-            $targetActiveGroups[] = $gName;
-        }
-    }
-
-    $targetActiveClassesMap = [];
-    $targetActiveSensorDetailsMap = [];
-
-    foreach ($activeSensorDetailsMap as $vid => $detail) {
-        $cID = (string)($detail['class_id'] ?? '');
-        $groupNamesForTarget = [];
-
-        if (isset($classToActiveGroups[$cID])) {
-            foreach (array_keys($classToActiveGroups[$cID]) as $gName) {
-                if (isset($dispatchMap[$gName][$iid])) {
-                    $groupNamesForTarget[] = $gName;
+            foreach ($dispatchMap as $targets) {
+                foreach (array_keys($targets) as $iid) {
+                    $targetsToSend[(int)$iid] = true;
                 }
             }
         }
 
-        if (count($groupNamesForTarget) > 0) {
-            sort($groupNamesForTarget, SORT_STRING);
-            $detail['group_names'] = array_values($groupNamesForTarget);
-            $targetActiveSensorDetailsMap[(int)$vid] = $detail;
-            $targetActiveClassesMap[$cID] = $classNameMap[$cID] ?? $cID;
-        }
-    }
+        // Final Dispatch Execution
+        $lastPayloadJson = '';
 
-    ksort($targetActiveSensorDetailsMap, SORT_NUMERIC);
-    $targetActiveSensorDetails = array_values($targetActiveSensorDetailsMap);
+        foreach (array_keys($targetsToSend) as $iid) {
+            $iid = (int)$iid;
+            if (!IPS_InstanceExists($iid)) continue;
 
-    $targetActiveClasses = array_values($targetActiveClassesMap);
-    sort($targetActiveClasses, SORT_STRING);
+            if ($this->ReadPropertyBoolean('DebugMode')) {
+                $this->LogMessage("DEBUG [Dispatch EXEC]: Sending to InstanceID=$iid", KL_MESSAGE);
+            }
 
-    $targetTriggerDetails = null;
-    if ($mainStatus) {
-        if (is_array($finalTriggerDetails)) {
-            $anchorVid = (int)($finalTriggerDetails['variable_id'] ?? 0);
-            if ($anchorVid > 0 && isset($targetActiveSensorDetailsMap[$anchorVid])) {
-                $targetTriggerDetails = $finalTriggerDetails;
+            $targetActiveGroups = [];
+            foreach ($activeGroups as $gName) {
+                if (isset($dispatchMap[$gName][$iid])) {
+                    $targetActiveGroups[] = $gName;
+                }
+            }
+
+            $targetActiveClassesMap = [];
+            $targetActiveSensorDetailsMap = [];
+
+            foreach ($activeSensorDetailsMap as $vid => $detail) {
+                $cID = (string)($detail['class_id'] ?? '');
+                $groupNamesForTarget = [];
+
+                if (isset($classToActiveGroups[$cID])) {
+                    foreach (array_keys($classToActiveGroups[$cID]) as $gName) {
+                        if (isset($dispatchMap[$gName][$iid])) {
+                            $groupNamesForTarget[] = $gName;
+                        }
+                    }
+                }
+
+                if (count($groupNamesForTarget) > 0) {
+                    sort($groupNamesForTarget, SORT_STRING);
+                    $detail['group_names'] = array_values($groupNamesForTarget);
+                    $targetActiveSensorDetailsMap[(int)$vid] = $detail;
+                    $targetActiveClassesMap[$cID] = $classNameMap[$cID] ?? $cID;
+                }
+            }
+
+            ksort($targetActiveSensorDetailsMap, SORT_NUMERIC);
+            $targetActiveSensorDetails = array_values($targetActiveSensorDetailsMap);
+
+            $targetActiveClasses = array_values($targetActiveClassesMap);
+            sort($targetActiveClasses, SORT_STRING);
+
+            $targetTriggerDetails = null;
+            if ($mainStatus) {
+                if (is_array($finalTriggerDetails)) {
+                    $anchorVid = (int)($finalTriggerDetails['variable_id'] ?? 0);
+                    if ($anchorVid > 0 && isset($targetActiveSensorDetailsMap[$anchorVid])) {
+                        $targetTriggerDetails = $finalTriggerDetails;
+                    }
+                }
+
+                if ($targetTriggerDetails === null && count($targetActiveSensorDetails) > 0) {
+                    $first = $targetActiveSensorDetails[0];
+                    $targetTriggerDetails = [
+                        'variable_id' => $first['variable_id'],
+                        'value_raw'   => $first['value_raw'],
+                        'tag'         => $first['tag'],
+                        'class_id'    => $first['class_id'],
+                        'class_name'  => $first['class_name'],
+                        'var_name'    => $first['var_name'],
+                        'parent_name' => $first['parent_name'],
+                        'grandparent_name' => $first['grandparent_name'],
+                        'value_human' => $first['value_human'],
+                        'smart_label' => $first['smart_label']
+                    ];
+                }
+            }
+
+            $payloadForTarget = $payload;
+            $payloadForTarget['target_instance_id'] = $iid;
+            $payloadForTarget['target_active_groups'] = $mainStatus ? $targetActiveGroups : [];
+            $payloadForTarget['target_active_classes'] = $mainStatus ? $targetActiveClasses : [];
+            $payloadForTarget['target_trigger_details'] = $mainStatus ? $targetTriggerDetails : null;
+            $payloadForTarget['target_active_sensor_details'] = $mainStatus ? $targetActiveSensorDetails : [];
+
+            $payloadJsonForTarget = json_encode($payloadForTarget);
+            $lastPayloadJson = $payloadJsonForTarget;
+
+            if ($this->ReadPropertyBoolean('DebugMode')) {
+                $this->LogMessage(
+                    "DEBUG [Dispatch EXEC]: InstanceID=$iid target_groups=" . count($payloadForTarget['target_active_groups']) .
+                        " target_classes=" . count($payloadForTarget['target_active_classes']) .
+                        " target_sensors=" . count($payloadForTarget['target_active_sensor_details']),
+                    KL_MESSAGE
+                );
+            }
+
+            try {
+                @IPS_RequestAction($iid, 'ReceivePayload', $payloadJsonForTarget);
+            } catch (Throwable $e) {
+                if ($this->ReadPropertyBoolean('DebugMode')) {
+                    $this->LogMessage("DISPATCH ERROR: Target {$iid} exception: " . $e->getMessage(), KL_WARNING);
+                }
             }
         }
 
-        if ($targetTriggerDetails === null && count($targetActiveSensorDetails) > 0) {
-            $first = $targetActiveSensorDetails[0];
-            $targetTriggerDetails = [
-                'variable_id' => $first['variable_id'],
-                'value_raw'   => $first['value_raw'],
-                'tag'         => $first['tag'],
-                'class_id'    => $first['class_id'],
-                'class_name'  => $first['class_name'],
-                'var_name'    => $first['var_name'],
-                'parent_name' => $first['parent_name'],
-                'grandparent_name' => $first['grandparent_name'],
-                'value_human' => $first['value_human'],
-                'smart_label' => $first['smart_label']
-            ];
+        if ($lastPayloadJson !== '') {
+            $this->SetValue('EventData', $lastPayloadJson);
         }
-    }
-
-    $projection = [
-        'target_active_groups' => $mainStatus ? $targetActiveGroups : [],
-        'target_active_classes' => $mainStatus ? $targetActiveClasses : [],
-        'target_trigger_details' => $mainStatus ? $targetTriggerDetails : null,
-        'target_active_sensor_details' => $mainStatus ? $targetActiveSensorDetails : []
-    ];
-
-    $newTargetProjectionState[(string)$iid] = $projection;
-
-    $oldProjection = $lastTargetProjectionState[(string)$iid] ?? null;
-    $projectionChanged = json_encode($projection) !== json_encode($oldProjection);
-
-    if (!$projectionChanged) {
-        if ($this->ReadPropertyBoolean('DebugMode')) {
-            $this->LogMessage("DEBUG [Dispatch EXEC]: Skipping InstanceID=$iid (target projection unchanged)", KL_MESSAGE);
-        }
-        continue;
-    }
-
-    $payloadForTarget = $payload;
-    $payloadForTarget['target_instance_id'] = $iid;
-    $payloadForTarget['target_active_groups'] = $projection['target_active_groups'];
-    $payloadForTarget['target_active_classes'] = $projection['target_active_classes'];
-    $payloadForTarget['target_trigger_details'] = $projection['target_trigger_details'];
-    $payloadForTarget['target_active_sensor_details'] = $projection['target_active_sensor_details'];
-
-    $payloadJsonForTarget = json_encode($payloadForTarget);
-    $lastPayloadJson = $payloadJsonForTarget;
-
-    if ($this->ReadPropertyBoolean('DebugMode')) {
-        $this->LogMessage(
-            "DEBUG [Dispatch EXEC]: Sending to InstanceID=$iid target_groups=" . count($payloadForTarget['target_active_groups']) .
-                " target_classes=" . count($payloadForTarget['target_active_classes']) .
-                " target_sensors=" . count($payloadForTarget['target_active_sensor_details']),
-            KL_MESSAGE
-        );
-    }
-
-    try {
-        @IPS_RequestAction($iid, 'ReceivePayload', $payloadJsonForTarget);
-    } catch (Throwable $e) {
-        if ($this->ReadPropertyBoolean('DebugMode')) {
-            $this->LogMessage("DISPATCH ERROR: Target {$iid} exception: " . $e->getMessage(), KL_WARNING);
-        }
-    }
-}
-
-// Persist latest target-local projection state for all routed targets
-$this->WriteAttributeString('LastTargetProjectionState', json_encode($newTargetProjectionState));
-
-if ($lastPayloadJson !== '') {
-    $this->SetValue('EventData', $lastPayloadJson);
-}
     }
 
     private function CheckSensorRule($row)
