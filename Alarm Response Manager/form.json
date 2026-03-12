@@ -29,6 +29,10 @@
       "caption": "1. Output Resources",
       "items": [
         {
+          "type": "Label",
+          "caption": "Target Object ID must be a script or an instance."
+        },
+        {
           "type": "List",
           "name": "OutputResources",
           "caption": "Output Resources",
@@ -478,7 +482,7 @@
           ],
           "values": []
         }
-        ]
+      ]
     },
     {
       "type": "ExpansionPanel",
@@ -488,6 +492,16 @@
           "type": "ValidationTextBox",
           "name": "ConfigBackupJson",
           "caption": "Backup JSON"
+        },
+        {
+          "type": "Button",
+          "caption": "Export Configuration",
+          "onClick": "IPS_RequestAction($id, \"ExportConfiguration\", true);"
+        },
+        {
+          "type": "Button",
+          "caption": "Import Configuration",
+          "onClick": "IPS_RequestAction($id, \"ImportConfiguration\", true);"
         }
       ]
     }
@@ -502,20 +516,6 @@
       "type": "Button",
       "caption": "Build Rows From My Module 1 Routing",
       "onClick": "IPS_RequestAction($id, \"BuildRowsFromMyRouting\", true);"
-    },
-    {
-      "type": "Label",
-      "caption": "Target Object ID must be a script or an instance."
-    },
-    {
-      "type": "Button",
-      "caption": "Export Configuration",
-      "onClick": "IPS_RequestAction($id, \"ExportConfiguration\", true);"
-    },
-    {
-      "type": "Button",
-      "caption": "Import Configuration",
-      "onClick": "IPS_RequestAction($id, \"ImportConfiguration\", true);"
     }
   ],
   "status": [
