@@ -428,7 +428,7 @@ setInterval(fetchAndUpdateGraph, 2000);
 
 <body>
 <div class="header">
-    <h2>Module 3 Mapping (Live)</h2>
+    <h2>' . htmlspecialchars($this->GetModule1TargetDisplayName(), ENT_QUOTES, 'UTF-8') . ' (Live)</h2>
     <small>Instance ID: ' . $this->InstanceID . '</small>
     <br><small>Cached House State: ' . htmlspecialchars($cachedStateText, ENT_QUOTES, 'UTF-8') . '</small>
     <br><small>' . $syncStatusHtml . '</small>
@@ -523,6 +523,42 @@ setInterval(fetchAndUpdateGraph, 2000);
         IPS_ApplyChanges($this->InstanceID);
 
         $this->SetStatus(203);
+    }
+
+    private function GetModule1TargetDisplayName(): string
+    {
+        $json = $this->ReadPropertyString('ImportedModule1ConfigJson');
+        if (trim($json) === '') {
+            return IPS_GetName($this->InstanceID);
+        }
+
+        $config = json_decode($json, true);
+        if (!is_array($config)) {
+            return IPS_GetName($this->InstanceID);
+        }
+
+        $targets = $config['DispatchTargets'] ?? [];
+        if (!is_array($targets)) {
+            return IPS_GetName($this->InstanceID);
+        }
+
+        foreach ($targets as $target) {
+            if (!is_array($target)) {
+                continue;
+            }
+
+            $instanceID = (int) ($target['InstanceID'] ?? 0);
+            if ($instanceID !== $this->InstanceID) {
+                continue;
+            }
+
+            $name = trim((string) ($target['Name'] ?? ''));
+            if ($name !== '') {
+                return $name;
+            }
+        }
+
+        return IPS_GetName($this->InstanceID);
     }
 
     public function ReceivePayload(string $payloadJson): void
