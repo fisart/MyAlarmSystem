@@ -64,6 +64,11 @@ class ARMResponseManagerMock extends IPSModule
         $this->RegisterAttributeString('LastActiveRuleIDs', '[]');
         $this->RegisterAttributeString('LastActiveOutputIDs', '[]');
         $this->RegisterAttributeString('LastReceivedPayloadRaw', '');
+
+        $this->RegisterAttributeString('CachedModule1PayloadRaw', '');
+        $this->RegisterAttributeString('CachedTargetActiveGroups', '[]');
+        $this->RegisterAttributeString('CachedTargetActiveClasses', '[]');
+        $this->RegisterAttributeString('CachedTargetActiveSensorDetails', '[]');
     }
 
     public function ApplyChanges()
@@ -696,13 +701,24 @@ setInterval(fetchAndUpdateGraph, 2000);
 
         $eventType = strtoupper(trim((string) ($payload['event_type'] ?? '')));
         $targetGroups = $payload['target_active_groups'] ?? [];
+        $targetClasses = $payload['target_active_classes'] ?? [];
+        $targetSensorDetails = $payload['target_active_sensor_details'] ?? [];
 
+        $this->WriteAttributeString('CachedModule1PayloadRaw', $payloadJson);
+        $this->WriteAttributeString('CachedTargetActiveGroups', json_encode(is_array($targetGroups) ? array_values($targetGroups) : []));
+        $this->WriteAttributeString('CachedTargetActiveClasses', json_encode(is_array($targetClasses) ? array_values($targetClasses) : []));
+        $this->WriteAttributeString('CachedTargetActiveSensorDetails', json_encode(is_array($targetSensorDetails) ? array_values($targetSensorDetails) : []));
         if ($eventType !== 'ALARM') {
             $this->LogMessage('ReceivePayload: ignored non-ALARM event_type=' . $eventType, KL_MESSAGE);
             return;
         }
 
         if (!is_array($targetGroups) || count($targetGroups) === 0) {
+            $this->WriteAttributeString('CachedModule1PayloadRaw', $payloadJson);
+            $this->WriteAttributeString('CachedTargetActiveGroups', '[]');
+            $this->WriteAttributeString('CachedTargetActiveClasses', '[]');
+            $this->WriteAttributeString('CachedTargetActiveSensorDetails', '[]');
+
             $this->WriteAttributeString('LastActiveGroups', '[]');
             $this->WriteAttributeString('LastActiveRuleIDs', '[]');
             $this->WriteAttributeString('LastActiveOutputIDs', '[]');
@@ -726,54 +742,7 @@ setInterval(fetchAndUpdateGraph, 2000);
             return;
         }
 
-        $houseState = (string) ((int) ($house['system_state_id'] ?? 0));
-        $this->LogMessage('ReceivePayload: houseState=' . $houseState, KL_MESSAGE);
-        $executedOutputIDs = [];
-        $activeGroupsForView = [];
-        $activeRuleIDsForView = [];
-
-        foreach ($targetGroups as $groupLabelRaw) {
-            $groupLabel = trim((string) $groupLabelRaw);
-            if ($groupLabel === '') {
-                continue;
-            }
-            $activeGroupsForView[$groupLabel] = true;
-            $ruleIDs = $this->FindMatchingRuleIDsForGroupAndState($groupLabel, $houseState);
-            $this->LogMessage('ReceivePayload: group=' . $groupLabel . ' matched rules=' . json_encode($ruleIDs), KL_MESSAGE);
-
-            foreach ($ruleIDs as $ruleID) {
-                $activeRuleIDsForView[$ruleID] = true;
-                $assignments = $this->FindAssignmentsForRuleID($ruleID);
-
-                foreach ($assignments as $assignment) {
-                    $outputID = trim((string) ($assignment['OutputID'] ?? ''));
-                    if ($outputID === '') {
-                        continue;
-                    }
-
-                    if (isset($executedOutputIDs[$outputID])) {
-                        continue;
-                    }
-
-                    $resource = $this->FindOutputResourceByID($outputID);
-                    if ($resource === null) {
-                        $this->LogMessage('ReceivePayload: OutputID not found: ' . $outputID, KL_MESSAGE);
-                        continue;
-                    }
-
-                    $ok = $this->ExecuteOutputResource($resource, $payload, $house, $groupLabel);
-                    $this->LogMessage(
-                        'ReceivePayload: execute OutputID=' . $outputID . ' result=' . ($ok ? 'true' : 'false'),
-                        KL_MESSAGE
-                    );
-
-                    $executedOutputIDs[$outputID] = true;
-                }
-            }
-        }
-        $this->WriteAttributeString('LastActiveGroups', json_encode(array_values(array_keys($activeGroupsForView))));
-        $this->WriteAttributeString('LastActiveRuleIDs', json_encode(array_values(array_keys($activeRuleIDsForView))));
-        $this->WriteAttributeString('LastActiveOutputIDs', json_encode(array_values(array_keys($executedOutputIDs))));
+        $this->ReevaluateCurrentAlarmContext($payload, $house);
     }
     public function DebugGetLastReceivedPayloadRaw(): string
     {
@@ -795,6 +764,72 @@ setInterval(fetchAndUpdateGraph, 2000);
     {
         return $this->ReadAttributeString('LastActiveOutputIDs');
     }
+
+
+    private function ReevaluateCurrentAlarmContext(array $payload, array $house): void
+    {
+        $targetGroups = $payload['target_active_groups'] ?? [];
+        if (!is_array($targetGroups) || count($targetGroups) === 0) {
+            $this->WriteAttributeString('LastActiveGroups', '[]');
+            $this->WriteAttributeString('LastActiveRuleIDs', '[]');
+            $this->WriteAttributeString('LastActiveOutputIDs', '[]');
+            $this->LogMessage('ReevaluateCurrentAlarmContext: no active target groups, live path cleared', KL_MESSAGE);
+            return;
+        }
+
+        $houseState = (string) ((int) ($house['system_state_id'] ?? 0));
+        $this->LogMessage('ReevaluateCurrentAlarmContext: houseState=' . $houseState, KL_MESSAGE);
+
+        $executedOutputIDs = [];
+        $activeGroupsForView = [];
+        $activeRuleIDsForView = [];
+
+        foreach ($targetGroups as $groupLabelRaw) {
+            $groupLabel = trim((string) $groupLabelRaw);
+            if ($groupLabel === '') {
+                continue;
+            }
+
+            $activeGroupsForView[$groupLabel] = true;
+            $ruleIDs = $this->FindMatchingRuleIDsForGroupAndState($groupLabel, $houseState);
+            $this->LogMessage('ReevaluateCurrentAlarmContext: group=' . $groupLabel . ' matched rules=' . json_encode($ruleIDs), KL_MESSAGE);
+
+            foreach ($ruleIDs as $ruleID) {
+                $activeRuleIDsForView[$ruleID] = true;
+                $assignments = $this->FindAssignmentsForRuleID($ruleID);
+
+                foreach ($assignments as $assignment) {
+                    $outputID = trim((string) ($assignment['OutputID'] ?? ''));
+                    if ($outputID === '') {
+                        continue;
+                    }
+
+                    if (isset($executedOutputIDs[$outputID])) {
+                        continue;
+                    }
+
+                    $resource = $this->FindOutputResourceByID($outputID);
+                    if ($resource === null) {
+                        $this->LogMessage('ReevaluateCurrentAlarmContext: OutputID not found: ' . $outputID, KL_MESSAGE);
+                        continue;
+                    }
+
+                    $ok = $this->ExecuteOutputResource($resource, $payload, $house, $groupLabel);
+                    $this->LogMessage(
+                        'ReevaluateCurrentAlarmContext: execute OutputID=' . $outputID . ' result=' . ($ok ? 'true' : 'false'),
+                        KL_MESSAGE
+                    );
+
+                    $executedOutputIDs[$outputID] = true;
+                }
+            }
+        }
+
+        $this->WriteAttributeString('LastActiveGroups', json_encode(array_values(array_keys($activeGroupsForView))));
+        $this->WriteAttributeString('LastActiveRuleIDs', json_encode(array_values(array_keys($activeRuleIDsForView))));
+        $this->WriteAttributeString('LastActiveOutputIDs', json_encode(array_values(array_keys($executedOutputIDs))));
+    }
+
 
     public function ReceiveHouseStateSnapshot(string $snapshotJson): void
     {
@@ -820,6 +855,20 @@ setInterval(fetchAndUpdateGraph, 2000);
             'ReceiveHouseStateSnapshot: cached state=' . $stateID . ' sync=(' . $epoch . ',' . $seq . ')',
             KL_MESSAGE
         );
+
+        $cachedPayloadJson = $this->ReadAttributeString('CachedModule1PayloadRaw');
+        $cachedPayload = json_decode($cachedPayloadJson, true);
+
+        if (is_array($cachedPayload)) {
+            $cachedGroups = $cachedPayload['target_active_groups'] ?? [];
+            if (is_array($cachedGroups) && count($cachedGroups) > 0) {
+                $this->LogMessage(
+                    'ReceiveHouseStateSnapshot: reevaluating cached Module 1 context for house state ' . $stateID,
+                    KL_MESSAGE
+                );
+                $this->ReevaluateCurrentAlarmContext($cachedPayload, $data);
+            }
+        }
     }
 
     private function ValidateHouseStateSnapshot(array $data): bool
