@@ -54,6 +54,9 @@ class ARMResponseManagerMock extends IPSModule
         $this->RegisterPropertyString('OutputResources', '[]');
         $this->RegisterPropertyString('GroupStateRules', '[]');
         $this->RegisterPropertyString('RuleOutputAssignments', '[]');
+
+        $this->RegisterAttributeString('CachedHouseStateSnapshot', '');
+        $this->RegisterAttributeInteger('CachedHouseStateReceivedAt', 0);
     }
 
     public function ApplyChanges()
@@ -104,6 +107,10 @@ class ARMResponseManagerMock extends IPSModule
 
             case 'ReceivePayload':
                 $this->ReceivePayload((string) $Value);
+                break;
+
+            case 'ReceiveHouseStateSnapshot':
+                $this->ReceiveHouseStateSnapshot((string) $Value);
                 break;
 
             default:
@@ -553,6 +560,139 @@ setInterval(fetchAndUpdateGraph, 2000);
                 }
             }
         }
+    }
+
+    public function ReceiveHouseStateSnapshot(string $snapshotJson): void
+    {
+        $data = json_decode($snapshotJson, true);
+        if (!is_array($data)) {
+            $this->LogMessage('ReceiveHouseStateSnapshot: invalid JSON', KL_MESSAGE);
+            return;
+        }
+
+        if (!$this->ValidateHouseStateSnapshot($data)) {
+            $this->LogMessage('ReceiveHouseStateSnapshot: snapshot validation failed', KL_MESSAGE);
+            return;
+        }
+
+        $this->WriteAttributeString('CachedHouseStateSnapshot', $snapshotJson);
+        $this->WriteAttributeInteger('CachedHouseStateReceivedAt', time());
+
+        $stateID = (int) ($data['system_state_id'] ?? 0);
+        $epoch = (string) ($data['sync']['last_processed_event_epoch'] ?? '0');
+        $seq = (int) ($data['sync']['last_processed_event_seq'] ?? 0);
+
+        $this->LogMessage(
+            'ReceiveHouseStateSnapshot: cached state=' . $stateID . ' sync=(' . $epoch . ',' . $seq . ')',
+            KL_MESSAGE
+        );
+    }
+
+    private function ValidateHouseStateSnapshot(array $data): bool
+    {
+        if (($data['schema'] ?? '') !== 'PSM.HouseState.v2') {
+            return false;
+        }
+
+        $requiredTop = [
+            'timestamp',
+            'source_instance_id',
+            'sync',
+            'system_state_id',
+            'system_state_name',
+            'delay_active',
+            'delay_remaining_seconds',
+            'derived',
+            'blocking_reasons',
+            'blocking_details'
+        ];
+
+        foreach ($requiredTop as $key) {
+            if (!array_key_exists($key, $data)) {
+                return false;
+            }
+        }
+
+        if (!is_array($data['sync'])) {
+            return false;
+        }
+
+        if (!array_key_exists('last_processed_event_epoch', $data['sync'])) {
+            return false;
+        }
+
+        if (!array_key_exists('last_processed_event_seq', $data['sync'])) {
+            return false;
+        }
+
+        return true;
+    }
+
+    private function GetCachedHouseStateSnapshot(): ?array
+    {
+        $json = $this->ReadAttributeString('CachedHouseStateSnapshot');
+        if (trim($json) === '') {
+            return null;
+        }
+
+        $data = json_decode($json, true);
+        if (!is_array($data)) {
+            return null;
+        }
+
+        if (!$this->ValidateHouseStateSnapshot($data)) {
+            return null;
+        }
+
+        return $data;
+    }
+
+    private function GetUsableHouseStateSnapshot(string $eventEpoch, int $eventSeq): ?array
+    {
+        $cached = $this->GetCachedHouseStateSnapshot();
+        if ($cached !== null) {
+            if ($this->IsSnapshotFreshEnoughForEvent($cached, $eventEpoch, $eventSeq)) {
+                $this->LogMessage('GetUsableHouseStateSnapshot: using cached snapshot', KL_MESSAGE);
+                return $cached;
+            }
+
+            $cachedEpoch = (string) ($cached['sync']['last_processed_event_epoch'] ?? '0');
+            $cachedSeq = (int) ($cached['sync']['last_processed_event_seq'] ?? 0);
+            $this->LogMessage(
+                'GetUsableHouseStateSnapshot: cached snapshot too old event=(' . $eventEpoch . ',' . $eventSeq . ') cached=(' . $cachedEpoch . ',' . $cachedSeq . ')',
+                KL_MESSAGE
+            );
+        } else {
+            $this->LogMessage('GetUsableHouseStateSnapshot: no cached snapshot available', KL_MESSAGE);
+        }
+
+        $pulled = $this->GetSynchronizedHouseStateSnapshot($eventEpoch, $eventSeq);
+        if ($pulled !== null) {
+            $this->WriteAttributeString('CachedHouseStateSnapshot', json_encode($pulled));
+            $this->WriteAttributeInteger('CachedHouseStateReceivedAt', time());
+            $this->LogMessage('GetUsableHouseStateSnapshot: fallback pull succeeded', KL_MESSAGE);
+            return $pulled;
+        }
+
+        return null;
+    }
+
+    private function IsSnapshotFreshEnoughForEvent(array $snapshot, string $eventEpoch, int $eventSeq): bool
+    {
+        $processedEpoch = (string) ($snapshot['sync']['last_processed_event_epoch'] ?? '0');
+        $processedSeq = (int) ($snapshot['sync']['last_processed_event_seq'] ?? 0);
+
+        $epochCompare = $this->CompareNumericStrings($processedEpoch, $eventEpoch);
+
+        if ($epochCompare > 0) {
+            return true;
+        }
+
+        if ($epochCompare === 0 && $processedSeq >= $eventSeq) {
+            return true;
+        }
+
+        return false;
     }
 
     private function GetSynchronizedHouseStateSnapshot(string $eventEpoch, int $eventSeq): ?array
