@@ -44,6 +44,25 @@
     },
     {
       "type": "List",
+      "name": "StatePushTargets",
+      "caption": "Module 3 State Push Targets",
+      "rowCount": 4,
+      "add": true,
+      "delete": true,
+      "columns": [
+        {
+          "caption": "Module 3 Instance",
+          "name": "InstanceID",
+          "width": "350px",
+          "add": 0,
+          "edit": {
+            "type": "SelectInstance"
+          }
+        }
+      ]
+    },
+    {
+      "type": "List",
       "name": "GroupMapping",
       "caption": "Group Mapping",
       "rowCount": 8,

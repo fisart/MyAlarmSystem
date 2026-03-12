@@ -18,6 +18,7 @@ class PropertyStateManager extends IPSModule
         $this->RegisterPropertyInteger("ArmingDelayDuration", 1);
         $this->RegisterPropertyInteger("VaultInstanceID", 0);
         $this->RegisterPropertyString("BedroomDoorPolarity", "breach");
+        $this->RegisterPropertyString("StatePushTargets", "[]"); // Module 3 instance IDs
         $this->RegisterAttributeInteger("DelayExpired", 0);
 
         // Attributes (RAM Buffers)
@@ -34,6 +35,7 @@ class PropertyStateManager extends IPSModule
         $this->RegisterAttributeString("LastPayload", "");
         $this->RegisterAttributeInteger("LastPayloadTime", 0);
         $this->RegisterAttributeString("PayloadHistory", "[]"); // NEW: History Buffer
+        $this->RegisterAttributeString("LastPushedHouseStateSnapshot", ""); // normalized snapshot cache for push diffing
         // ---- Sync token: "processed up to" marker (restart-safe ordering comes from Module 1) ----
         $this->RegisterAttributeString("LastProcessedEventEpoch", "0");
         $this->RegisterAttributeInteger("LastProcessedEventSeq", 0);
@@ -1403,6 +1405,10 @@ class PropertyStateManager extends IPSModule
             $this->SetTimerInterval("DelayTimer", 0);
             $this->LogMessage("[PSM-Timer] Exit Delay Cancelled", KL_MESSAGE);
         }
+
+        // Push-first integration: publish updated authoritative house state
+        // to configured Module 3 targets when the exported snapshot meaning changed.
+        $this->MaybePushHouseStateSnapshot();
     }
 
     /**
@@ -1855,6 +1861,66 @@ class PropertyStateManager extends IPSModule
         return json_encode($snapshot);
     }
 
+    private function NormalizeHouseStateSnapshotForPushDiff(string $snapshotJson): string
+    {
+        $data = json_decode($snapshotJson, true);
+        if (!is_array($data)) {
+            return '';
+        }
+
+        // Timestamp changes on every build and must not trigger push spam
+        unset($data['timestamp']);
+
+        return json_encode($data, JSON_UNESCAPED_SLASHES);
+    }
+
+    private function MaybePushHouseStateSnapshot(): void
+    {
+        $targets = json_decode($this->ReadPropertyString("StatePushTargets"), true);
+        if (!is_array($targets) || count($targets) === 0) {
+            return;
+        }
+
+        $snapshotJson = $this->GetHouseStateSnapshot();
+        $normalizedSnapshot = $this->NormalizeHouseStateSnapshotForPushDiff($snapshotJson);
+        if ($normalizedSnapshot === '') {
+            $this->LogMessage("[PSM-Push] Snapshot normalization failed, push skipped.", KL_WARNING);
+            return;
+        }
+
+        $lastPushed = $this->ReadAttributeString("LastPushedHouseStateSnapshot");
+
+        // Push only when exported state meaning changed
+        if ($lastPushed === $normalizedSnapshot) {
+            return;
+        }
+
+        $pushedCount = 0;
+
+        foreach ($targets as $row) {
+            $targetID = (int)($row['InstanceID'] ?? 0);
+            if ($targetID <= 0 || !@IPS_InstanceExists($targetID)) {
+                $this->LogMessage("[PSM-Push] Skipping invalid target instance ID: " . $targetID, KL_WARNING);
+                continue;
+            }
+
+            try {
+                IPS_RequestAction($targetID, 'ReceiveHouseStateSnapshot', $snapshotJson);
+                $pushedCount++;
+            } catch (\Throwable $e) {
+                $this->LogMessage(
+                    "[PSM-Push] Push to target " . $targetID . " failed: " . $e->getMessage(),
+                    KL_WARNING
+                );
+            }
+        }
+
+        // Only advance cache if at least one push was attempted successfully
+        if ($pushedCount > 0) {
+            $this->WriteAttributeString("LastPushedHouseStateSnapshot", $normalizedSnapshot);
+            $this->LogMessage("[PSM-Push] House-state snapshot pushed to " . $pushedCount . " target(s).", KL_MESSAGE);
+        }
+    }
 
     public function GetConfigurationForm()
     {
