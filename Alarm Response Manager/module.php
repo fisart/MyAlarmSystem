@@ -1682,7 +1682,7 @@ setInterval(fetchAndUpdateGraph, 2000);
         }
 
         $lines = [];
-        $lines[] = 'graph LR';
+        $lines[] = 'graph TD';
         $lines[] = 'classDef green fill:#2e7d32,stroke:#a5d6a7,stroke-width:2px,color:#fff;';
         $lines[] = 'classDef red fill:#c62828,stroke:#ff8a80,stroke-width:2px,color:#fff;';
         $lines[] = 'classDef grey fill:#37474f,stroke:#546e7a,stroke-width:1px,color:#eee;';
@@ -1707,6 +1707,9 @@ setInterval(fetchAndUpdateGraph, 2000);
             $lines[] = $houseStateNode . '["' . $this->MermaidEscape("House State\nNo cached snapshot") . '"]';
             $lines[] = 'class ' . $houseStateNode . ' grey;';
         }
+
+        $lines[] = 'subgraph MAIN[" "]';
+        $lines[] = 'direction LR';
 
         $linkCounter = 0;
 
@@ -1837,6 +1840,8 @@ setInterval(fetchAndUpdateGraph, 2000);
             }
             $linkCounter++;
         }
+
+        $lines[] = 'end';
 
         return implode("\n", $lines) . "\n";
     }
