@@ -1650,6 +1650,18 @@ setInterval(fetchAndUpdateGraph, 2000);
 
         return strcmp($a, $b);
     }
+
+    public function DebugGetCachedHouseStateSnapshot(): string
+    {
+        return $this->ReadAttributeString('CachedHouseStateSnapshot');
+    }
+
+    public function DebugGetCachedHouseStateReceivedAt(): int
+    {
+        return $this->ReadAttributeInteger('CachedHouseStateReceivedAt');
+    }
+
+
     private function IsAllowedTargetObject(int $objectID): bool
     {
         if ($objectID <= 0 || !@IPS_ObjectExists($objectID)) {
