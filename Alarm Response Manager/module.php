@@ -669,6 +669,23 @@ setInterval(fetchAndUpdateGraph, 2000);
     {
         return $this->ReadAttributeString('LastReceivedPayloadRaw');
     }
+
+
+    public function DebugGetLastActiveGroups(): string
+    {
+        return $this->ReadAttributeString('LastActiveGroups');
+    }
+
+    public function DebugGetLastActiveRuleIDs(): string
+    {
+        return $this->ReadAttributeString('LastActiveRuleIDs');
+    }
+
+    public function DebugGetLastActiveOutputIDs(): string
+    {
+        return $this->ReadAttributeString('LastActiveOutputIDs');
+    }
+
     public function ReceiveHouseStateSnapshot(string $snapshotJson): void
     {
         $data = json_decode($snapshotJson, true);
