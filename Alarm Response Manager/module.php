@@ -656,38 +656,28 @@ setInterval(fetchAndUpdateGraph, 2000);
     {
         $cached = $this->GetCachedHouseStateSnapshot();
         if ($cached !== null) {
-            if ($this->IsSnapshotFreshEnoughForEvent($cached, $eventEpoch, $eventSeq)) {
-                $this->LogMessage('GetUsableHouseStateSnapshot: using cached snapshot', KL_MESSAGE);
-                return $cached;
-            }
-
             $cachedEpoch = (string) ($cached['sync']['last_processed_event_epoch'] ?? '0');
             $cachedSeq = (int) ($cached['sync']['last_processed_event_seq'] ?? 0);
+
             $this->LogMessage(
-                'GetUsableHouseStateSnapshot: cached snapshot too old event=(' . $eventEpoch . ',' . $eventSeq . ') cached=(' . $cachedEpoch . ',' . $cachedSeq . ')',
+                'GetUsableHouseStateSnapshot: RELAXED MODE using cached snapshot event=(' . $eventEpoch . ',' . $eventSeq . ') cached=(' . $cachedEpoch . ',' . $cachedSeq . ')',
                 KL_MESSAGE
             );
 
-            // INSERT LOG 1 HERE
-            $this->LogMessage(
-                'GetUsableHouseStateSnapshot: cached too old for event=(' . $eventEpoch . ',' . $eventSeq . ')',
-                KL_MESSAGE
-            );
-        } else {
-            $this->LogMessage('GetUsableHouseStateSnapshot: no cached snapshot available', KL_MESSAGE);
+            return $cached;
         }
+
+        $this->LogMessage('GetUsableHouseStateSnapshot: RELAXED MODE no cached snapshot, trying fallback pull', KL_MESSAGE);
 
         $pulled = $this->GetSynchronizedHouseStateSnapshot($eventEpoch, $eventSeq);
         if ($pulled !== null) {
             $this->WriteAttributeString('CachedHouseStateSnapshot', json_encode($pulled));
             $this->WriteAttributeInteger('CachedHouseStateReceivedAt', time());
-            $this->LogMessage('GetUsableHouseStateSnapshot: fallback pull succeeded', KL_MESSAGE);
+            $this->LogMessage('GetUsableHouseStateSnapshot: RELAXED MODE fallback pull succeeded', KL_MESSAGE);
             return $pulled;
         }
 
-        // INSERT LOG 2 HERE
-        $this->LogMessage('GetUsableHouseStateSnapshot: fallback pull failed', KL_MESSAGE);
-
+        $this->LogMessage('GetUsableHouseStateSnapshot: RELAXED MODE fallback pull failed', KL_MESSAGE);
         return null;
     }
 
