@@ -59,6 +59,9 @@ class ARMResponseManagerMock extends IPSModule
         $this->RegisterAttributeInteger('CachedHouseStateReceivedAt', 0);
         $this->RegisterAttributeString('LastEventEpoch', '0');
         $this->RegisterAttributeInteger('LastEventSeq', 0);
+        $this->RegisterAttributeString('LastActiveGroups', '[]');
+        $this->RegisterAttributeString('LastActiveRuleIDs', '[]');
+        $this->RegisterAttributeString('LastActiveOutputIDs', '[]');
     }
 
     public function ApplyChanges()
@@ -585,7 +588,10 @@ setInterval(fetchAndUpdateGraph, 2000);
         }
 
         if (!is_array($targetGroups) || count($targetGroups) === 0) {
-            $this->LogMessage('ReceivePayload: reset/all-clear detected, no outputs fired', KL_MESSAGE);
+            $this->WriteAttributeString('LastActiveGroups', '[]');
+            $this->WriteAttributeString('LastActiveRuleIDs', '[]');
+            $this->WriteAttributeString('LastActiveOutputIDs', '[]');
+            $this->LogMessage('ReceivePayload: reset/all-clear detected, live path cleared', KL_MESSAGE);
             return;
         }
         /*
@@ -608,17 +614,20 @@ setInterval(fetchAndUpdateGraph, 2000);
         $houseState = (string) ((int) ($house['system_state_id'] ?? 0));
         $this->LogMessage('ReceivePayload: houseState=' . $houseState, KL_MESSAGE);
         $executedOutputIDs = [];
+        $activeGroupsForView = [];
+        $activeRuleIDsForView = [];
 
         foreach ($targetGroups as $groupLabelRaw) {
             $groupLabel = trim((string) $groupLabelRaw);
             if ($groupLabel === '') {
                 continue;
             }
-
+            $activeGroupsForView[$groupLabel] = true;
             $ruleIDs = $this->FindMatchingRuleIDsForGroupAndState($groupLabel, $houseState);
             $this->LogMessage('ReceivePayload: group=' . $groupLabel . ' matched rules=' . json_encode($ruleIDs), KL_MESSAGE);
 
             foreach ($ruleIDs as $ruleID) {
+                $activeRuleIDsForView[$ruleID] = true;
                 $assignments = $this->FindAssignmentsForRuleID($ruleID);
 
                 foreach ($assignments as $assignment) {
@@ -647,6 +656,9 @@ setInterval(fetchAndUpdateGraph, 2000);
                 }
             }
         }
+        $this->WriteAttributeString('LastActiveGroups', json_encode(array_values(array_keys($activeGroupsForView))));
+        $this->WriteAttributeString('LastActiveRuleIDs', json_encode(array_values(array_keys($activeRuleIDsForView))));
+        $this->WriteAttributeString('LastActiveOutputIDs', json_encode(array_values(array_keys($executedOutputIDs))));
     }
 
     public function ReceiveHouseStateSnapshot(string $snapshotJson): void
@@ -1465,13 +1477,36 @@ setInterval(fetchAndUpdateGraph, 2000);
         }
 
         $activeGroups = [];
-        foreach ($rules as $rule) {
-            if (!(bool) ($rule['Active'] ?? false)) {
-                continue;
+        $lastActiveGroups = json_decode($this->ReadAttributeString('LastActiveGroups'), true);
+        if (is_array($lastActiveGroups)) {
+            foreach ($lastActiveGroups as $groupLabelRaw) {
+                $groupLabel = trim((string) $groupLabelRaw);
+                if ($groupLabel === '') {
+                    continue;
+                }
+                $activeGroups[$this->MakeGroupKey($groupLabel)] = true;
             }
-            $groupKey = trim((string) ($rule['GroupKey'] ?? ''));
-            if ($groupKey !== '') {
-                $activeGroups[$groupKey] = true;
+        }
+
+        $activeRuleIDs = [];
+        $lastActiveRuleIDs = json_decode($this->ReadAttributeString('LastActiveRuleIDs'), true);
+        if (is_array($lastActiveRuleIDs)) {
+            foreach ($lastActiveRuleIDs as $ruleIDRaw) {
+                $ruleID = trim((string) $ruleIDRaw);
+                if ($ruleID !== '') {
+                    $activeRuleIDs[$ruleID] = true;
+                }
+            }
+        }
+
+        $activeOutputIDs = [];
+        $lastActiveOutputIDs = json_decode($this->ReadAttributeString('LastActiveOutputIDs'), true);
+        if (is_array($lastActiveOutputIDs)) {
+            foreach ($lastActiveOutputIDs as $outputIDRaw) {
+                $outputID = trim((string) $outputIDRaw);
+                if ($outputID !== '') {
+                    $activeOutputIDs[$outputID] = true;
+                }
             }
         }
 
@@ -1505,7 +1540,7 @@ setInterval(fetchAndUpdateGraph, 2000);
 
             $groupNode = 'G_' . substr(md5($groupKey), 0, 10);
             $ruleNode = 'R_' . substr(md5($ruleID), 0, 10);
-            $ruleActive = (bool) ($rule['Active'] ?? false);
+            $ruleActive = isset($activeRuleIDs[$ruleID]);
 
             $ruleLabel = $this->buildRuleLabel($rule, $groupLabels);
             $severity = trim((string) ($rule['Severity'] ?? ''));
@@ -1543,7 +1578,7 @@ setInterval(fetchAndUpdateGraph, 2000);
             $assignmentNode = 'A_' . substr(md5($assignmentID), 0, 10);
             $ruleNode = 'R_' . substr(md5($ruleID), 0, 10);
 
-            $assignmentActive = (bool) ($assignment['Active'] ?? false);
+            $assignmentActive = isset($activeRuleIDs[$ruleID]) && $outputID !== '' && isset($activeOutputIDs[$outputID]);
 
             $assignmentLabel = 'Assignment';
             if ($outputID !== '') {
@@ -1590,7 +1625,7 @@ setInterval(fetchAndUpdateGraph, 2000);
                 $parts[] = 'ObjID: ' . $targetObjectID;
             }
 
-            $isActivePath = $assignmentActive && $outputActive;
+            $isActivePath = isset($activeOutputIDs[$outputID]) && $outputActive;
 
             $lines[] = $outputNode . '["' . $this->MermaidEscape(implode("\n", $parts)) . '"]';
             $lines[] = $assignmentNode . ' --> ' . $outputNode;
