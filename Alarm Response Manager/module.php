@@ -1645,14 +1645,6 @@ setInterval(fetchAndUpdateGraph, 2000);
 
             $lines[] = $outputNode . '["' . $this->MermaidEscape(implode("\n", $parts)) . '"]';
             $lines[] = $assignmentNode . ' --> ' . $outputNode;
-            $lines[] = 'class ' . $outputNode . ' ' . ($isActivePath ? 'red' : 'green') . ';';
-
-            if ($isActivePath) {
-                $lines[] = 'linkStyle ' . $linkCounter . ' stroke:#ff8a80,stroke-width:2px;';
-            } else {
-                $lines[] = 'linkStyle ' . $linkCounter . ' stroke:#a5d6a7,stroke-width:2px;';
-            }
-            $linkCounter++;
         }
 
         return implode("\n", $lines) . "\n";
