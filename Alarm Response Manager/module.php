@@ -1641,10 +1641,18 @@ setInterval(fetchAndUpdateGraph, 2000);
                 $parts[] = 'ObjID: ' . $targetObjectID;
             }
 
-            $isActivePath = isset($activeOutputIDs[$outputID]) && $outputActive;
+            $outputNodeActive = isset($activeOutputIDs[$outputID]);
 
             $lines[] = $outputNode . '["' . $this->MermaidEscape(implode("\n", $parts)) . '"]';
             $lines[] = $assignmentNode . ' --> ' . $outputNode;
+            $lines[] = 'class ' . $outputNode . ' ' . ($outputNodeActive ? 'red' : 'green') . ';';
+
+            if ($assignmentActive) {
+                $lines[] = 'linkStyle ' . $linkCounter . ' stroke:#ff8a80,stroke-width:2px;';
+            } else {
+                $lines[] = 'linkStyle ' . $linkCounter . ' stroke:#a5d6a7,stroke-width:2px;';
+            }
+            $linkCounter++;
         }
 
         return implode("\n", $lines) . "\n";
