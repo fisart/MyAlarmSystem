@@ -40,8 +40,7 @@ class SensorGroup extends IPSModule
         $this->RegisterPropertyString('DispatchTargets', '[]');   // list of Module2 targets
 
 
-$this->RegisterAttributeString('DispatchTargetsBuffer', '[]');
-$this->RegisterAttributeString('LastTargetProjectionState', '{}');
+        $this->RegisterAttributeString('DispatchTargetsBuffer', '[]');
 
         $this->RegisterAttributeString('LastMainStatus', '0');
         IPS_SetHidden($this->GetIDForIdent('EventData'), true);
@@ -1569,7 +1568,8 @@ $this->RegisterAttributeString('LastTargetProjectionState', '{}');
         $activeClasses = [];
         $classNameMap = [];
         $engineActiveSensors = []; // NEW: Keep track of every individual sensor that matches its rule
-     $activeSensorDetailsMap = []; // variable_id => full sensor detail for all currently active concrete sensors    if (is_array($classList)) {
+        $activeSensorDetailsMap = []; // variable_id => full sensor detail for all currently active concrete sensors        $activeSensorDetailsMap = []; // variable_id => full sensor detail for all currently active concrete sensors
+        if (is_array($classList)) {
             foreach ($classList as $classDef) {
                 $classID = $classDef['ClassID'] ?? '';
                 if (empty($classID)) continue;
@@ -1910,7 +1910,8 @@ $this->RegisterAttributeString('LastTargetProjectionState', '{}');
                 'active_groups' => $activeGroups,
                 'is_maintenance' => $this->ReadPropertyBoolean('MaintenanceMode'),
                 'trigger_details' => $finalTriggerDetails,
-'active_sensor_details' => $globalActiveSensorDetails
+                'active_sensor_details' => $globalActiveSensorDetails,
+                'active_sensor_details' => array_values($activeSensorDetailsMap)
             ];
             $this->SetValue('EventData', json_encode($payload));
             $payloadJson = json_encode($payload);
@@ -1940,7 +1941,8 @@ $this->RegisterAttributeString('LastTargetProjectionState', '{}');
                 'active_groups' => [],
                 'is_maintenance' => $this->ReadPropertyBoolean('MaintenanceMode'),
                 'trigger_details' => null,
-'active_sensor_details' => []
+                'active_sensor_details' => [],
+                'active_sensor_details' => []
             ];
             $this->SetValue('EventData', json_encode($payload));
             $payloadJson = json_encode($payload);
