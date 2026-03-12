@@ -667,6 +667,12 @@ setInterval(fetchAndUpdateGraph, 2000);
                 'GetUsableHouseStateSnapshot: cached snapshot too old event=(' . $eventEpoch . ',' . $eventSeq . ') cached=(' . $cachedEpoch . ',' . $cachedSeq . ')',
                 KL_MESSAGE
             );
+
+            // INSERT LOG 1 HERE
+            $this->LogMessage(
+                'GetUsableHouseStateSnapshot: cached too old for event=(' . $eventEpoch . ',' . $eventSeq . ')',
+                KL_MESSAGE
+            );
         } else {
             $this->LogMessage('GetUsableHouseStateSnapshot: no cached snapshot available', KL_MESSAGE);
         }
@@ -678,6 +684,9 @@ setInterval(fetchAndUpdateGraph, 2000);
             $this->LogMessage('GetUsableHouseStateSnapshot: fallback pull succeeded', KL_MESSAGE);
             return $pulled;
         }
+
+        // INSERT LOG 2 HERE
+        $this->LogMessage('GetUsableHouseStateSnapshot: fallback pull failed', KL_MESSAGE);
 
         return null;
     }
