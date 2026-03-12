@@ -478,6 +478,17 @@
           ],
           "values": []
         }
+        ]
+    },
+    {
+      "type": "ExpansionPanel",
+      "caption": "4. Configuration Backup",
+      "items": [
+        {
+          "type": "ValidationTextBox",
+          "name": "ConfigBackupJson",
+          "caption": "Backup JSON"
+        }
       ]
     }
   ],
@@ -495,6 +506,16 @@
     {
       "type": "Label",
       "caption": "Target Object ID must be a script or an instance."
+    },
+    {
+      "type": "Button",
+      "caption": "Export Configuration",
+      "onClick": "IPS_RequestAction($id, \"ExportConfiguration\", true);"
+    },
+    {
+      "type": "Button",
+      "caption": "Import Configuration",
+      "onClick": "IPS_RequestAction($id, \"ImportConfiguration\", true);"
     }
   ],
   "status": [
@@ -532,6 +553,16 @@
       "code": 203,
       "icon": "active",
       "caption": "Rows built from this Module 3 routing"
+    },
+    {
+      "code": 204,
+      "icon": "active",
+      "caption": "Configuration exported"
+    },
+    {
+      "code": 205,
+      "icon": "active",
+      "caption": "Configuration imported"
     }
   ]
 }

@@ -50,6 +50,7 @@ class ARMResponseManagerMock extends IPSModule
         $this->RegisterPropertyInteger('Module2InstanceID', 0);
         $this->RegisterPropertyInteger('VaultInstanceID', 0);
         $this->RegisterPropertyString('ImportedModule1ConfigJson', '');
+        $this->RegisterPropertyString('ConfigBackupJson', '');
 
         $this->RegisterPropertyString('OutputResources', '[]');
         $this->RegisterPropertyString('GroupStateRules', '[]');
@@ -119,6 +120,24 @@ class ARMResponseManagerMock extends IPSModule
                 $this->ReceiveHouseStateSnapshot((string) $Value);
                 break;
 
+            case 'ExportConfiguration':
+                try {
+                    $this->ExportConfiguration();
+                } catch (Throwable $e) {
+                    $this->LogMessage('ExportConfiguration failed: ' . $e->getMessage(), KL_MESSAGE);
+                    throw $e;
+                }
+                break;
+
+            case 'ImportConfiguration':
+                try {
+                    $this->ImportConfiguration();
+                } catch (Throwable $e) {
+                    $this->LogMessage('ImportConfiguration failed: ' . $e->getMessage(), KL_MESSAGE);
+                    throw $e;
+                }
+                break;
+
             default:
                 throw new Exception('Invalid Ident');
         }
@@ -153,6 +172,106 @@ class ARMResponseManagerMock extends IPSModule
         return $rows;
     }
 
+    public function ImportConfiguration(): void
+    {
+        $raw = $this->ReadPropertyString('ConfigBackupJson');
+        if (trim($raw) === '') {
+            throw new Exception('ConfigBackupJson is empty.');
+        }
+
+        $this->ValidateImportConfiguration($data);
+
+        if (($data['schema'] ?? '') !== 'ARMM.ConfigBackup.v1') {
+            throw new Exception('Unsupported backup schema.');
+        }
+
+        $config = $data['config'] ?? null;
+        if (!is_array($config)) {
+            throw new Exception('Backup JSON is missing config block.');
+        }
+
+        $outputResources = $config['OutputResources'] ?? null;
+        $groupStateRules = $config['GroupStateRules'] ?? null;
+        $ruleOutputAssignments = $config['RuleOutputAssignments'] ?? null;
+
+        if (!is_array($outputResources)) {
+            throw new Exception('Backup JSON is missing OutputResources.');
+        }
+        if (!is_array($groupStateRules)) {
+            throw new Exception('Backup JSON is missing GroupStateRules.');
+        }
+        if (!is_array($ruleOutputAssignments)) {
+            throw new Exception('Backup JSON is missing RuleOutputAssignments.');
+        }
+
+        IPS_SetProperty($this->InstanceID, 'OutputResources', json_encode(array_values($outputResources)));
+        IPS_SetProperty($this->InstanceID, 'GroupStateRules', json_encode(array_values($groupStateRules)));
+        IPS_SetProperty($this->InstanceID, 'RuleOutputAssignments', json_encode(array_values($ruleOutputAssignments)));
+        IPS_ApplyChanges($this->InstanceID);
+        $this->SetStatus(205);
+        $this->LogMessage('ImportConfiguration: backup JSON imported from ConfigBackupJson', KL_MESSAGE);
+    }
+
+
+    private function ValidateImportConfiguration(array $data): void
+    {
+        if (($data['schema'] ?? '') !== 'ARMM.ConfigBackup.v1') {
+            throw new Exception('Unsupported backup schema.');
+        }
+
+        $config = $data['config'] ?? null;
+        if (!is_array($config)) {
+            throw new Exception('Backup JSON is missing config block.');
+        }
+
+        foreach (['OutputResources', 'GroupStateRules', 'RuleOutputAssignments'] as $key) {
+            if (!array_key_exists($key, $config)) {
+                throw new Exception('Backup JSON is missing ' . $key . '.');
+            }
+            if (!is_array($config[$key])) {
+                throw new Exception('Backup JSON field ' . $key . ' must be an array.');
+            }
+        }
+
+        foreach ($config['OutputResources'] as $index => $row) {
+            if (!is_array($row)) {
+                throw new Exception('OutputResources row ' . $index . ' is invalid.');
+            }
+        }
+
+        foreach ($config['GroupStateRules'] as $index => $row) {
+            if (!is_array($row)) {
+                throw new Exception('GroupStateRules row ' . $index . ' is invalid.');
+            }
+        }
+
+        foreach ($config['RuleOutputAssignments'] as $index => $row) {
+            if (!is_array($row)) {
+                throw new Exception('RuleOutputAssignments row ' . $index . ' is invalid.');
+            }
+        }
+    }
+
+    public function ExportConfiguration(): void
+    {
+        $export = [
+            'schema' => 'ARMM.ConfigBackup.v1',
+            'module' => 'ARMResponseManagerMock',
+            'exported_at' => time(),
+            'instance_id' => $this->InstanceID,
+            'target_name' => $this->GetModule1TargetDisplayName(),
+            'config' => [
+                'OutputResources' => $this->readListProperty('OutputResources'),
+                'GroupStateRules' => $this->readListProperty('GroupStateRules'),
+                'RuleOutputAssignments' => $this->readListProperty('RuleOutputAssignments')
+            ]
+        ];
+
+        IPS_SetProperty($this->InstanceID, 'ConfigBackupJson', json_encode($export, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+        IPS_ApplyChanges($this->InstanceID);
+        $this->SetStatus(204);
+        $this->LogMessage('ExportConfiguration: backup JSON written to ConfigBackupJson', KL_MESSAGE);
+    }
 
     public function GetConfigurationForm()
     {
