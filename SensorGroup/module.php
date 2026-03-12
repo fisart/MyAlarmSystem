@@ -41,6 +41,7 @@ class SensorGroup extends IPSModule
 
 
         $this->RegisterAttributeString('DispatchTargetsBuffer', '[]');
+        $this->RegisterAttributeString('LastTargetProjectionState', '{}');
 
         $this->RegisterAttributeString('LastMainStatus', '0');
         IPS_SetHidden($this->GetIDForIdent('EventData'), true);
@@ -1957,12 +1958,26 @@ class SensorGroup extends IPSModule
         // Final Dispatch Execution
         $lastPayloadJson = '';
 
-        foreach (array_keys($targetsToSend) as $iid) {
-            $iid = (int)$iid;
-            if (!IPS_InstanceExists($iid)) continue;
+        // Build authoritative target list from all routed targets
+        $allRoutedTargets = [];
+        foreach ($dispatchMap as $groupTargets) {
+            foreach (array_keys($groupTargets) as $iid) {
+                $allRoutedTargets[(int)$iid] = true;
+            }
+        }
 
-            if ($this->ReadPropertyBoolean('DebugMode')) {
-                $this->LogMessage("DEBUG [Dispatch EXEC]: Sending to InstanceID=$iid", KL_MESSAGE);
+        // Load previous target-local projection state
+        $lastTargetProjectionState = json_decode($this->ReadAttributeString('LastTargetProjectionState'), true);
+        if (!is_array($lastTargetProjectionState)) {
+            $lastTargetProjectionState = [];
+        }
+
+        $newTargetProjectionState = [];
+
+        foreach (array_keys($allRoutedTargets) as $iid) {
+            $iid = (int)$iid;
+            if (!IPS_InstanceExists($iid)) {
+                continue;
             }
 
             $targetActiveGroups = [];
@@ -2027,12 +2042,35 @@ class SensorGroup extends IPSModule
                 }
             }
 
+            $projection = [
+                'target_active_groups' => $mainStatus ? $targetActiveGroups : [],
+                'target_active_classes' => $mainStatus ? $targetActiveClasses : [],
+                'target_trigger_details' => $mainStatus ? $targetTriggerDetails : null,
+                'target_active_sensor_details' => $mainStatus ? $targetActiveSensorDetails : []
+            ];
+
+            $newTargetProjectionState[(string)$iid] = $projection;
+
+            $oldProjection = $lastTargetProjectionState[(string)$iid] ?? null;
+            $projectionChanged = (json_encode($projection) !== json_encode($oldProjection));
+
+            if (!$projectionChanged) {
+                if ($this->ReadPropertyBoolean('DebugMode')) {
+                    $this->LogMessage("DEBUG [Dispatch EXEC]: Skipping InstanceID=$iid (target projection unchanged)", KL_MESSAGE);
+                }
+                continue;
+            }
+
+            if ($this->ReadPropertyBoolean('DebugMode')) {
+                $this->LogMessage("DEBUG [Dispatch EXEC]: Sending to InstanceID=$iid", KL_MESSAGE);
+            }
+
             $payloadForTarget = $payload;
             $payloadForTarget['target_instance_id'] = $iid;
-            $payloadForTarget['target_active_groups'] = $mainStatus ? $targetActiveGroups : [];
-            $payloadForTarget['target_active_classes'] = $mainStatus ? $targetActiveClasses : [];
-            $payloadForTarget['target_trigger_details'] = $mainStatus ? $targetTriggerDetails : null;
-            $payloadForTarget['target_active_sensor_details'] = $mainStatus ? $targetActiveSensorDetails : [];
+            $payloadForTarget['target_active_groups'] = $projection['target_active_groups'];
+            $payloadForTarget['target_active_classes'] = $projection['target_active_classes'];
+            $payloadForTarget['target_trigger_details'] = $projection['target_trigger_details'];
+            $payloadForTarget['target_active_sensor_details'] = $projection['target_active_sensor_details'];
 
             $payloadJsonForTarget = json_encode($payloadForTarget);
             $lastPayloadJson = $payloadJsonForTarget;
@@ -2054,6 +2092,9 @@ class SensorGroup extends IPSModule
                 }
             }
         }
+
+        // Persist latest target-local projection state
+        $this->WriteAttributeString('LastTargetProjectionState', json_encode($newTargetProjectionState));
 
         if ($lastPayloadJson !== '') {
             $this->SetValue('EventData', $lastPayloadJson);
