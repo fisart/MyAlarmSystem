@@ -380,47 +380,49 @@ async function fetchAndUpdateGraph() {
 
         if (!graphString.trim().startsWith("graph ")) return;
 
-        if (graphString !== lastGraphString) {
-            isRendering = true;
-            lastGraphString = graphString;
+    if (graphString !== lastGraphString) {
+        isRendering = true;
 
-            const container = document.getElementById("mermaid-container");
-            const pzContainer = document.querySelector(".container");
-            const oldZoom = pzInstance ? pzInstance.getZoom() : null;
-            const oldPan  = pzInstance ? pzInstance.getPan()  : null;
+        const container = document.getElementById("mermaid-container");
+        const pzContainer = document.querySelector(".container");
+        const oldZoom = pzInstance ? pzInstance.getZoom() : null;
+        const oldPan  = pzInstance ? pzInstance.getPan()  : null;
 
-            if (pzInstance) pzInstance.destroy();
+        if (pzInstance) pzInstance.destroy();
 
-            if (pzInstance) pzInstance.destroy();
+        const renderId = "graph_" + Date.now();
+        const { svg } = await mermaid.render(renderId, graphString);
+        container.innerHTML = svg;
 
-            const renderId = "graph_" + Date.now();
-            const { svg } = await mermaid.render(renderId, graphString);
-            container.innerHTML = svg;
-
-            const svgEl = container.querySelector("svg");
-            if (!svgEl) return;
-
-            svgEl.removeAttribute("width");
-            svgEl.removeAttribute("height");
-            svgEl.style.width = "100%";
-            svgEl.style.height = "100%";
-            svgEl.style.maxWidth = "none";
-
-            pzInstance = svgPanZoom(svgEl, {
-                zoomEnabled: true,
-                controlIconsEnabled: true,
-                fit: (oldZoom === null),
-                center: (oldPan === null),
-                minZoom: 0.2,
-                maxZoom: 10,
-                eventsListenerElement: pzContainer
-            });
-
-            if (oldZoom !== null) {
-                pzInstance.zoom(oldZoom);
-                pzInstance.pan(oldPan);
-            }
+        const svgEl = container.querySelector("svg");
+        if (!svgEl) {
+            throw new Error("Mermaid render returned no SVG");
         }
+
+        svgEl.removeAttribute("width");
+        svgEl.removeAttribute("height");
+        svgEl.style.width = "100%";
+        svgEl.style.height = "100%";
+        svgEl.style.maxWidth = "none";
+
+        pzInstance = svgPanZoom(svgEl, {
+            zoomEnabled: true,
+            controlIconsEnabled: true,
+            fit: (oldZoom === null),
+            center: (oldPan === null),
+            minZoom: 0.2,
+            maxZoom: 10,
+            eventsListenerElement: pzContainer
+        });
+
+        if (oldZoom !== null) {
+            pzInstance.zoom(oldZoom);
+            pzInstance.pan(oldPan);
+        }
+
+        // only mark as current after successful render
+        lastGraphString = graphString;
+    }
     } catch (err) {
         console.error("Rendering failed", err);
     } finally {
