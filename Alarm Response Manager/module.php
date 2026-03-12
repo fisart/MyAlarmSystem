@@ -552,8 +552,6 @@ setInterval(fetchAndUpdateGraph, 2000);
 <div class="header">
     <h2>' . htmlspecialchars($this->GetModule1TargetDisplayName(), ENT_QUOTES, 'UTF-8') . ' (Live)</h2>
     <small>Instance ID: ' . $this->InstanceID . '</small>
-    <br><small>Cached House State: ' . htmlspecialchars($cachedStateText, ENT_QUOTES, 'UTF-8') . '</small>
-    <br><small>' . $syncStatusHtml . '</small>
 </div>
 <div class="container">
     <div id="mermaid-container">Initializing Live View...</div>
@@ -1688,6 +1686,27 @@ setInterval(fetchAndUpdateGraph, 2000);
         $lines[] = 'classDef green fill:#2e7d32,stroke:#a5d6a7,stroke-width:2px,color:#fff;';
         $lines[] = 'classDef red fill:#c62828,stroke:#ff8a80,stroke-width:2px,color:#fff;';
         $lines[] = 'classDef grey fill:#37474f,stroke:#546e7a,stroke-width:1px,color:#eee;';
+        $lines[] = 'classDef info fill:#1565c0,stroke:#90caf9,stroke-width:2px,color:#fff;';
+
+        $cachedHouse = $this->GetCachedHouseStateSnapshot();
+        $houseStateNode = 'HS_' . substr(md5((string) $this->InstanceID), 0, 10);
+        if ($cachedHouse !== null) {
+            $houseStateID = (string) ((int) ($cachedHouse['system_state_id'] ?? 0));
+            $houseStateName = trim((string) ($cachedHouse['system_state_name'] ?? ''));
+            $houseEpoch = (string) ($cachedHouse['sync']['last_processed_event_epoch'] ?? '0');
+            $houseSeq = (int) ($cachedHouse['sync']['last_processed_event_seq'] ?? 0);
+
+            $houseParts = [];
+            $houseParts[] = 'House State';
+            $houseParts[] = ($houseStateName !== '' ? $houseStateName : 'Unknown') . ' [' . $houseStateID . ']';
+            $houseParts[] = 'Sync: ' . $houseEpoch . ' / ' . $houseSeq;
+
+            $lines[] = $houseStateNode . '["' . $this->MermaidEscape(implode("\n", $houseParts)) . '"]';
+            $lines[] = 'class ' . $houseStateNode . ' info;';
+        } else {
+            $lines[] = $houseStateNode . '["' . $this->MermaidEscape("House State\nNo cached snapshot") . '"]';
+            $lines[] = 'class ' . $houseStateNode . ' grey;';
+        }
 
         $linkCounter = 0;
 
