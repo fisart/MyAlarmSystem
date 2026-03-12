@@ -100,7 +100,7 @@ class ARMResponseManagerMock extends IPSModule
             IPS_ApplyChanges($ids[0]);
         }
     }
-    // test
+
     public function RequestAction($Ident, $Value)
     {
         switch ($Ident) {
@@ -179,35 +179,24 @@ class ARMResponseManagerMock extends IPSModule
             throw new Exception('ConfigBackupJson is empty.');
         }
 
+        $data = json_decode($raw, true);
+        if (!is_array($data)) {
+            throw new Exception('ConfigBackupJson does not contain valid JSON.');
+        }
+
         $this->ValidateImportConfiguration($data);
 
-        if (($data['schema'] ?? '') !== 'ARMM.ConfigBackup.v1') {
-            throw new Exception('Unsupported backup schema.');
-        }
+        $config = $data['config'];
 
-        $config = $data['config'] ?? null;
-        if (!is_array($config)) {
-            throw new Exception('Backup JSON is missing config block.');
-        }
-
-        $outputResources = $config['OutputResources'] ?? null;
-        $groupStateRules = $config['GroupStateRules'] ?? null;
-        $ruleOutputAssignments = $config['RuleOutputAssignments'] ?? null;
-
-        if (!is_array($outputResources)) {
-            throw new Exception('Backup JSON is missing OutputResources.');
-        }
-        if (!is_array($groupStateRules)) {
-            throw new Exception('Backup JSON is missing GroupStateRules.');
-        }
-        if (!is_array($ruleOutputAssignments)) {
-            throw new Exception('Backup JSON is missing RuleOutputAssignments.');
-        }
+        $outputResources = $config['OutputResources'];
+        $groupStateRules = $config['GroupStateRules'];
+        $ruleOutputAssignments = $config['RuleOutputAssignments'];
 
         IPS_SetProperty($this->InstanceID, 'OutputResources', json_encode(array_values($outputResources)));
         IPS_SetProperty($this->InstanceID, 'GroupStateRules', json_encode(array_values($groupStateRules)));
         IPS_SetProperty($this->InstanceID, 'RuleOutputAssignments', json_encode(array_values($ruleOutputAssignments)));
         IPS_ApplyChanges($this->InstanceID);
+
         $this->SetStatus(205);
         $this->LogMessage('ImportConfiguration: backup JSON imported from ConfigBackupJson', KL_MESSAGE);
     }
