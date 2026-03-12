@@ -1952,150 +1952,110 @@ $this->RegisterAttributeString('LastTargetProjectionState', '{}');
             }
         }
 
-// Final Dispatch Execution
-$lastPayloadJson = '';
+        // Final Dispatch Execution
+        $lastPayloadJson = '';
 
-// Build authoritative target list from all routed targets
-$allRoutedTargets = [];
-foreach ($dispatchMap as $groupTargets) {
-    foreach (array_keys($groupTargets) as $iid) {
-        $allRoutedTargets[(int)$iid] = true;
-    }
-}
+        foreach (array_keys($targetsToSend) as $iid) {
+            $iid = (int)$iid;
+            if (!IPS_InstanceExists($iid)) continue;
 
-// Load previous target-local projection state
-$lastTargetProjectionState = json_decode($this->ReadAttributeString('LastTargetProjectionState'), true);
-if (!is_array($lastTargetProjectionState)) {
-    $lastTargetProjectionState = [];
-}
+            if ($this->ReadPropertyBoolean('DebugMode')) {
+                $this->LogMessage("DEBUG [Dispatch EXEC]: Sending to InstanceID=$iid", KL_MESSAGE);
+            }
 
-$newTargetProjectionState = [];
-
-foreach (array_keys($allRoutedTargets) as $iid) {
-    $iid = (int)$iid;
-    if (!IPS_InstanceExists($iid)) {
-        continue;
-    }
-
-    $targetActiveGroups = [];
-    foreach ($activeGroups as $gName) {
-        if (isset($dispatchMap[$gName][$iid])) {
-            $targetActiveGroups[] = $gName;
-        }
-    }
-
-    $targetActiveClassesMap = [];
-    $targetActiveSensorDetailsMap = [];
-
-    foreach ($activeSensorDetailsMap as $vid => $detail) {
-        $cID = (string)($detail['class_id'] ?? '');
-        $groupNamesForTarget = [];
-
-        if (isset($classToActiveGroups[$cID])) {
-            foreach (array_keys($classToActiveGroups[$cID]) as $gName) {
+            $targetActiveGroups = [];
+            foreach ($activeGroups as $gName) {
                 if (isset($dispatchMap[$gName][$iid])) {
-                    $groupNamesForTarget[] = $gName;
+                    $targetActiveGroups[] = $gName;
+                }
+            }
+
+            $targetActiveClassesMap = [];
+            $targetActiveSensorDetailsMap = [];
+
+            foreach ($activeSensorDetailsMap as $vid => $detail) {
+                $cID = (string)($detail['class_id'] ?? '');
+                $groupNamesForTarget = [];
+
+                if (isset($classToActiveGroups[$cID])) {
+                    foreach (array_keys($classToActiveGroups[$cID]) as $gName) {
+                        if (isset($dispatchMap[$gName][$iid])) {
+                            $groupNamesForTarget[] = $gName;
+                        }
+                    }
+                }
+
+                if (count($groupNamesForTarget) > 0) {
+                    sort($groupNamesForTarget, SORT_STRING);
+                    $detail['group_names'] = array_values($groupNamesForTarget);
+                    $targetActiveSensorDetailsMap[(int)$vid] = $detail;
+                    $targetActiveClassesMap[$cID] = $classNameMap[$cID] ?? $cID;
+                }
+            }
+
+            ksort($targetActiveSensorDetailsMap, SORT_NUMERIC);
+            $targetActiveSensorDetails = array_values($targetActiveSensorDetailsMap);
+
+            $targetActiveClasses = array_values($targetActiveClassesMap);
+            sort($targetActiveClasses, SORT_STRING);
+
+            $targetTriggerDetails = null;
+            if ($mainStatus) {
+                if (is_array($finalTriggerDetails)) {
+                    $anchorVid = (int)($finalTriggerDetails['variable_id'] ?? 0);
+                    if ($anchorVid > 0 && isset($targetActiveSensorDetailsMap[$anchorVid])) {
+                        $targetTriggerDetails = $finalTriggerDetails;
+                    }
+                }
+
+                if ($targetTriggerDetails === null && count($targetActiveSensorDetails) > 0) {
+                    $first = $targetActiveSensorDetails[0];
+                    $targetTriggerDetails = [
+                        'variable_id' => $first['variable_id'],
+                        'value_raw'   => $first['value_raw'],
+                        'tag'         => $first['tag'],
+                        'class_id'    => $first['class_id'],
+                        'class_name'  => $first['class_name'],
+                        'var_name'    => $first['var_name'],
+                        'parent_name' => $first['parent_name'],
+                        'grandparent_name' => $first['grandparent_name'],
+                        'value_human' => $first['value_human'],
+                        'smart_label' => $first['smart_label']
+                    ];
+                }
+            }
+
+            $payloadForTarget = $payload;
+            $payloadForTarget['target_instance_id'] = $iid;
+            $payloadForTarget['target_active_groups'] = $mainStatus ? $targetActiveGroups : [];
+            $payloadForTarget['target_active_classes'] = $mainStatus ? $targetActiveClasses : [];
+            $payloadForTarget['target_trigger_details'] = $mainStatus ? $targetTriggerDetails : null;
+            $payloadForTarget['target_active_sensor_details'] = $mainStatus ? $targetActiveSensorDetails : [];
+
+            $payloadJsonForTarget = json_encode($payloadForTarget);
+            $lastPayloadJson = $payloadJsonForTarget;
+
+            if ($this->ReadPropertyBoolean('DebugMode')) {
+                $this->LogMessage(
+                    "DEBUG [Dispatch EXEC]: InstanceID=$iid target_groups=" . count($payloadForTarget['target_active_groups']) .
+                        " target_classes=" . count($payloadForTarget['target_active_classes']) .
+                        " target_sensors=" . count($payloadForTarget['target_active_sensor_details']),
+                    KL_MESSAGE
+                );
+            }
+
+            try {
+                @IPS_RequestAction($iid, 'ReceivePayload', $payloadJsonForTarget);
+            } catch (Throwable $e) {
+                if ($this->ReadPropertyBoolean('DebugMode')) {
+                    $this->LogMessage("DISPATCH ERROR: Target {$iid} exception: " . $e->getMessage(), KL_WARNING);
                 }
             }
         }
 
-        if (count($groupNamesForTarget) > 0) {
-            sort($groupNamesForTarget, SORT_STRING);
-            $detail['group_names'] = array_values($groupNamesForTarget);
-            $targetActiveSensorDetailsMap[(int)$vid] = $detail;
-            $targetActiveClassesMap[$cID] = $classNameMap[$cID] ?? $cID;
+        if ($lastPayloadJson !== '') {
+            $this->SetValue('EventData', $lastPayloadJson);
         }
-    }
-
-    ksort($targetActiveSensorDetailsMap, SORT_NUMERIC);
-    $targetActiveSensorDetails = array_values($targetActiveSensorDetailsMap);
-
-    $targetActiveClasses = array_values($targetActiveClassesMap);
-    sort($targetActiveClasses, SORT_STRING);
-
-    $targetTriggerDetails = null;
-    if ($mainStatus) {
-        if (is_array($finalTriggerDetails)) {
-            $anchorVid = (int)($finalTriggerDetails['variable_id'] ?? 0);
-            if ($anchorVid > 0 && isset($targetActiveSensorDetailsMap[$anchorVid])) {
-                $targetTriggerDetails = $finalTriggerDetails;
-            }
-        }
-
-        if ($targetTriggerDetails === null && count($targetActiveSensorDetails) > 0) {
-            $first = $targetActiveSensorDetails[0];
-            $targetTriggerDetails = [
-                'variable_id' => $first['variable_id'],
-                'value_raw'   => $first['value_raw'],
-                'tag'         => $first['tag'],
-                'class_id'    => $first['class_id'],
-                'class_name'  => $first['class_name'],
-                'var_name'    => $first['var_name'],
-                'parent_name' => $first['parent_name'],
-                'grandparent_name' => $first['grandparent_name'],
-                'value_human' => $first['value_human'],
-                'smart_label' => $first['smart_label']
-            ];
-        }
-    }
-
-    $projection = [
-        'target_active_groups' => $mainStatus ? $targetActiveGroups : [],
-        'target_active_classes' => $mainStatus ? $targetActiveClasses : [],
-        'target_trigger_details' => $mainStatus ? $targetTriggerDetails : null,
-        'target_active_sensor_details' => $mainStatus ? $targetActiveSensorDetails : []
-    ];
-
-    $newTargetProjectionState[(string)$iid] = $projection;
-
-    $oldProjection = $lastTargetProjectionState[(string)$iid] ?? null;
-    $projectionChanged = (json_encode($projection) !== json_encode($oldProjection));
-
-    if (!$projectionChanged) {
-        if ($this->ReadPropertyBoolean('DebugMode')) {
-            $this->LogMessage("DEBUG [Dispatch EXEC]: Skipping InstanceID=$iid (target projection unchanged)", KL_MESSAGE);
-        }
-        continue;
-    }
-
-    if ($this->ReadPropertyBoolean('DebugMode')) {
-        $this->LogMessage("DEBUG [Dispatch EXEC]: Sending to InstanceID=$iid", KL_MESSAGE);
-    }
-
-    $payloadForTarget = $payload;
-    $payloadForTarget['target_instance_id'] = $iid;
-    $payloadForTarget['target_active_groups'] = $projection['target_active_groups'];
-    $payloadForTarget['target_active_classes'] = $projection['target_active_classes'];
-    $payloadForTarget['target_trigger_details'] = $projection['target_trigger_details'];
-    $payloadForTarget['target_active_sensor_details'] = $projection['target_active_sensor_details'];
-
-    $payloadJsonForTarget = json_encode($payloadForTarget);
-    $lastPayloadJson = $payloadJsonForTarget;
-
-    if ($this->ReadPropertyBoolean('DebugMode')) {
-        $this->LogMessage(
-            "DEBUG [Dispatch EXEC]: InstanceID=$iid target_groups=" . count($payloadForTarget['target_active_groups']) .
-                " target_classes=" . count($payloadForTarget['target_active_classes']) .
-                " target_sensors=" . count($payloadForTarget['target_active_sensor_details']),
-            KL_MESSAGE
-        );
-    }
-
-    try {
-        @IPS_RequestAction($iid, 'ReceivePayload', $payloadJsonForTarget);
-    } catch (Throwable $e) {
-        if ($this->ReadPropertyBoolean('DebugMode')) {
-            $this->LogMessage("DISPATCH ERROR: Target {$iid} exception: " . $e->getMessage(), KL_WARNING);
-        }
-    }
-}
-
-// Persist latest target-local projection state
-$this->WriteAttributeString('LastTargetProjectionState', json_encode($newTargetProjectionState));
-
-if ($lastPayloadJson !== '') {
-    $this->SetValue('EventData', $lastPayloadJson);
-}
     }
 
     private function CheckSensorRule($row)
