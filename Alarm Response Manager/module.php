@@ -1631,14 +1631,6 @@ setInterval(fetchAndUpdateGraph, 2000);
         $groupLabels = $this->buildGroupLabels($groups, $rules);
         $typeLabels = $this->buildTypeLabels($this->GetBuiltInOutputTypes(), $outputs);
 
-        $rulesByID = [];
-        foreach ($rules as $row) {
-            $ruleID = trim((string) ($row['RuleID'] ?? ''));
-            if ($ruleID !== '') {
-                $rulesByID[$ruleID] = $row;
-            }
-        }
-
         $outputsByID = [];
         foreach ($outputs as $row) {
             $outputID = trim((string) ($row['OutputID'] ?? ''));
@@ -1687,6 +1679,7 @@ setInterval(fetchAndUpdateGraph, 2000);
         $lines[] = 'classDef red fill:#c62828,stroke:#ff8a80,stroke-width:2px,color:#fff;';
         $lines[] = 'classDef grey fill:#37474f,stroke:#546e7a,stroke-width:1px,color:#eee;';
         $lines[] = 'classDef info fill:#1565c0,stroke:#90caf9,stroke-width:2px,color:#fff;';
+        $lines[] = 'classDef hidden fill:transparent,stroke:transparent,color:transparent;';
 
         $cachedHouse = $this->GetCachedHouseStateSnapshot();
         $houseStateNode = 'HS_' . substr(md5((string) $this->InstanceID), 0, 10);
@@ -1708,11 +1701,17 @@ setInterval(fetchAndUpdateGraph, 2000);
             $lines[] = 'class ' . $houseStateNode . ' grey;';
         }
 
-        $lines[] = 'subgraph MAIN[" "]';
-        $lines[] = 'direction LR';
+        // Invisible anchor row to keep the house-state box above the main graph
+        $topAnchorNode = 'TOP_' . substr(md5((string) $this->InstanceID . '_top'), 0, 10);
+        $lines[] = $topAnchorNode . '[" "]';
+        $lines[] = 'class ' . $topAnchorNode . ' hidden;';
+        $lines[] = $houseStateNode . ' --> ' . $topAnchorNode;
 
         $linkCounter = 0;
+        $lines[] = 'linkStyle ' . $linkCounter . ' stroke:transparent,stroke-width:0px;';
+        $linkCounter++;
 
+        $groupNodeIds = [];
         foreach ($groups as $group) {
             $groupKey = trim((string) ($group['GroupKey'] ?? ''));
             if ($groupKey === '') {
@@ -1720,10 +1719,22 @@ setInterval(fetchAndUpdateGraph, 2000);
             }
 
             $groupNode = 'G_' . substr(md5($groupKey), 0, 10);
-            $groupLabel = $groupLabels[$groupKey] ?? $groupKey;
+            $groupNodeIds[$groupKey] = $groupNode;
 
+            $groupLabel = $groupLabels[$groupKey] ?? $groupKey;
             $lines[] = $groupNode . '["' . $this->MermaidEscape($groupLabel) . '"]';
             $lines[] = 'class ' . $groupNode . ' ' . (isset($activeGroups[$groupKey]) ? 'red' : 'green') . ';';
+        }
+
+        // Invisible links from anchor to groups so the actual graph stays below the house-state box
+        foreach ($groups as $group) {
+            $groupKey = trim((string) ($group['GroupKey'] ?? ''));
+            if ($groupKey === '' || !isset($groupNodeIds[$groupKey])) {
+                continue;
+            }
+            $lines[] = $topAnchorNode . ' --> ' . $groupNodeIds[$groupKey];
+            $lines[] = 'linkStyle ' . $linkCounter . ' stroke:transparent,stroke-width:0px;';
+            $linkCounter++;
         }
 
         foreach ($rules as $rule) {
@@ -1753,6 +1764,7 @@ setInterval(fetchAndUpdateGraph, 2000);
             $lines[] = $ruleNode . '["' . $this->MermaidEscape(implode("\n", $parts)) . '"]';
             $lines[] = $groupNode . ' --> ' . $ruleNode;
             $lines[] = 'class ' . $ruleNode . ' ' . ($ruleActive ? 'red' : 'green') . ';';
+
             if ($ruleActive) {
                 $lines[] = 'linkStyle ' . $linkCounter . ' stroke:#ff8a80,stroke-width:2px;';
             } else {
@@ -1814,7 +1826,6 @@ setInterval(fetchAndUpdateGraph, 2000);
             }
 
             $output = $outputsByID[$outputID];
-            $outputActive = (bool) ($output['Active'] ?? false);
             $typeID = trim((string) ($output['TypeID'] ?? ''));
             $typeLabel = $typeLabels[$typeID] ?? '[missing type]';
             $targetObjectID = (int) ($output['TargetObjectID'] ?? 0);
@@ -1840,8 +1851,6 @@ setInterval(fetchAndUpdateGraph, 2000);
             }
             $linkCounter++;
         }
-
-        $lines[] = 'end';
 
         return implode("\n", $lines) . "\n";
     }
