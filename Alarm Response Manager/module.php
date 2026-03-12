@@ -57,6 +57,8 @@ class ARMResponseManagerMock extends IPSModule
 
         $this->RegisterAttributeString('CachedHouseStateSnapshot', '');
         $this->RegisterAttributeInteger('CachedHouseStateReceivedAt', 0);
+        $this->RegisterAttributeString('LastEventEpoch', '0');
+        $this->RegisterAttributeInteger('LastEventSeq', 0);
     }
 
     public function ApplyChanges()
@@ -297,7 +299,38 @@ class ARMResponseManagerMock extends IPSModule
 
         // 3. Full HTML shell
         header('Content-Type: text/html; charset=utf-8');
+        $cached = $this->GetCachedHouseStateSnapshot();
 
+        $cachedStateText = 'No cached snapshot';
+        $syncStatusHtml = '<span style="color:#ff8a80;">No cache</span>';
+
+        if ($cached !== null) {
+            $stateID = (string) ((int) ($cached['system_state_id'] ?? 0));
+            $stateName = (string) ($cached['system_state_name'] ?? '');
+            $cachedEpoch = (string) ($cached['sync']['last_processed_event_epoch'] ?? '0');
+            $cachedSeq = (int) ($cached['sync']['last_processed_event_seq'] ?? 0);
+
+            $lastEventEpoch = $this->ReadAttributeString('LastEventEpoch');
+            $lastEventSeq = $this->ReadAttributeInteger('LastEventSeq');
+
+            $cachedStateText = $stateName . ' [' . $stateID . ']';
+            $syncStatusHtml = '<span style="color:#a5d6a7;">Cache watermark current</span>';
+
+            if ($lastEventEpoch !== '' && $lastEventEpoch !== '0') {
+                $cmp = $this->CompareNumericStrings($cachedEpoch, $lastEventEpoch);
+                $behind = ($cmp < 0) || ($cmp === 0 && $cachedSeq < $lastEventSeq);
+
+                if ($behind) {
+                    $syncStatusHtml = '<span style="color:#ff8a80;font-weight:bold;">Cache watermark behind event</span>'
+                        . ' &nbsp; event=(' . $lastEventEpoch . ',' . $lastEventSeq . ')'
+                        . ' &nbsp; cache=(' . $cachedEpoch . ',' . $cachedSeq . ')';
+                } else {
+                    $syncStatusHtml = '<span style="color:#a5d6a7;">Cache watermark current</span>'
+                        . ' &nbsp; event=(' . $lastEventEpoch . ',' . $lastEventSeq . ')'
+                        . ' &nbsp; cache=(' . $cachedEpoch . ',' . $cachedSeq . ')';
+                }
+            }
+        }
         echo '<!DOCTYPE html>
 <html>
 <head>
@@ -397,6 +430,8 @@ setInterval(fetchAndUpdateGraph, 2000);
 <div class="header">
     <h2>Module 3 Mapping (Live)</h2>
     <small>Instance ID: ' . $this->InstanceID . '</small>
+    <br><small>Cached House State: ' . htmlspecialchars($cachedStateText, ENT_QUOTES, 'UTF-8') . '</small>
+    <br><small>' . $syncStatusHtml . '</small>
 </div>
 <div class="container">
     <div id="mermaid-container">Initializing Live View...</div>
@@ -500,6 +535,8 @@ setInterval(fetchAndUpdateGraph, 2000);
 
         $eventEpoch = (string) ($payload['event_epoch'] ?? '0');
         $eventSeq = (int) ($payload['event_seq'] ?? 0);
+        $this->WriteAttributeString('LastEventEpoch', $eventEpoch);
+        $this->WriteAttributeInteger('LastEventSeq', $eventSeq);
 
         $targetGroups = $payload['target_active_groups'] ?? [];
         if (!is_array($targetGroups) || count($targetGroups) === 0) {
