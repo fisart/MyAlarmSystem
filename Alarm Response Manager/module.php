@@ -100,7 +100,7 @@ class ARMResponseManagerMock extends IPSModule
             IPS_ApplyChanges($ids[0]);
         }
     }
-
+    // test
     public function RequestAction($Ident, $Value)
     {
         switch ($Ident) {
