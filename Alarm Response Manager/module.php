@@ -517,9 +517,14 @@ setInterval(fetchAndUpdateGraph, 2000);
         $this->LogMessage('ReceivePayload: houseState=' . $houseState, KL_MESSAGE);
 */
 
-        $house = [];
-        $houseState = '3'; // test only: Armed External
-        $this->LogMessage('ReceivePayload: TEST MODE houseState=' . $houseState, KL_MESSAGE);
+        $house = $this->GetUsableHouseStateSnapshot($eventEpoch, $eventSeq);
+        if ($house === null) {
+            $this->LogMessage('ReceivePayload: no usable house snapshot available', KL_MESSAGE);
+            return;
+        }
+
+        $houseState = (string) ((int) ($house['system_state_id'] ?? 0));
+        $this->LogMessage('ReceivePayload: houseState=' . $houseState, KL_MESSAGE);
         $executedOutputIDs = [];
 
         foreach ($targetGroups as $groupLabelRaw) {
