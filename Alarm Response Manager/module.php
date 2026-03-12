@@ -1596,8 +1596,15 @@ setInterval(fetchAndUpdateGraph, 2000);
 
             $assignmentActive = isset($activeRuleIDs[$ruleID]) && $outputID !== '' && isset($activeOutputIDs[$outputID]);
 
-            $assignmentLabel = 'Assignment';
-            if ($outputID !== '') {
+            $assignmentLabel = 'Output Action';
+            if ($outputID !== '' && isset($outputsByID[$outputID])) {
+                $assignmentOutputName = trim((string) ($outputsByID[$outputID]['Name'] ?? ''));
+                if ($assignmentOutputName !== '') {
+                    $assignmentLabel .= "\n" . $assignmentOutputName;
+                } else {
+                    $assignmentLabel .= "\n" . $outputID;
+                }
+            } elseif ($outputID !== '') {
                 $assignmentLabel .= "\n" . $outputID;
             }
 
