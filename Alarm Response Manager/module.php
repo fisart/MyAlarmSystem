@@ -390,8 +390,8 @@ async function fetchAndUpdateGraph() {
 
             if (pzInstance) pzInstance.destroy();
 
-            const renderId = "graph_" + Date.now();
-            const { svg } = await mermaid.render(renderId, graphString);
+            if (pzInstance) pzInstance.destroy();
+
             const renderId = "graph_" + Date.now();
             const { svg } = await mermaid.render(renderId, graphString);
             container.innerHTML = svg;
