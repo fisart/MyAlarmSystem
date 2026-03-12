@@ -574,9 +574,18 @@ setInterval(fetchAndUpdateGraph, 2000);
         $this->WriteAttributeString('LastEventEpoch', $eventEpoch);
         $this->WriteAttributeInteger('LastEventSeq', $eventSeq);
 
+
+
+        $eventType = strtoupper(trim((string) ($payload['event_type'] ?? '')));
         $targetGroups = $payload['target_active_groups'] ?? [];
+
+        if ($eventType !== 'ALARM') {
+            $this->LogMessage('ReceivePayload: ignored non-ALARM event_type=' . $eventType, KL_MESSAGE);
+            return;
+        }
+
         if (!is_array($targetGroups) || count($targetGroups) === 0) {
-            $this->LogMessage('ReceivePayload: no target_active_groups', KL_MESSAGE);
+            $this->LogMessage('ReceivePayload: reset/all-clear detected, no outputs fired', KL_MESSAGE);
             return;
         }
         /*
