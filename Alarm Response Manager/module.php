@@ -62,6 +62,7 @@ class ARMResponseManagerMock extends IPSModule
         $this->RegisterAttributeString('LastActiveGroups', '[]');
         $this->RegisterAttributeString('LastActiveRuleIDs', '[]');
         $this->RegisterAttributeString('LastActiveOutputIDs', '[]');
+        $this->RegisterAttributeString('LastReceivedPayloadRaw', '');
     }
 
     public function ApplyChanges()
@@ -569,6 +570,7 @@ setInterval(fetchAndUpdateGraph, 2000);
 
     public function ReceivePayload(string $payloadJson): void
     {
+        $this->WriteAttributeString('LastReceivedPayloadRaw', $payloadJson);
         $payload = json_decode($payloadJson, true);
         if (!is_array($payload)) {
             $this->LogMessage('ReceivePayload: invalid JSON payload', KL_MESSAGE);
@@ -606,7 +608,7 @@ setInterval(fetchAndUpdateGraph, 2000);
 
         $houseState = (string) ((int) ($house['system_state_id'] ?? 0));
         $this->LogMessage('ReceivePayload: houseState=' . $houseState, KL_MESSAGE);
-*/
+        */
 
         $house = $this->GetUsableHouseStateSnapshot($eventEpoch, $eventSeq);
         if ($house === null) {
@@ -663,7 +665,10 @@ setInterval(fetchAndUpdateGraph, 2000);
         $this->WriteAttributeString('LastActiveRuleIDs', json_encode(array_values(array_keys($activeRuleIDsForView))));
         $this->WriteAttributeString('LastActiveOutputIDs', json_encode(array_values(array_keys($executedOutputIDs))));
     }
-
+    public function DebugGetLastReceivedPayloadRaw(): string
+    {
+        return $this->ReadAttributeString('LastReceivedPayloadRaw');
+    }
     public function ReceiveHouseStateSnapshot(string $snapshotJson): void
     {
         $data = json_decode($snapshotJson, true);
