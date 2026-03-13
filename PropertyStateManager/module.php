@@ -21,10 +21,12 @@ class PropertyStateManager extends IPSModule
         $this->RegisterPropertyString("StatePushTargets", "[]"); // Module 3 instance IDs
         $this->RegisterAttributeInteger("DelayExpired", 0);
 
+
         // Attributes (RAM Buffers)
         $this->RegisterAttributeString("ActiveSensors", "[]");
         $this->RegisterAttributeString("PresenceMap", "[]");
         $this->RegisterAttributeString("ActiveGroups", "[]");
+        $this->RegisterAttributeInteger("RelevantBedroomDoorOpen", 0);
 
         $this->RegisterAttributeString("ImportedConfig", "");   // raw config snapshot from Module 1 (json string)
         $this->RegisterAttributeString("IgnoredSensors", "[]"); // variable IDs to ignore (handled via group-level mapping)
@@ -899,23 +901,12 @@ class PropertyStateManager extends IPSModule
             }
         }
 
-        // Bit 6: Bedroom Door Open
+        // Bit 6: Relevant Bedroom Door Open
         // IMPORTANT: Bit 3 (Presence) must come only from the mapped Presence role above.
-        // Bedroom usage (SwitchState) must not redefine global house presence.
-        $bedroomPolarity = (string)$this->ReadPropertyString("BedroomDoorPolarity");
-        if ($bedroomPolarity === '') $bedroomPolarity = 'breach'; // keep old behavior if missing
-
-        foreach ($presenceMap as $room) {
-            $doorTripped = (bool)($room['DoorTripped'] ?? false);
-
-            // Normalize bedroom door meaning:
-            // breach = active means open
-            // secure = active means closed
-            $doorOpen = ($bedroomPolarity === 'breach') ? $doorTripped : !$doorTripped;
-
-            if ($doorOpen) {
-                $bits |= (1 << 6);
-            }
+        // The relevance decision is made by EvaluateState() and published via attribute,
+        // so the UI/bitmask does not replicate the business logic.
+        if ((int)$this->ReadAttributeInteger("RelevantBedroomDoorOpen") === 1) {
+            $bits |= (1 << 6);
         }
 
         // Bit 4: Timer
@@ -1308,9 +1299,12 @@ class PropertyStateManager extends IPSModule
             }
         }
 
+        // Publish derived bedroom-door relevance for UI / bitmask display.
+        // This is computed by the logic layer so the HTML does not need to replicate the rule.
+        $this->WriteAttributeInteger("RelevantBedroomDoorOpen", $bedroomOpen ? 1 : 0);
+
         // Derived Conditions
-        $perimeterSecure = ($frontLocked && $frontClosed && $baseLocked && $baseClosed && $windowsClosed);
-        // Derived Flags for ARMED behavior (per your guidance)
+        $perimeterSecure = ($frontLocked && $frontClosed && $baseLocked && $baseClosed && $windowsClosed);        // Derived Flags for ARMED behavior (per your guidance)
         $entranceUnlocked = (!$frontLocked || !$baseLocked);   // unlocking any entrance lock disarms
         $groupLevelOpen   = (!$windowsClosed);                 // opening any group-level window/door triggers alarm (when armed)
         $readyToSleep = ($presence && !$bedroomOpen);
