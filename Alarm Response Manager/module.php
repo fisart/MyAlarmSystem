@@ -154,6 +154,39 @@ class ARMResponseManagerMock extends IPSModule
         }
     }
 
+    private function BuildOutputScreenEntryHtml(array $resource, array $payload, array $house, string $groupLabel): string
+    {
+        $eventTimestamp = (int) ($payload['timestamp'] ?? time());
+        if ($eventTimestamp <= 0) {
+            $eventTimestamp = time();
+        }
+
+        $dateTimeText = date('Y-m-d H:i:s', $eventTimestamp);
+
+        $stateID = (string) ((int) ($house['system_state_id'] ?? 0));
+        $stateLabel = $this->labelFromOptions(self::HOUSE_STATES, $stateID);
+        $houseStateText = $stateLabel !== '' ? $stateLabel . ' [' . $stateID . ']' : $stateID;
+
+        $outputName = trim((string) ($resource['Name'] ?? ''));
+        if ($outputName === '') {
+            $outputName = trim((string) ($resource['OutputID'] ?? 'screen'));
+        }
+
+        $message = $this->BuildOutputMessageText($resource, $payload);
+
+        $lines = [];
+        $lines[] = '<div style="background:#252526;border:1px solid #444;border-radius:8px;padding:12px;margin-bottom:10px;">';
+        $lines[] = '<div style="font-weight:bold;color:#4CAF50;margin-bottom:6px;">' . htmlspecialchars($dateTimeText, ENT_QUOTES, 'UTF-8') . '</div>';
+        $lines[] = '<div><b>House State:</b> ' . htmlspecialchars($houseStateText, ENT_QUOTES, 'UTF-8') . '</div>';
+        $lines[] = '<div><b>Group:</b> ' . htmlspecialchars($groupLabel, ENT_QUOTES, 'UTF-8') . '</div>';
+        $lines[] = '<div><b>Output:</b> ' . htmlspecialchars($outputName, ENT_QUOTES, 'UTF-8') . '</div>';
+        $lines[] = '<div><b>Message:</b> ' . htmlspecialchars($message, ENT_QUOTES, 'UTF-8') . '</div>';
+        $lines[] = '</div>';
+
+        return implode('', $lines);
+    }
+
+
     private function WriteScreenOutputResource(array $resource, array $payload, array $house, string $groupLabel): bool
     {
         $varID = @$this->GetIDForIdent('OutputScreenHtml');
@@ -180,6 +213,52 @@ class ARMResponseManagerMock extends IPSModule
 
         return true;
     }
+
+
+    private function BuildOutputScreenWrapper(array $entries): string
+    {
+        $body = '';
+        if (count($entries) === 0) {
+            $body = '<div style="color:#999;">No screen output entries yet.</div>';
+        } else {
+            $body = implode('<!--ENTRY-->', $entries);
+        }
+
+        return '<div style="background:#1e1e1e;color:#cfcfcf;font-family:Segoe UI,sans-serif;padding:10px;">'
+            . '<div id="m3-screen-entries">' . $body . '</div>'
+            . '</div>';
+    }
+
+    private function ExtractOutputScreenEntries(string $html): array
+    {
+        $html = trim($html);
+        if ($html === '') {
+            return [];
+        }
+
+        if (preg_match('~<div id="m3-screen-entries">(.*)</div>\s*</div>\s*$~s', $html, $matches) !== 1) {
+            return [];
+        }
+
+        $entriesHtml = (string) ($matches[1] ?? '');
+        if ($entriesHtml === '') {
+            return [];
+        }
+
+        $parts = explode('<!--ENTRY-->', $entriesHtml);
+        $entries = [];
+
+        foreach ($parts as $part) {
+            $part = trim($part);
+            if ($part !== '') {
+                $entries[] = $part;
+            }
+        }
+
+        return $entries;
+    }
+
+
     private function EnsureListRowIDsPersisted(string $propertyName, string $idField, string $prefix): array
     {
         $rows = $this->readListProperty($propertyName);
@@ -637,6 +716,21 @@ setInterval(fetchAndUpdateGraph, 2000);
 </div>
 </body>
 </html>';
+    }
+
+    private function GetOutputScreenHtml(): string
+    {
+        $varID = @$this->GetIDForIdent('OutputScreenHtml');
+        if ($varID === false || $varID <= 0) {
+            return $this->BuildOutputScreenWrapper([]);
+        }
+
+        $html = GetValueString($varID);
+        if (trim($html) === '') {
+            return $this->BuildOutputScreenWrapper([]);
+        }
+
+        return $html;
     }
 
     public function ReadModule1Configuration(): void
