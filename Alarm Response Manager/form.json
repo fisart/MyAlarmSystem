@@ -304,13 +304,6 @@
               }
             },
             {
-              "caption": "Bypass",
-              "name": "Bypass",
-              "width": "80px",
-              "add": false,
-              "edit": { "type": "CheckBox" }
-            },
-            {
               "caption": "Group Label",
               "name": "GroupLabel",
               "width": "160px",
@@ -362,12 +355,8 @@
               "name": "Severity",
               "caption": "Severity",
               "options": []
-            },
-            {
-              "type": "CheckBox",
-              "name": "Bypass",
-              "caption": "Bypass"
             }
+
           ],
           "values": []
         }

@@ -359,7 +359,6 @@ class ARMResponseManagerMock extends IPSModule
                 'GroupKey'    => $groupKey,
                 'HouseState'  => $houseState,
                 'Severity'    => (string) ($row['Severity'] ?? ''),
-                'Bypass'      => (bool) ($row['Bypass'] ?? false),
                 'GroupLabel'  => $groupLabels[$groupKey] ?? '[missing group]',
                 'RuleLabel'   => $this->buildRuleLabel($row, $groupLabels),
                 'RowSummary'  => $this->buildRuleSummary($row, $groupLabels)
@@ -1820,16 +1819,12 @@ setInterval(fetchAndUpdateGraph, 2000);
         $parts = [];
         $label = $this->buildRuleLabel($row, $groupLabels);
         $severity = trim((string) ($row['Severity'] ?? ''));
-        $bypass = (bool) ($row['Bypass'] ?? false);
 
         if ($label !== '') {
             $parts[] = $label;
         }
         if ($severity !== '') {
             $parts[] = 'severity: ' . $severity;
-        }
-        if ($bypass) {
-            $parts[] = 'bypass';
         }
 
         return implode(' / ', $parts);
@@ -2052,15 +2047,11 @@ setInterval(fetchAndUpdateGraph, 2000);
 
             $ruleLabel = $this->buildRuleLabel($rule, $groupLabels);
             $severity = trim((string) ($rule['Severity'] ?? ''));
-            $bypass = (bool) ($rule['Bypass'] ?? false);
 
             $parts = [];
             $parts[] = $ruleLabel !== '' ? $ruleLabel : $ruleID;
             if ($severity !== '') {
                 $parts[] = 'Severity: ' . $severity;
-            }
-            if ($bypass) {
-                $parts[] = 'Bypass';
             }
 
             $lines[] = $ruleNode . '["' . $this->MermaidEscape(implode("\n", $parts)) . '"]';
