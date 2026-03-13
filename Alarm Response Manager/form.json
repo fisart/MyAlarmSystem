@@ -20,6 +20,11 @@
       "caption": "Vault Instance"
     },
     {
+      "type": "NumberSpinner",
+      "name": "ScreenLogMaxEntries",
+      "caption": "Screen Log Max Entries"
+    },
+    {
       "type": "ValidationTextBox",
       "name": "ImportedModule1ConfigJson",
       "caption": "Imported Module 1 Config JSON"

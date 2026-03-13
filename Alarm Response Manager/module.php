@@ -51,6 +51,7 @@ class ARMResponseManagerMock extends IPSModule
         $this->RegisterPropertyInteger('VaultInstanceID', 0);
         $this->RegisterPropertyString('ImportedModule1ConfigJson', '');
         $this->RegisterPropertyString('ConfigBackupJson', '');
+        $this->RegisterPropertyInteger('ScreenLogMaxEntries', 100);
 
         $this->RegisterPropertyString('OutputResources', '[]');
         $this->RegisterPropertyString('GroupStateRules', '[]');
@@ -72,6 +73,8 @@ class ARMResponseManagerMock extends IPSModule
 
         $this->RegisterAttributeString('ActiveOutputMatchKeys', '[]');
         $this->RegisterAttributeString('OutputThrottleHistory', '{}');
+
+        $this->RegisterVariableString('OutputScreenHtml', 'Output Screen', '~HTMLBox', 0);
     }
 
     public function ApplyChanges()
@@ -151,7 +154,32 @@ class ARMResponseManagerMock extends IPSModule
         }
     }
 
+    private function WriteScreenOutputResource(array $resource, array $payload, array $house, string $groupLabel): bool
+    {
+        $varID = @$this->GetIDForIdent('OutputScreenHtml');
+        if ($varID === false || $varID <= 0) {
+            $this->LogMessage('WriteScreenOutputResource: OutputScreenHtml variable not found', KL_MESSAGE);
+            return false;
+        }
 
+        $entryHtml = $this->BuildOutputScreenEntryHtml($resource, $payload, $house, $groupLabel);
+        $currentHtml = GetValueString($varID);
+
+        $entries = $this->ExtractOutputScreenEntries($currentHtml);
+        array_unshift($entries, $entryHtml);
+
+        $maxEntries = (int) $this->ReadPropertyInteger('ScreenLogMaxEntries');
+        if ($maxEntries < 1) {
+            $maxEntries = 1;
+        }
+
+        $entries = array_slice($entries, 0, $maxEntries);
+
+        SetValueString($varID, $this->BuildOutputScreenWrapper($entries));
+        $this->LogMessage('WriteScreenOutputResource: screen entry added', KL_MESSAGE);
+
+        return true;
+    }
     private function EnsureListRowIDsPersisted(string $propertyName, string $idField, string $prefix): array
     {
         $rows = $this->readListProperty($propertyName);
