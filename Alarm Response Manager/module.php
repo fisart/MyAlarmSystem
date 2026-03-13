@@ -1106,26 +1106,7 @@ setInterval(fetchAndUpdateGraph, 2000);
         $this->WriteAttributeString('OutputThrottleHistory', json_encode($normalized));
     }
 
-    private function GetActiveOutputMatchKeySet(): array
-    {
-        $raw = $this->ReadAttributeString('ActiveOutputMatchKeys');
-        $data = json_decode($raw, true);
 
-        $result = [];
-        if (!is_array($data)) {
-            return $result;
-        }
-
-        foreach ($data as $matchKeyRaw) {
-            $matchKey = trim((string) $matchKeyRaw);
-            if ($matchKey === '') {
-                continue;
-            }
-            $result[$matchKey] = true;
-        }
-
-        return $result;
-    }
 
     private function BuildOutputMatchKey(string $groupKey, string $outputID): string
     {
