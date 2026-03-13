@@ -71,6 +71,7 @@ class ARMResponseManagerMock extends IPSModule
         $this->RegisterAttributeString('CachedTargetActiveSensorDetails', '[]');
 
         $this->RegisterAttributeString('ActiveOutputMatchKeys', '[]');
+        $this->RegisterAttributeString('OutputThrottleHistory', '{}');
     }
 
     public function ApplyChanges()
@@ -774,10 +775,11 @@ setInterval(fetchAndUpdateGraph, 2000);
         $previousMatchKeys = $this->GetActiveOutputMatchKeySet();
 
         $currentMatchKeys = [];
-        $newlyActivatedMatches = [];
         $activeGroupsForView = [];
         $activeRuleIDsForView = [];
         $activeOutputIDsForView = [];
+        $candidatesByOutputID = [];
+        $queueSeq = 0;
 
         foreach ($targetGroups as $groupLabelRaw) {
             $groupLabel = trim((string) $groupLabelRaw);
@@ -793,6 +795,11 @@ setInterval(fetchAndUpdateGraph, 2000);
 
             foreach ($ruleIDs as $ruleID) {
                 $activeRuleIDsForView[$ruleID] = true;
+
+                $rule = $this->FindRuleByID($ruleID);
+                $severity = trim((string) (($rule['Severity'] ?? '')));
+                $priority = $this->GetSeverityPriority($severity);
+
                 $assignments = $this->FindAssignmentsForRuleID($ruleID);
 
                 foreach ($assignments as $assignment) {
@@ -815,31 +822,122 @@ setInterval(fetchAndUpdateGraph, 2000);
                     $currentMatchKeys[$matchKey] = true;
                     $activeOutputIDsForView[$outputID] = true;
 
-                    if (!isset($previousMatchKeys[$matchKey]) && !isset($newlyActivatedMatches[$matchKey])) {
-                        $newlyActivatedMatches[$matchKey] = [
-                            'OutputID'   => $outputID,
-                            'GroupLabel' => $groupLabel,
-                            'Resource'   => $resource
-                        ];
+                    if (isset($previousMatchKeys[$matchKey])) {
+                        continue;
+                    }
+
+                    $queueSeq++;
+                    $candidate = [
+                        'MatchKey'   => $matchKey,
+                        'OutputID'   => $outputID,
+                        'GroupLabel' => $groupLabel,
+                        'GroupKey'   => $groupKey,
+                        'RuleID'     => $ruleID,
+                        'Severity'   => $severity,
+                        'Priority'   => $priority,
+                        'QueueSeq'   => $queueSeq,
+                        'Resource'   => $resource
+                    ];
+
+                    if (!isset($candidatesByOutputID[$outputID])) {
+                        $candidatesByOutputID[$outputID] = [];
+                    }
+
+                    if (!isset($candidatesByOutputID[$outputID][$matchKey])) {
+                        $candidatesByOutputID[$outputID][$matchKey] = $candidate;
+                        continue;
+                    }
+
+                    $existing = $candidatesByOutputID[$outputID][$matchKey];
+                    $replace = false;
+
+                    if ($candidate['Priority'] > $existing['Priority']) {
+                        $replace = true;
+                    } elseif ($candidate['Priority'] === $existing['Priority'] && $candidate['QueueSeq'] > $existing['QueueSeq']) {
+                        $replace = true;
+                    }
+
+                    if ($replace) {
+                        $candidatesByOutputID[$outputID][$matchKey] = $candidate;
                     }
                 }
             }
         }
 
-        foreach ($newlyActivatedMatches as $matchKey => $match) {
-            $outputID = (string) ($match['OutputID'] ?? '');
-            $groupLabel = (string) ($match['GroupLabel'] ?? '');
-            $resource = $match['Resource'] ?? null;
+        $now = time();
 
-            if (!is_array($resource) || $outputID === '' || $groupLabel === '') {
+        foreach ($candidatesByOutputID as $outputID => $candidateMap) {
+            $candidates = array_values($candidateMap);
+            if (count($candidates) === 0) {
                 continue;
             }
 
-            $ok = $this->ExecuteOutputResource($resource, $payload, $house, $groupLabel);
+            usort($candidates, function (array $a, array $b): int {
+                $pa = (int) ($a['Priority'] ?? 0);
+                $pb = (int) ($b['Priority'] ?? 0);
+
+                if ($pa !== $pb) {
+                    return $pb <=> $pa;
+                }
+
+                $qa = (int) ($a['QueueSeq'] ?? 0);
+                $qb = (int) ($b['QueueSeq'] ?? 0);
+
+                return $qb <=> $qa;
+            });
+
+            $resource = $candidates[0]['Resource'] ?? null;
+            if (!is_array($resource)) {
+                continue;
+            }
+
+            $remainingSlots = $this->GetRemainingThrottleSlots($resource, $outputID, $now);
+            $throttlingEnabled = $this->IsThrottlingEnabledForResource($resource);
+
             $this->LogMessage(
-                'ReevaluateCurrentAlarmContext: newly activated match=' . $matchKey . ' OutputID=' . $outputID . ' result=' . ($ok ? 'true' : 'false'),
+                'ReevaluateCurrentAlarmContext: OutputID=' . $outputID
+                    . ' candidates=' . count($candidates)
+                    . ' remainingSlots=' . ($throttlingEnabled ? (string) $remainingSlots : 'unlimited'),
                 KL_MESSAGE
             );
+
+            foreach ($candidates as $candidate) {
+                $matchKey = (string) ($candidate['MatchKey'] ?? '');
+                $groupLabel = (string) ($candidate['GroupLabel'] ?? '');
+                $ruleID = (string) ($candidate['RuleID'] ?? '');
+                $severity = (string) ($candidate['Severity'] ?? '');
+                $resource = $candidate['Resource'] ?? null;
+
+                if (!is_array($resource) || $matchKey === '' || $groupLabel === '') {
+                    continue;
+                }
+
+                if ($throttlingEnabled && $remainingSlots <= 0) {
+                    $this->LogMessage(
+                        'ReevaluateCurrentAlarmContext: throttled OutputID=' . $outputID
+                            . ' match=' . $matchKey
+                            . ' rule=' . $ruleID
+                            . ' severity=' . $severity,
+                        KL_MESSAGE
+                    );
+                    continue;
+                }
+
+                $ok = $this->ExecuteOutputResource($resource, $payload, $house, $groupLabel);
+                $this->LogMessage(
+                    'ReevaluateCurrentAlarmContext: execute match=' . $matchKey
+                        . ' OutputID=' . $outputID
+                        . ' rule=' . $ruleID
+                        . ' severity=' . $severity
+                        . ' result=' . ($ok ? 'true' : 'false'),
+                    KL_MESSAGE
+                );
+
+                if ($ok && $throttlingEnabled) {
+                    $this->RegisterSuccessfulOutputSend($outputID, $now);
+                    $remainingSlots--;
+                }
+            }
         }
 
         $this->WriteAttributeString('LastActiveGroups', json_encode(array_values(array_keys($activeGroupsForView))));
@@ -850,11 +948,199 @@ setInterval(fetchAndUpdateGraph, 2000);
         $this->LogMessage(
             'ReevaluateCurrentAlarmContext: previousMatches=' . count($previousMatchKeys)
                 . ' currentMatches=' . count($currentMatchKeys)
-                . ' newlyActivated=' . count($newlyActivatedMatches),
+                . ' newCandidates=' . array_sum(array_map('count', $candidatesByOutputID)),
             KL_MESSAGE
         );
     }
 
+
+    private function FindRuleByID(string $ruleID): ?array
+    {
+        $rows = $this->readListProperty('GroupStateRules');
+
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            if ((string) ($row['RuleID'] ?? '') !== $ruleID) {
+                continue;
+            }
+
+            return $row;
+        }
+
+        return null;
+    }
+
+    private function GetSeverityPriority(string $severity): int
+    {
+        switch (trim($severity)) {
+            case 'Critical':
+                return 400;
+
+            case 'High':
+                return 300;
+
+            case 'Medium':
+                return 200;
+
+            case 'Low':
+                return 100;
+
+            default:
+                return 0;
+        }
+    }
+
+    private function IsThrottlingEnabledForResource(array $resource): bool
+    {
+        $maxMessages = (int) ($resource['MaxMessages'] ?? 0);
+        $perSeconds = (int) ($resource['PerSeconds'] ?? 0);
+
+        return ($maxMessages > 0) && ($perSeconds > 0);
+    }
+
+    private function GetRemainingThrottleSlots(array $resource, string $outputID, int $now): int
+    {
+        if (!$this->IsThrottlingEnabledForResource($resource)) {
+            return PHP_INT_MAX;
+        }
+
+        $maxMessages = (int) ($resource['MaxMessages'] ?? 0);
+        $perSeconds = (int) ($resource['PerSeconds'] ?? 0);
+
+        $recentSends = $this->GetRecentSuccessfulSendTimestamps($outputID, $perSeconds, $now);
+        $remaining = $maxMessages - count($recentSends);
+
+        return max(0, $remaining);
+    }
+
+    private function GetRecentSuccessfulSendTimestamps(string $outputID, int $perSeconds, int $now): array
+    {
+        $history = $this->ReadOutputThrottleHistory();
+        $entries = $history[$outputID] ?? [];
+
+        if (!is_array($entries)) {
+            return [];
+        }
+
+        $result = [];
+        $cutoff = $now - $perSeconds;
+
+        foreach ($entries as $timestampRaw) {
+            $timestamp = (int) $timestampRaw;
+            if ($timestamp > $cutoff) {
+                $result[] = $timestamp;
+            }
+        }
+
+        return $result;
+    }
+
+    private function RegisterSuccessfulOutputSend(string $outputID, int $timestamp): void
+    {
+        $history = $this->ReadOutputThrottleHistory();
+
+        if (!isset($history[$outputID]) || !is_array($history[$outputID])) {
+            $history[$outputID] = [];
+        }
+
+        $history[$outputID][] = $timestamp;
+
+        foreach ($this->readListProperty('OutputResources') as $resource) {
+            if (!is_array($resource)) {
+                continue;
+            }
+
+            if ((string) ($resource['OutputID'] ?? '') !== $outputID) {
+                continue;
+            }
+
+            $perSeconds = (int) ($resource['PerSeconds'] ?? 0);
+            if ($perSeconds > 0) {
+                $cutoff = $timestamp - $perSeconds;
+                $history[$outputID] = array_values(array_filter(
+                    $history[$outputID],
+                    static function ($item) use ($cutoff): bool {
+                        return (int) $item > $cutoff;
+                    }
+                ));
+            }
+
+            break;
+        }
+
+        $this->WriteOutputThrottleHistory($history);
+    }
+
+    private function ReadOutputThrottleHistory(): array
+    {
+        $raw = $this->ReadAttributeString('OutputThrottleHistory');
+        $data = json_decode($raw, true);
+
+        return is_array($data) ? $data : [];
+    }
+
+    private function WriteOutputThrottleHistory(array $history): void
+    {
+        $normalized = [];
+
+        foreach ($history as $outputID => $entries) {
+            $outputID = trim((string) $outputID);
+            if ($outputID === '' || !is_array($entries)) {
+                continue;
+            }
+
+            $clean = [];
+            foreach ($entries as $timestampRaw) {
+                $timestamp = (int) $timestampRaw;
+                if ($timestamp > 0) {
+                    $clean[] = $timestamp;
+                }
+            }
+
+            $normalized[$outputID] = array_values($clean);
+        }
+
+        $this->WriteAttributeString('OutputThrottleHistory', json_encode($normalized));
+    }
+
+    private function GetActiveOutputMatchKeySet(): array
+    {
+        $raw = $this->ReadAttributeString('ActiveOutputMatchKeys');
+        $data = json_decode($raw, true);
+
+        $result = [];
+        if (!is_array($data)) {
+            return $result;
+        }
+
+        foreach ($data as $matchKeyRaw) {
+            $matchKey = trim((string) $matchKeyRaw);
+            if ($matchKey === '') {
+                continue;
+            }
+            $result[$matchKey] = true;
+        }
+
+        return $result;
+    }
+
+    private function BuildOutputMatchKey(string $groupKey, string $outputID): string
+    {
+        return $groupKey . '|' . $outputID;
+    }
+
+    public function DebugGetActiveOutputMatchKeys(): string
+    {
+        return $this->ReadAttributeString('ActiveOutputMatchKeys');
+    }
+
+    public function DebugGetOutputThrottleHistory(): string
+    {
+        return $this->ReadAttributeString('OutputThrottleHistory');
+    }
     private function GetActiveOutputMatchKeySet(): array
     {
         $raw = $this->ReadAttributeString('ActiveOutputMatchKeys');
