@@ -1096,8 +1096,23 @@ class PropertyStateManager extends IPSModule
         $activeSensors = json_decode($this->ReadAttributeString("ActiveSensors"), true);
         if (!is_array($activeSensors)) $activeSensors = [];
 
+        // Prefer target-local projected fields from Module 1, then fallback to legacy/global fields.
+        $projectedGroups = null;
+        if (isset($data['target_active_groups']) && is_array($data['target_active_groups'])) {
+            $projectedGroups = $data['target_active_groups'];
+        } elseif (isset($data['active_groups']) && is_array($data['active_groups'])) {
+            $projectedGroups = $data['active_groups'];
+        }
+
+        $projectedSensorDetails = null;
+        if (isset($data['target_active_sensor_details']) && is_array($data['target_active_sensor_details'])) {
+            $projectedSensorDetails = $data['target_active_sensor_details'];
+        } elseif (isset($data['active_sensor_details']) && is_array($data['active_sensor_details'])) {
+            $projectedSensorDetails = $data['active_sensor_details'];
+        }
+
         // 1) Global Reset Logic (dedicated early path)
-        if (isset($data['active_groups']) && empty($data['active_groups'])) {
+        if (is_array($projectedGroups) && count($projectedGroups) === 0) {
             $this->WriteAttributeString("ActiveSensors", "[]");
             $this->WriteAttributeString("ActiveGroups", "[]");
             $this->LogMessage("[PSM-Rx] Global Reset: ActiveSensors and ActiveGroups cleared.", KL_MESSAGE);
@@ -1111,8 +1126,22 @@ class PropertyStateManager extends IPSModule
             return;
         }
 
-        // 2) Handle specific Sensor Event
-        if (isset($data['trigger_details']['variable_id'])) {
+        // 2) Rebuild ActiveSensors from projected active sensor list when available.
+        if (is_array($projectedSensorDetails)) {
+            $rebuiltActiveSensors = [];
+
+            foreach ($projectedSensorDetails as $sensor) {
+                $vid = (string)($sensor['variable_id'] ?? '');
+                if ($vid !== '' && ctype_digit($vid)) {
+                    $rebuiltActiveSensors[$vid] = true;
+                }
+            }
+
+            $activeSensors = array_values(array_keys($rebuiltActiveSensors));
+            $this->LogMessage("[PSM-Rx] Rebuilt ActiveSensors from projected sensor list.", KL_MESSAGE);
+        }
+        // 3) Backward-compatible fallback: legacy single-sensor delta
+        elseif (isset($data['trigger_details']['variable_id'])) {
             $vID = (string)$data['trigger_details']['variable_id'];
             $val = $data['trigger_details']['value_raw'] ?? false;
 
@@ -1135,7 +1164,7 @@ class PropertyStateManager extends IPSModule
                 $this->LogMessage("[PSM-Rx] Diagnostic: WARNING - Sensor $vID received but NOT MAPPED in configuration.", KL_WARNING);
             }
 
-            // Update Active List
+            // Legacy incremental update
             if ($val) {
                 if (!in_array($vID, $activeSensors, true)) {
                     $activeSensors[] = $vID;
@@ -1155,9 +1184,9 @@ class PropertyStateManager extends IPSModule
 
         $this->WriteAttributeString("ActiveSensors", json_encode($activeSensors));
 
-        // 3) Save Active Groups (For Group-Level Logic like "Windows")
-        if (isset($data['active_groups'])) {
-            $this->WriteAttributeString("ActiveGroups", json_encode($data['active_groups']));
+        // 4) Save projected active groups (target-local preferred)
+        if (is_array($projectedGroups)) {
+            $this->WriteAttributeString("ActiveGroups", json_encode(array_values($projectedGroups)));
         }
 
         $this->EvaluateState();
