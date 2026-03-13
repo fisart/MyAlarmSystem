@@ -69,6 +69,8 @@ class ARMResponseManagerMock extends IPSModule
         $this->RegisterAttributeString('CachedTargetActiveGroups', '[]');
         $this->RegisterAttributeString('CachedTargetActiveClasses', '[]');
         $this->RegisterAttributeString('CachedTargetActiveSensorDetails', '[]');
+
+        $this->RegisterAttributeString('ActiveOutputMatchKeys', '[]');
     }
 
     public function ApplyChanges()
@@ -695,8 +697,6 @@ setInterval(fetchAndUpdateGraph, 2000);
         $this->WriteAttributeString('LastEventEpoch', $eventEpoch);
         $this->WriteAttributeInteger('LastEventSeq', $eventSeq);
 
-
-
         $eventType = strtoupper(trim((string) ($payload['event_type'] ?? '')));
         $targetGroups = $payload['target_active_groups'] ?? [];
         $targetClasses = $payload['target_active_classes'] ?? [];
@@ -706,6 +706,7 @@ setInterval(fetchAndUpdateGraph, 2000);
         $this->WriteAttributeString('CachedTargetActiveGroups', json_encode(is_array($targetGroups) ? array_values($targetGroups) : []));
         $this->WriteAttributeString('CachedTargetActiveClasses', json_encode(is_array($targetClasses) ? array_values($targetClasses) : []));
         $this->WriteAttributeString('CachedTargetActiveSensorDetails', json_encode(is_array($targetSensorDetails) ? array_values($targetSensorDetails) : []));
+
         if ($eventType !== 'ALARM') {
             $this->LogMessage('ReceivePayload: ignored non-ALARM event_type=' . $eventType, KL_MESSAGE);
             return;
@@ -720,19 +721,10 @@ setInterval(fetchAndUpdateGraph, 2000);
             $this->WriteAttributeString('LastActiveGroups', '[]');
             $this->WriteAttributeString('LastActiveRuleIDs', '[]');
             $this->WriteAttributeString('LastActiveOutputIDs', '[]');
-            $this->LogMessage('ReceivePayload: reset/all-clear detected, live path cleared', KL_MESSAGE);
+            $this->WriteAttributeString('ActiveOutputMatchKeys', '[]');
+            $this->LogMessage('ReceivePayload: reset/all-clear detected, live path and active output matches cleared', KL_MESSAGE);
             return;
         }
-        /*
-        $house = $this->GetSynchronizedHouseStateSnapshot($eventEpoch, $eventSeq);
-        if ($house === null) {
-            $this->LogMessage('ReceivePayload: no synchronized house snapshot available', KL_MESSAGE);
-            return;
-        }
-
-        $houseState = (string) ((int) ($house['system_state_id'] ?? 0));
-        $this->LogMessage('ReceivePayload: houseState=' . $houseState, KL_MESSAGE);
-        */
 
         $house = $this->GetUsableHouseStateSnapshot($eventEpoch, $eventSeq);
         if ($house === null) {
@@ -771,16 +763,21 @@ setInterval(fetchAndUpdateGraph, 2000);
             $this->WriteAttributeString('LastActiveGroups', '[]');
             $this->WriteAttributeString('LastActiveRuleIDs', '[]');
             $this->WriteAttributeString('LastActiveOutputIDs', '[]');
-            $this->LogMessage('ReevaluateCurrentAlarmContext: no active target groups, live path cleared', KL_MESSAGE);
+            $this->WriteAttributeString('ActiveOutputMatchKeys', '[]');
+            $this->LogMessage('ReevaluateCurrentAlarmContext: no active target groups, live path and active output matches cleared', KL_MESSAGE);
             return;
         }
 
         $houseState = (string) ((int) ($house['system_state_id'] ?? 0));
         $this->LogMessage('ReevaluateCurrentAlarmContext: houseState=' . $houseState, KL_MESSAGE);
 
-        $executedOutputIDs = [];
+        $previousMatchKeys = $this->GetActiveOutputMatchKeySet();
+
+        $currentMatchKeys = [];
+        $newlyActivatedMatches = [];
         $activeGroupsForView = [];
         $activeRuleIDsForView = [];
+        $activeOutputIDsForView = [];
 
         foreach ($targetGroups as $groupLabelRaw) {
             $groupLabel = trim((string) $groupLabelRaw);
@@ -788,7 +785,9 @@ setInterval(fetchAndUpdateGraph, 2000);
                 continue;
             }
 
+            $groupKey = $this->MakeGroupKey($groupLabel);
             $activeGroupsForView[$groupLabel] = true;
+
             $ruleIDs = $this->FindMatchingRuleIDsForGroupAndState($groupLabel, $houseState);
             $this->LogMessage('ReevaluateCurrentAlarmContext: group=' . $groupLabel . ' matched rules=' . json_encode($ruleIDs), KL_MESSAGE);
 
@@ -802,33 +801,90 @@ setInterval(fetchAndUpdateGraph, 2000);
                         continue;
                     }
 
-                    if (isset($executedOutputIDs[$outputID])) {
-                        continue;
-                    }
-
                     $resource = $this->FindOutputResourceByID($outputID);
                     if ($resource === null) {
                         $this->LogMessage('ReevaluateCurrentAlarmContext: OutputID not found: ' . $outputID, KL_MESSAGE);
                         continue;
                     }
 
-                    $ok = $this->ExecuteOutputResource($resource, $payload, $house, $groupLabel);
-                    $this->LogMessage(
-                        'ReevaluateCurrentAlarmContext: execute OutputID=' . $outputID . ' result=' . ($ok ? 'true' : 'false'),
-                        KL_MESSAGE
-                    );
+                    if (!(bool) ($resource['Active'] ?? false)) {
+                        continue;
+                    }
 
-                    $executedOutputIDs[$outputID] = true;
+                    $matchKey = $this->BuildOutputMatchKey($groupKey, $outputID);
+                    $currentMatchKeys[$matchKey] = true;
+                    $activeOutputIDsForView[$outputID] = true;
+
+                    if (!isset($previousMatchKeys[$matchKey]) && !isset($newlyActivatedMatches[$matchKey])) {
+                        $newlyActivatedMatches[$matchKey] = [
+                            'OutputID'   => $outputID,
+                            'GroupLabel' => $groupLabel,
+                            'Resource'   => $resource
+                        ];
+                    }
                 }
             }
         }
 
+        foreach ($newlyActivatedMatches as $matchKey => $match) {
+            $outputID = (string) ($match['OutputID'] ?? '');
+            $groupLabel = (string) ($match['GroupLabel'] ?? '');
+            $resource = $match['Resource'] ?? null;
+
+            if (!is_array($resource) || $outputID === '' || $groupLabel === '') {
+                continue;
+            }
+
+            $ok = $this->ExecuteOutputResource($resource, $payload, $house, $groupLabel);
+            $this->LogMessage(
+                'ReevaluateCurrentAlarmContext: newly activated match=' . $matchKey . ' OutputID=' . $outputID . ' result=' . ($ok ? 'true' : 'false'),
+                KL_MESSAGE
+            );
+        }
+
         $this->WriteAttributeString('LastActiveGroups', json_encode(array_values(array_keys($activeGroupsForView))));
         $this->WriteAttributeString('LastActiveRuleIDs', json_encode(array_values(array_keys($activeRuleIDsForView))));
-        $this->WriteAttributeString('LastActiveOutputIDs', json_encode(array_values(array_keys($executedOutputIDs))));
+        $this->WriteAttributeString('LastActiveOutputIDs', json_encode(array_values(array_keys($activeOutputIDsForView))));
+        $this->WriteAttributeString('ActiveOutputMatchKeys', json_encode(array_values(array_keys($currentMatchKeys))));
+
+        $this->LogMessage(
+            'ReevaluateCurrentAlarmContext: previousMatches=' . count($previousMatchKeys)
+                . ' currentMatches=' . count($currentMatchKeys)
+                . ' newlyActivated=' . count($newlyActivatedMatches),
+            KL_MESSAGE
+        );
     }
 
+    private function GetActiveOutputMatchKeySet(): array
+    {
+        $raw = $this->ReadAttributeString('ActiveOutputMatchKeys');
+        $data = json_decode($raw, true);
 
+        $result = [];
+        if (!is_array($data)) {
+            return $result;
+        }
+
+        foreach ($data as $matchKeyRaw) {
+            $matchKey = trim((string) $matchKeyRaw);
+            if ($matchKey === '') {
+                continue;
+            }
+            $result[$matchKey] = true;
+        }
+
+        return $result;
+    }
+
+    private function BuildOutputMatchKey(string $groupKey, string $outputID): string
+    {
+        return $groupKey . '|' . $outputID;
+    }
+
+    public function DebugGetActiveOutputMatchKeys(): string
+    {
+        return $this->ReadAttributeString('ActiveOutputMatchKeys');
+    }
     public function ReceiveHouseStateSnapshot(string $snapshotJson): void
     {
         $data = json_decode($snapshotJson, true);
