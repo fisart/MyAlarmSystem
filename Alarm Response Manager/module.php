@@ -1144,10 +1144,7 @@ setInterval(fetchAndUpdateGraph, 2000);
     }
 
 
-    public function DebugGetActiveOutputMatchKeys(): string
-    {
-        return $this->ReadAttributeString('ActiveOutputMatchKeys');
-    }
+
     public function ReceiveHouseStateSnapshot(string $snapshotJson): void
     {
         $data = json_decode($snapshotJson, true);
