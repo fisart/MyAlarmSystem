@@ -437,14 +437,63 @@ class ARMResponseManagerMock extends IPSModule
             }
         }
 
-        // 2. API mode = return only Mermaid graph text
+        // 2. Screen API mode = return only screen HTML fragment
+        if (isset($_GET['screen_api'])) {
+            header('Content-Type: text/html; charset=utf-8');
+            echo $this->GetOutputScreenHtml();
+            return;
+        }
+
+        // 3. Screen page mode
+        if (isset($_GET['screen'])) {
+            header('Content-Type: text/html; charset=utf-8');
+            echo '<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Module 3 Output Screen</title>
+<style>
+body{
+    background-color:#1e1e1e;color:#cfcfcf;font-family:"Segoe UI",sans-serif;
+    margin:0;padding:20px;box-sizing:border-box;
+}
+.header{margin-bottom:16px;border-bottom:1px solid #333;padding-bottom:10px;}
+.header h2{margin:0;color:#4CAF50;}
+#screen-container{margin-top:16px;}
+</style>
+<script>
+async function refreshScreen() {
+    try {
+        const response = await fetch("?screen_api=1&t=" + Date.now(), { credentials: "same-origin" });
+        const html = await response.text();
+        document.getElementById("screen-container").innerHTML = html;
+    } catch (err) {
+        console.error("Screen refresh failed", err);
+    }
+}
+refreshScreen();
+setInterval(refreshScreen, 2000);
+</script>
+</head>
+<body>
+<div class="header">
+    <h2>' . htmlspecialchars($this->GetModule1TargetDisplayName(), ENT_QUOTES, 'UTF-8') . ' (Output Screen)</h2>
+    <small>Instance ID: ' . $this->InstanceID . '</small>
+</div>
+<div id="screen-container">' . $this->GetOutputScreenHtml() . '</div>
+</body>
+</html>';
+            return;
+        }
+
+        // 4. API mode = return only Mermaid graph text
         if (isset($_GET['api'])) {
             header('Content-Type: text/plain; charset=utf-8');
             echo $this->BuildMappingGraph();
             return;
         }
 
-        // 3. Full HTML shell
+        // 5. Full HTML shell
         header('Content-Type: text/html; charset=utf-8');
         $cached = $this->GetCachedHouseStateSnapshot();
 
@@ -478,6 +527,7 @@ class ARMResponseManagerMock extends IPSModule
                 }
             }
         }
+
         echo '<!DOCTYPE html>
 <html>
 <head>
@@ -523,49 +573,48 @@ async function fetchAndUpdateGraph() {
 
         if (!graphString.trim().startsWith("graph ")) return;
 
-    if (graphString !== lastGraphString) {
-        isRendering = true;
+        if (graphString !== lastGraphString) {
+            isRendering = true;
 
-        const container = document.getElementById("mermaid-container");
-        const pzContainer = document.querySelector(".container");
-        const oldZoom = pzInstance ? pzInstance.getZoom() : null;
-        const oldPan  = pzInstance ? pzInstance.getPan()  : null;
+            const container = document.getElementById("mermaid-container");
+            const pzContainer = document.querySelector(".container");
+            const oldZoom = pzInstance ? pzInstance.getZoom() : null;
+            const oldPan  = pzInstance ? pzInstance.getPan()  : null;
 
-        if (pzInstance) pzInstance.destroy();
+            if (pzInstance) pzInstance.destroy();
 
-        const renderId = "graph_" + Date.now();
-        const { svg } = await mermaid.render(renderId, graphString);
-        container.innerHTML = svg;
+            const renderId = "graph_" + Date.now();
+            const { svg } = await mermaid.render(renderId, graphString);
+            container.innerHTML = svg;
 
-        const svgEl = container.querySelector("svg");
-        if (!svgEl) {
-            throw new Error("Mermaid render returned no SVG");
+            const svgEl = container.querySelector("svg");
+            if (!svgEl) {
+                throw new Error("Mermaid render returned no SVG");
+            }
+
+            svgEl.removeAttribute("width");
+            svgEl.removeAttribute("height");
+            svgEl.style.width = "100%";
+            svgEl.style.height = "100%";
+            svgEl.style.maxWidth = "none";
+
+            pzInstance = svgPanZoom(svgEl, {
+                zoomEnabled: true,
+                controlIconsEnabled: true,
+                fit: (oldZoom === null),
+                center: (oldPan === null),
+                minZoom: 0.2,
+                maxZoom: 10,
+                eventsListenerElement: pzContainer
+            });
+
+            if (oldZoom !== null) {
+                pzInstance.zoom(oldZoom);
+                pzInstance.pan(oldPan);
+            }
+
+            lastGraphString = graphString;
         }
-
-        svgEl.removeAttribute("width");
-        svgEl.removeAttribute("height");
-        svgEl.style.width = "100%";
-        svgEl.style.height = "100%";
-        svgEl.style.maxWidth = "none";
-
-        pzInstance = svgPanZoom(svgEl, {
-            zoomEnabled: true,
-            controlIconsEnabled: true,
-            fit: (oldZoom === null),
-            center: (oldPan === null),
-            minZoom: 0.2,
-            maxZoom: 10,
-            eventsListenerElement: pzContainer
-        });
-
-        if (oldZoom !== null) {
-            pzInstance.zoom(oldZoom);
-            pzInstance.pan(oldPan);
-        }
-
-        // only mark as current after successful render
-        lastGraphString = graphString;
-    }
     } catch (err) {
         console.error("Rendering failed", err);
     } finally {
@@ -1432,6 +1481,10 @@ setInterval(fetchAndUpdateGraph, 2000);
             $subject = $this->BuildEmailSubject($groupLabel, $house);
             $body = $this->BuildEmailBody($resource, $payload, $house, $groupLabel);
             return $this->SendEmailOutputResource($resource, $subject, $body);
+        }
+
+        if ($typeID === 'screen') {
+            return $this->WriteScreenOutputResource($resource, $payload, $house, $groupLabel);
         }
 
         $this->LogMessage('ExecuteOutputResource: unsupported TypeID=' . $typeID, KL_MESSAGE);
