@@ -1143,10 +1143,6 @@ setInterval(fetchAndUpdateGraph, 2000);
         return $result;
     }
 
-    private function BuildOutputMatchKey(string $groupKey, string $outputID): string
-    {
-        return $groupKey . '|' . $outputID;
-    }
 
     public function DebugGetActiveOutputMatchKeys(): string
     {
