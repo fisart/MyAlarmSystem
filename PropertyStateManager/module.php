@@ -1096,18 +1096,16 @@ class PropertyStateManager extends IPSModule
         $activeSensors = json_decode($this->ReadAttributeString("ActiveSensors"), true);
         if (!is_array($activeSensors)) $activeSensors = [];
 
-        // Prefer target-local projected fields from Module 1, then fallback to legacy/global fields.
+        // Module 2 is the global house-state authority.
+        // Therefore it must rebuild runtime state from the GLOBAL full-snapshot fields,
+        // not from target-local projection fields intended for Module 3.
         $projectedGroups = null;
-        if (isset($data['target_active_groups']) && is_array($data['target_active_groups'])) {
-            $projectedGroups = $data['target_active_groups'];
-        } elseif (isset($data['active_groups']) && is_array($data['active_groups'])) {
+        if (isset($data['active_groups']) && is_array($data['active_groups'])) {
             $projectedGroups = $data['active_groups'];
         }
 
         $projectedSensorDetails = null;
-        if (isset($data['target_active_sensor_details']) && is_array($data['target_active_sensor_details'])) {
-            $projectedSensorDetails = $data['target_active_sensor_details'];
-        } elseif (isset($data['active_sensor_details']) && is_array($data['active_sensor_details'])) {
+        if (isset($data['active_sensor_details']) && is_array($data['active_sensor_details'])) {
             $projectedSensorDetails = $data['active_sensor_details'];
         }
 
@@ -1126,7 +1124,7 @@ class PropertyStateManager extends IPSModule
             return;
         }
 
-        // 2) Rebuild ActiveSensors from projected active sensor list when available.
+        // 2) Rebuild ActiveSensors from global active sensor snapshot when available.
         if (is_array($projectedSensorDetails)) {
             $rebuiltActiveSensors = [];
 
@@ -1184,7 +1182,7 @@ class PropertyStateManager extends IPSModule
 
         $this->WriteAttributeString("ActiveSensors", json_encode($activeSensors));
 
-        // 4) Save projected active groups (target-local preferred)
+        // 4) Save global active groups snapshot
         if (is_array($projectedGroups)) {
             $this->WriteAttributeString("ActiveGroups", json_encode(array_values($projectedGroups)));
         }
