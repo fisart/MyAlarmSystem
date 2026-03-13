@@ -593,7 +593,7 @@ setInterval(fetchAndUpdateGraph, 2000);
 
         $this->SetStatus(202);
     }
-
+    // 
     public function BuildRowsFromMyRouting(): void
     {
         $groups = $this->ExtractImportedGroupsFromConfig();
