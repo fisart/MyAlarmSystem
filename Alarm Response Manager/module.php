@@ -54,10 +54,12 @@ class ARMResponseManagerMock extends IPSModule
         $this->RegisterPropertyInteger('ScreenLogMaxEntries', 100);
         $this->RegisterPropertyString('VisibleGraphGroups', '[]');
         $this->RegisterPropertyString('AssignmentMatrixConfig', '[]');
+        $this->RegisterPropertyString('GroupStateMatrixConfig', '[]');
 
         $this->RegisterPropertyString('OutputResources', '[]');
         $this->RegisterPropertyString('GroupStateRules', '[]');
         $this->RegisterPropertyString('RuleOutputAssignments', '[]');
+        $this->RegisterPropertyString('GroupStateMatrixConfig', '[]');
 
         $this->RegisterAttributeString('CachedHouseStateSnapshot', '');
         $this->RegisterAttributeInteger('CachedHouseStateReceivedAt', 0);
@@ -492,7 +494,10 @@ class ARMResponseManagerMock extends IPSModule
         $outputTypes = $this->GetBuiltInOutputTypes();
 
         $outputResources = $this->EnsureListRowIDsPersisted('OutputResources', 'OutputID', 'out_');
-        $groupStateRules = $this->EnsureListRowIDsPersisted('GroupStateRules', 'RuleID', 'rule_');
+        $flatGroupStateRules = $this->EnsureListRowIDsPersisted('GroupStateRules', 'RuleID', 'rule_');
+        $groupStateRules = $this->GetEffectiveGroupStateRules();
+        $groupStateRules = $this->EnsureEffectiveRuleIDs($groupStateRules);
+        $this->PersistEffectiveRulesToLegacyProperty($groupStateRules);
 
         $groupOptions = $this->buildGroupOptions($importedGroups, $groupStateRules);
         $groupLabels = $this->buildGroupLabels($importedGroups, $groupStateRules);
@@ -501,13 +506,7 @@ class ARMResponseManagerMock extends IPSModule
         $typeLabels = $this->buildTypeLabels($outputTypes, $outputResources);
 
         $this->setListColumnOptions($form, 'OutputResources', 'TypeID', $typeOptions);
-        $this->setListColumnOptions($form, 'GroupStateRules', 'GroupKey', $groupOptions);
-        $this->setListColumnOptions($form, 'GroupStateRules', 'HouseState', self::HOUSE_STATES);
-        $this->setListColumnOptions($form, 'GroupStateRules', 'Severity', self::SEVERITY_LEVELS);
         $this->setListFormFieldOptions($form, 'OutputResources', 'TypeID', $typeOptions);
-        $this->setListFormFieldOptions($form, 'GroupStateRules', 'GroupKey', $groupOptions);
-        $this->setListFormFieldOptions($form, 'GroupStateRules', 'HouseState', self::HOUSE_STATES);
-        $this->setListFormFieldOptions($form, 'GroupStateRules', 'Severity', self::SEVERITY_LEVELS);
 
         $resourceValues = [];
         foreach ($outputResources as $row) {
@@ -537,31 +536,183 @@ class ARMResponseManagerMock extends IPSModule
         }
         $this->setListValues($form, 'OutputResources', $resourceValues);
 
-        $ruleValues = [];
-        foreach ($groupStateRules as $row) {
-            $ruleID = trim((string) ($row['RuleID'] ?? ''));
-            $groupKey = trim((string) ($row['GroupKey'] ?? ''));
-            $houseState = trim((string) ($row['HouseState'] ?? ''));
+        $ruleMatrixValues = $this->BuildGroupStateMatrixPropertyValues($importedGroups, $flatGroupStateRules);
+        $this->setListValues($form, 'GroupStateMatrixConfig', $ruleMatrixValues);
 
-            $ruleValues[] = [
-                'Active'     => (bool) ($row['Active'] ?? true),
-                'RuleID'     => $ruleID,
-                'GroupKey'   => $groupKey,
-                'HouseState' => $houseState,
-                'Severity'   => (string) ($row['Severity'] ?? ''),
-                'GroupLabel' => $groupLabels[$groupKey] ?? '[missing group]',
-                'RuleLabel'  => $this->buildRuleLabel($row, $groupLabels),
-                'RowSummary' => $this->buildRuleSummary($row, $groupLabels)
-            ];
-        }
-        $this->setListValues($form, 'GroupStateRules', $ruleValues);
-
-        $matrixValues = $this->BuildAssignmentMatrixPropertyValues($importedGroups, $groupStateRules);
-        $this->setListValues($form, 'AssignmentMatrixConfig', $matrixValues);
+        $assignmentMatrixValues = $this->BuildAssignmentMatrixPropertyValues($importedGroups, $groupStateRules);
+        $this->setListValues($form, 'AssignmentMatrixConfig', $assignmentMatrixValues);
 
         return json_encode($form);
     }
 
+
+
+    private function BuildGroupStateMatrixPropertyValues(array $importedGroups, array $flatGroupStateRules): array
+    {
+        $stored = $this->readListProperty('GroupStateMatrixConfig');
+        if (count($stored) > 0) {
+            return $this->NormalizeGroupStateMatrixRows($stored, $importedGroups);
+        }
+
+        return $this->BuildGroupStateMatrixFromFlatRules($importedGroups, $flatGroupStateRules);
+    }
+
+    private function BuildGroupStateMatrixFromFlatRules(array $importedGroups, array $flatGroupStateRules): array
+    {
+        $ruleMap = [];
+        foreach ($flatGroupStateRules as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $groupKey = trim((string) ($row['GroupKey'] ?? ''));
+            $houseState = trim((string) ($row['HouseState'] ?? ''));
+            if ($groupKey === '' || $houseState === '') {
+                continue;
+            }
+
+            $ruleMap[$groupKey . '|' . $houseState] = [
+                'Active'   => (bool) ($row['Active'] ?? true),
+                'Severity' => trim((string) ($row['Severity'] ?? ''))
+            ];
+        }
+
+        $rows = [];
+        foreach ($importedGroups as $group) {
+            $groupKey = trim((string) ($group['GroupKey'] ?? ''));
+            $groupLabel = trim((string) ($group['GroupLabel'] ?? $groupKey));
+            if ($groupKey === '') {
+                continue;
+            }
+
+            $row = [
+                'GroupKey'   => $groupKey,
+                'GroupLabel' => $groupLabel
+            ];
+
+            foreach (['0', '2', '3', '6', '9'] as $state) {
+                $cell = $ruleMap[$groupKey . '|' . $state] ?? ['Active' => false, 'Severity' => ''];
+                $row['S_' . $state . '_Active'] = (bool) ($cell['Active'] ?? false);
+                $row['S_' . $state . '_Severity'] = trim((string) ($cell['Severity'] ?? ''));
+                $row['S_' . $state . '_Display'] = $row['S_' . $state . '_Active']
+                    ? ($row['S_' . $state . '_Severity'] !== '' ? $row['S_' . $state . '_Severity'] : 'On')
+                    : 'Off';
+            }
+
+            $rows[] = $row;
+        }
+
+        return $rows;
+    }
+
+    private function NormalizeGroupStateMatrixRows(array $rows, array $importedGroups): array
+    {
+        $validGroups = [];
+        foreach ($importedGroups as $group) {
+            $groupKey = trim((string) ($group['GroupKey'] ?? ''));
+            $groupLabel = trim((string) ($group['GroupLabel'] ?? $groupKey));
+            if ($groupKey !== '') {
+                $validGroups[$groupKey] = $groupLabel;
+            }
+        }
+
+        $normalized = [];
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $groupKey = trim((string) ($row['GroupKey'] ?? ''));
+            if ($groupKey === '' || !isset($validGroups[$groupKey])) {
+                continue;
+            }
+
+            $row['GroupLabel'] = $validGroups[$groupKey];
+
+            foreach (['0', '2', '3', '6', '9'] as $state) {
+                $row['S_' . $state . '_Active'] = (bool) ($row['S_' . $state . '_Active'] ?? false);
+                $row['S_' . $state . '_Severity'] = trim((string) ($row['S_' . $state . '_Severity'] ?? ''));
+                $row['S_' . $state . '_Display'] = $row['S_' . $state . '_Active']
+                    ? ($row['S_' . $state . '_Severity'] !== '' ? $row['S_' . $state . '_Severity'] : 'On')
+                    : 'Off';
+            }
+
+            $normalized[] = $row;
+        }
+
+        return array_values($normalized);
+    }
+
+    private function GetEffectiveGroupStateRules(): array
+    {
+        $matrixRows = $this->readListProperty('GroupStateMatrixConfig');
+        if (count($matrixRows) === 0) {
+            return $this->readListProperty('GroupStateRules');
+        }
+
+        $importedGroups = $this->ExtractImportedGroupsFromConfig();
+        $matrixRows = $this->NormalizeGroupStateMatrixRows($matrixRows, $importedGroups);
+
+        $result = [];
+        foreach ($matrixRows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $groupKey = trim((string) ($row['GroupKey'] ?? ''));
+            if ($groupKey === '') {
+                continue;
+            }
+
+            foreach (['0', '2', '3', '6', '9'] as $state) {
+                $active = (bool) ($row['S_' . $state . '_Active'] ?? false);
+                $severity = trim((string) ($row['S_' . $state . '_Severity'] ?? ''));
+
+                $result[] = [
+                    'Active'     => $active,
+                    'RuleID'     => 'rulemat_' . substr(md5($groupKey . '|' . $state), 0, 12),
+                    'GroupKey'   => $groupKey,
+                    'HouseState' => $state,
+                    'Severity'   => $severity
+                ];
+            }
+        }
+
+        return $result;
+    }
+
+    private function EnsureEffectiveRuleIDs(array $rules): array
+    {
+        foreach ($rules as &$row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $ruleID = trim((string) ($row['RuleID'] ?? ''));
+            $groupKey = trim((string) ($row['GroupKey'] ?? ''));
+            $houseState = trim((string) ($row['HouseState'] ?? ''));
+
+            if ($ruleID === '' && $groupKey !== '' && $houseState !== '') {
+                $row['RuleID'] = 'rulemat_' . substr(md5($groupKey . '|' . $houseState), 0, 12);
+            }
+        }
+        unset($row);
+
+        return $rules;
+    }
+
+    private function PersistEffectiveRulesToLegacyProperty(array $rules): void
+    {
+        $currentRaw = $this->ReadPropertyString('GroupStateRules');
+        $newRaw = json_encode(array_values($rules));
+
+        if ($currentRaw === $newRaw) {
+            return;
+        }
+
+        IPS_SetProperty($this->InstanceID, 'GroupStateRules', $newRaw);
+        IPS_ApplyChanges($this->InstanceID);
+    }
 
 
     private function BuildAssignmentMatrixPropertyValues(array $importedGroups, array $groupStateRules): array
@@ -1493,7 +1644,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     private function FindRuleByID(string $ruleID): ?array
     {
-        $rows = $this->readListProperty('GroupStateRules');
+        $rows = $this->GetEffectiveGroupStateRules();
 
         foreach ($rows as $row) {
             if (!is_array($row)) {
@@ -1509,7 +1660,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
         return null;
     }
-
     private function GetSeverityPriority(string $severity): int
     {
         switch (trim($severity)) {
@@ -1881,7 +2031,7 @@ document.addEventListener("DOMContentLoaded", () => {
     private function FindMatchingRuleIDsForGroupAndState(string $groupLabel, string $houseState): array
     {
         $groupKey = $this->MakeGroupKey($groupLabel);
-        $rows = $this->readListProperty('GroupStateRules');
+        $rows = $this->GetEffectiveGroupStateRules();
 
         $ruleIDs = [];
         foreach ($rows as $row) {
@@ -2479,7 +2629,7 @@ document.addEventListener("DOMContentLoaded", () => {
         $groups = $this->ExtractImportedGroupsFromConfig();
         $visibleGroupKeys = array_fill_keys($this->GetVisibleGraphGroupKeys($groups), true);
 
-        $rules = $this->readListProperty('GroupStateRules');
+        $rules = $this->GetEffectiveGroupStateRules();
         $assignments = $this->GetEffectiveRuleOutputAssignments();
         $outputs = $this->readListProperty('OutputResources');
 

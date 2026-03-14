@@ -264,114 +264,177 @@
       "items": [
         {
           "type": "List",
-          "name": "GroupStateRules",
-          "caption": "Group-State Rules",
+          "name": "GroupStateMatrixConfig",
+          "caption": "Group-State Rule Matrix",
           "rowCount": 10,
-          "add": true,
-          "delete": true,
+          "add": false,
+          "delete": false,
           "loadValuesFromConfiguration": false,
-          "sort": {
-            "column": "RuleLabel",
-            "direction": "ascending"
-          },
           "columns": [
-            {
-              "caption": "Active",
-              "name": "Active",
-              "width": "70px",
-              "add": true,
-              "edit": { "type": "CheckBox" }
-            },
-            {
-              "caption": "RuleID",
-              "name": "RuleID",
-              "width": "140px",
-              "add": "",
-              "edit": { "type": "ValidationTextBox" },
-              "visible": false
-            },
             {
               "caption": "GroupKey",
               "name": "GroupKey",
+              "width": "1px",
+              "add": "",
+              "visible": false,
+              "edit": { "type": "ValidationTextBox" }
+            },
+            {
+              "caption": "Group",
+              "name": "GroupLabel",
               "width": "180px",
               "add": "",
-              "edit": {
-                "type": "Select",
-                "options": []
-              }
-            },
-            {
-              "caption": "House State",
-              "name": "HouseState",
-              "width": "160px",
-              "add": "",
-              "edit": {
-                "type": "Select",
-                "options": []
-              }
-            },
-            {
-              "caption": "Severity",
-              "name": "Severity",
-              "width": "120px",
-              "add": "",
-              "edit": {
-                "type": "Select",
-                "options": []
-              }
-            },
-            {
-              "caption": "Group Label",
-              "name": "GroupLabel",
-              "width": "160px",
-              "add": "",
               "save": false
             },
             {
-              "caption": "Rule Label",
-              "name": "RuleLabel",
-              "width": "220px",
-              "add": "",
+              "caption": "Disarmed",
+              "name": "S_0_Display",
+              "width": "90px",
+              "add": "Off",
               "save": false
             },
             {
-              "caption": "Summary",
-              "name": "RowSummary",
-              "width": "auto",
+              "caption": "D Active",
+              "name": "S_0_Active",
+              "width": "55px",
+              "add": false,
+              "edit": { "type": "CheckBox" }
+            },
+            {
+              "caption": "D Severity",
+              "name": "S_0_Severity",
+              "width": "90px",
               "add": "",
+              "edit": {
+                "type": "Select",
+                "options": [
+                  { "caption": "", "value": "" },
+                  { "caption": "Low", "value": "Low" },
+                  { "caption": "Medium", "value": "Medium" },
+                  { "caption": "High", "value": "High" },
+                  { "caption": "Critical", "value": "Critical" }
+                ]
+              }
+            },
+            {
+              "caption": "Exit Delay",
+              "name": "S_2_Display",
+              "width": "90px",
+              "add": "Off",
               "save": false
-            }
-          ],
-          "form": [
-            {
-              "type": "ValidationTextBox",
-              "name": "RuleID",
-              "caption": "RuleID",
-              "visible": false,
-              "enabled": false
             },
             {
-              "type": "CheckBox",
-              "name": "Active",
-              "caption": "Active"
+              "caption": "E Active",
+              "name": "S_2_Active",
+              "width": "55px",
+              "add": false,
+              "edit": { "type": "CheckBox" }
             },
             {
-              "type": "Select",
-              "name": "GroupKey",
-              "caption": "Group",
-              "options": []
+              "caption": "E Severity",
+              "name": "S_2_Severity",
+              "width": "90px",
+              "add": "",
+              "edit": {
+                "type": "Select",
+                "options": [
+                  { "caption": "", "value": "" },
+                  { "caption": "Low", "value": "Low" },
+                  { "caption": "Medium", "value": "Medium" },
+                  { "caption": "High", "value": "High" },
+                  { "caption": "Critical", "value": "Critical" }
+                ]
+              }
             },
             {
-              "type": "Select",
-              "name": "HouseState",
-              "caption": "House State",
-              "options": []
+              "caption": "Armed Ext",
+              "name": "S_3_Display",
+              "width": "90px",
+              "add": "Off",
+              "save": false
             },
             {
-              "type": "Select",
-              "name": "Severity",
-              "caption": "Severity",
-              "options": []
+              "caption": "AE Active",
+              "name": "S_3_Active",
+              "width": "60px",
+              "add": false,
+              "edit": { "type": "CheckBox" }
+            },
+            {
+              "caption": "AE Severity",
+              "name": "S_3_Severity",
+              "width": "95px",
+              "add": "",
+              "edit": {
+                "type": "Select",
+                "options": [
+                  { "caption": "", "value": "" },
+                  { "caption": "Low", "value": "Low" },
+                  { "caption": "Medium", "value": "Medium" },
+                  { "caption": "High", "value": "High" },
+                  { "caption": "Critical", "value": "Critical" }
+                ]
+              }
+            },
+            {
+              "caption": "Armed Int",
+              "name": "S_6_Display",
+              "width": "90px",
+              "add": "Off",
+              "save": false
+            },
+            {
+              "caption": "AI Active",
+              "name": "S_6_Active",
+              "width": "60px",
+              "add": false,
+              "edit": { "type": "CheckBox" }
+            },
+            {
+              "caption": "AI Severity",
+              "name": "S_6_Severity",
+              "width": "95px",
+              "add": "",
+              "edit": {
+                "type": "Select",
+                "options": [
+                  { "caption": "", "value": "" },
+                  { "caption": "Low", "value": "Low" },
+                  { "caption": "Medium", "value": "Medium" },
+                  { "caption": "High", "value": "High" },
+                  { "caption": "Critical", "value": "Critical" }
+                ]
+              }
+            },
+            {
+              "caption": "Alarm",
+              "name": "S_9_Display",
+              "width": "90px",
+              "add": "Off",
+              "save": false
+            },
+            {
+              "caption": "A Active",
+              "name": "S_9_Active",
+              "width": "55px",
+              "add": false,
+              "edit": { "type": "CheckBox" }
+            },
+            {
+              "caption": "A Severity",
+              "name": "S_9_Severity",
+              "width": "90px",
+              "add": "",
+              "edit": {
+                "type": "Select",
+                "options": [
+                  { "caption": "", "value": "" },
+                  { "caption": "Low", "value": "Low" },
+                  { "caption": "Medium", "value": "Medium" },
+                  { "caption": "High", "value": "High" },
+                  { "caption": "Critical", "value": "Critical" }
+                ]
+              }
             }
           ],
           "values": []
