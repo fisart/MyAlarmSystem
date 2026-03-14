@@ -31,7 +31,7 @@
     },
     {
       "type": "ExpansionPanel",
-      "caption": "1. Output Resources",
+      "caption": "1. Output Resources — define where and how alerts are sent",
       "items": [
         {
           "type": "Label",
@@ -260,7 +260,7 @@
     },
     {
       "type": "ExpansionPanel",
-      "caption": "2. Group-State Rules",
+      "caption": "2. Group-State Rules — define which group reacts in which house state and with what severity",
       "items": [
   {
     "type": "Label",
@@ -435,7 +435,7 @@
     },
     {
       "type": "ExpansionPanel",
-      "caption": "3. Rule Output Assignments",
+      "caption": "3. Rule Output Assignments — define which outputs are used for each group/state rule",
       "items": [
         {
           "type": "List",
