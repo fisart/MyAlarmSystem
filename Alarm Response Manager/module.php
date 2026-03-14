@@ -53,6 +53,7 @@ class ARMResponseManagerMock extends IPSModule
         $this->RegisterPropertyString('ConfigBackupJson', '');
         $this->RegisterPropertyInteger('ScreenLogMaxEntries', 100);
         $this->RegisterPropertyString('VisibleGraphGroups', '[]');
+        $this->RegisterPropertyString('AssignmentMatrixConfig', '[]');
 
         $this->RegisterPropertyString('OutputResources', '[]');
         $this->RegisterPropertyString('GroupStateRules', '[]');
@@ -385,10 +386,12 @@ class ARMResponseManagerMock extends IPSModule
         $outputResources = $config['OutputResources'];
         $groupStateRules = $config['GroupStateRules'];
         $ruleOutputAssignments = $config['RuleOutputAssignments'];
+        $assignmentMatrixConfig = $config['AssignmentMatrixConfig'] ?? [];
 
         IPS_SetProperty($this->InstanceID, 'OutputResources', json_encode(array_values($outputResources)));
         IPS_SetProperty($this->InstanceID, 'GroupStateRules', json_encode(array_values($groupStateRules)));
         IPS_SetProperty($this->InstanceID, 'RuleOutputAssignments', json_encode(array_values($ruleOutputAssignments)));
+        IPS_SetProperty($this->InstanceID, 'AssignmentMatrixConfig', json_encode(array_values($assignmentMatrixConfig)));
         IPS_ApplyChanges($this->InstanceID);
 
         $this->SetStatus(205);
@@ -416,6 +419,10 @@ class ARMResponseManagerMock extends IPSModule
             }
         }
 
+        if (array_key_exists('AssignmentMatrixConfig', $config) && !is_array($config['AssignmentMatrixConfig'])) {
+            throw new Exception('Backup JSON field AssignmentMatrixConfig must be an array.');
+        }
+
         foreach ($config['OutputResources'] as $index => $row) {
             if (!is_array($row)) {
                 throw new Exception('OutputResources row ' . $index . ' is invalid.');
@@ -433,6 +440,14 @@ class ARMResponseManagerMock extends IPSModule
                 throw new Exception('RuleOutputAssignments row ' . $index . ' is invalid.');
             }
         }
+
+        if (array_key_exists('AssignmentMatrixConfig', $config)) {
+            foreach ($config['AssignmentMatrixConfig'] as $index => $row) {
+                if (!is_array($row)) {
+                    throw new Exception('AssignmentMatrixConfig row ' . $index . ' is invalid.');
+                }
+            }
+        }
     }
 
     public function ExportConfiguration(): void
@@ -444,9 +459,10 @@ class ARMResponseManagerMock extends IPSModule
             'instance_id' => $this->InstanceID,
             'target_name' => $this->GetModule1TargetDisplayName(),
             'config' => [
-                'OutputResources' => $this->readListProperty('OutputResources'),
-                'GroupStateRules' => $this->readListProperty('GroupStateRules'),
-                'RuleOutputAssignments' => $this->readListProperty('RuleOutputAssignments')
+                'OutputResources'        => $this->readListProperty('OutputResources'),
+                'GroupStateRules'        => $this->readListProperty('GroupStateRules'),
+                'RuleOutputAssignments'  => $this->readListProperty('RuleOutputAssignments'),
+                'AssignmentMatrixConfig' => $this->readListProperty('AssignmentMatrixConfig')
             ]
         ];
 
@@ -477,7 +493,6 @@ class ARMResponseManagerMock extends IPSModule
 
         $outputResources = $this->EnsureListRowIDsPersisted('OutputResources', 'OutputID', 'out_');
         $groupStateRules = $this->EnsureListRowIDsPersisted('GroupStateRules', 'RuleID', 'rule_');
-        $ruleOutputAssignments = $this->EnsureListRowIDsPersisted('RuleOutputAssignments', 'AssignmentID', 'asg_');
 
         $groupOptions = $this->buildGroupOptions($importedGroups, $groupStateRules);
         $groupLabels = $this->buildGroupLabels($importedGroups, $groupStateRules);
@@ -485,50 +500,39 @@ class ARMResponseManagerMock extends IPSModule
         $typeOptions = $this->buildTypeOptions($outputTypes, $outputResources);
         $typeLabels = $this->buildTypeLabels($outputTypes, $outputResources);
 
-        $ruleOptions = $this->buildRuleOptions($groupStateRules, $groupLabels);
-        $ruleLabels = $this->buildRuleLabels($groupStateRules, $groupLabels);
-
-        $outputOptions = $this->buildOutputOptions($outputResources, $typeLabels);
-        $outputLabels = $this->buildOutputLabels($outputResources);
-        $outputTypeLabels = $this->buildOutputTypeLabels($outputResources, $typeLabels);
-
         $this->setListColumnOptions($form, 'OutputResources', 'TypeID', $typeOptions);
         $this->setListColumnOptions($form, 'GroupStateRules', 'GroupKey', $groupOptions);
         $this->setListColumnOptions($form, 'GroupStateRules', 'HouseState', self::HOUSE_STATES);
         $this->setListColumnOptions($form, 'GroupStateRules', 'Severity', self::SEVERITY_LEVELS);
-        $this->setListColumnOptions($form, 'RuleOutputAssignments', 'RuleID', $ruleOptions);
-        $this->setListColumnOptions($form, 'RuleOutputAssignments', 'OutputID', $outputOptions);
         $this->setListFormFieldOptions($form, 'OutputResources', 'TypeID', $typeOptions);
         $this->setListFormFieldOptions($form, 'GroupStateRules', 'GroupKey', $groupOptions);
         $this->setListFormFieldOptions($form, 'GroupStateRules', 'HouseState', self::HOUSE_STATES);
         $this->setListFormFieldOptions($form, 'GroupStateRules', 'Severity', self::SEVERITY_LEVELS);
-        $this->setListFormFieldOptions($form, 'RuleOutputAssignments', 'RuleID', $ruleOptions);
-        $this->setListFormFieldOptions($form, 'RuleOutputAssignments', 'OutputID', $outputOptions);
 
         $resourceValues = [];
         foreach ($outputResources as $row) {
             $outputID = trim((string) ($row['OutputID'] ?? ''));
-
             $typeID = trim((string) ($row['TypeID'] ?? ''));
+
             $resourceValues[] = [
-                'Active'            => (bool) ($row['Active'] ?? true),
-                'OutputID'          => $outputID,
-                'Name'              => (string) ($row['Name'] ?? ''),
-                'TypeID'            => $typeID,
-                'TargetObjectID'    => (int) ($row['TargetObjectID'] ?? 0),
-                'MaxMessages'       => (int) ($row['MaxMessages'] ?? 1),
-                'PerSeconds'        => (int) ($row['PerSeconds'] ?? 60),
-                'PrefixText'        => (string) ($row['PrefixText'] ?? ''),
-                'UseSensorName'     => (bool) ($row['UseSensorName'] ?? true),
-                'UseParentName'     => (bool) ($row['UseParentName'] ?? false),
+                'Active'             => (bool) ($row['Active'] ?? true),
+                'OutputID'           => $outputID,
+                'Name'               => (string) ($row['Name'] ?? ''),
+                'TypeID'             => $typeID,
+                'TargetObjectID'     => (int) ($row['TargetObjectID'] ?? 0),
+                'MaxMessages'        => (int) ($row['MaxMessages'] ?? 1),
+                'PerSeconds'         => (int) ($row['PerSeconds'] ?? 60),
+                'PrefixText'         => (string) ($row['PrefixText'] ?? ''),
+                'UseSensorName'      => (bool) ($row['UseSensorName'] ?? true),
+                'UseParentName'      => (bool) ($row['UseParentName'] ?? false),
                 'UseGrandparentName' => (bool) ($row['UseGrandparentName'] ?? false),
                 'UseContent'         => (bool) ($row['UseContent'] ?? false),
-                'SuffixText'        => (string) ($row['SuffixText'] ?? ''),
-                'EmailAddress'      => (string) ($row['EmailAddress'] ?? ''),
-                'PhoneNumber'       => (string) ($row['PhoneNumber'] ?? ''),
-                'Volume'            => (string) ($row['Volume'] ?? ''),
-                'TypeLabel'         => $typeLabels[$typeID] ?? '[missing type]',
-                'RowSummary'        => $this->buildOutputSummary($row, $typeLabels)
+                'SuffixText'         => (string) ($row['SuffixText'] ?? ''),
+                'EmailAddress'       => (string) ($row['EmailAddress'] ?? ''),
+                'PhoneNumber'        => (string) ($row['PhoneNumber'] ?? ''),
+                'Volume'             => (string) ($row['Volume'] ?? ''),
+                'TypeLabel'          => $typeLabels[$typeID] ?? '[missing type]',
+                'RowSummary'         => $this->buildOutputSummary($row, $typeLabels)
             ];
         }
         $this->setListValues($form, 'OutputResources', $resourceValues);
@@ -536,48 +540,255 @@ class ARMResponseManagerMock extends IPSModule
         $ruleValues = [];
         foreach ($groupStateRules as $row) {
             $ruleID = trim((string) ($row['RuleID'] ?? ''));
-
             $groupKey = trim((string) ($row['GroupKey'] ?? ''));
             $houseState = trim((string) ($row['HouseState'] ?? ''));
 
             $ruleValues[] = [
-                'Active'      => (bool) ($row['Active'] ?? true),
-                'RuleID'      => $ruleID,
-                'GroupKey'    => $groupKey,
-                'HouseState'  => $houseState,
-                'Severity'    => (string) ($row['Severity'] ?? ''),
-                'GroupLabel'  => $groupLabels[$groupKey] ?? '[missing group]',
-                'RuleLabel'   => $this->buildRuleLabel($row, $groupLabels),
-                'RowSummary'  => $this->buildRuleSummary($row, $groupLabels)
+                'Active'     => (bool) ($row['Active'] ?? true),
+                'RuleID'     => $ruleID,
+                'GroupKey'   => $groupKey,
+                'HouseState' => $houseState,
+                'Severity'   => (string) ($row['Severity'] ?? ''),
+                'GroupLabel' => $groupLabels[$groupKey] ?? '[missing group]',
+                'RuleLabel'  => $this->buildRuleLabel($row, $groupLabels),
+                'RowSummary' => $this->buildRuleSummary($row, $groupLabels)
             ];
         }
         $this->setListValues($form, 'GroupStateRules', $ruleValues);
 
-        $assignmentValues = [];
-        foreach ($ruleOutputAssignments as $row) {
-            $assignmentID = trim((string) ($row['AssignmentID'] ?? ''));
-
-            $ruleID = trim((string) ($row['RuleID'] ?? ''));
-            $outputID = trim((string) ($row['OutputID'] ?? ''));
-
-            $assignmentValues[] = [
-                'Active'          => (bool) ($row['Active'] ?? true),
-                'AssignmentID'    => $assignmentID,
-                'RuleID'          => $ruleID,
-                'OutputID'        => $outputID,
-                'RuleLabel'       => $ruleLabels[$ruleID] ?? '[missing rule]',
-                'OutputName'      => $outputLabels[$outputID] ?? '[missing output]',
-                'OutputTypeLabel' => $outputTypeLabels[$outputID] ?? '[missing type]',
-                'RowSummary'      => $this->buildAssignmentSummary(
-                    $ruleLabels[$ruleID] ?? '[missing rule]',
-                    $outputLabels[$outputID] ?? '[missing output]',
-                    $outputTypeLabels[$outputID] ?? '[missing type]'
-                )
-            ];
-        }
-        $this->setListValues($form, 'RuleOutputAssignments', $assignmentValues);
+        $matrixValues = $this->BuildAssignmentMatrixPropertyValues($importedGroups, $groupStateRules);
+        $this->setListValues($form, 'AssignmentMatrixConfig', $matrixValues);
 
         return json_encode($form);
+    }
+
+
+
+    private function BuildAssignmentMatrixPropertyValues(array $importedGroups, array $groupStateRules): array
+    {
+        $stored = $this->readListProperty('AssignmentMatrixConfig');
+        if (count($stored) > 0) {
+            return $this->NormalizeAssignmentMatrixRows($stored, $importedGroups);
+        }
+
+        return $this->BuildAssignmentMatrixFromFlatAssignments($importedGroups, $groupStateRules);
+    }
+
+    private function BuildAssignmentMatrixFromFlatAssignments(array $importedGroups, array $groupStateRules): array
+    {
+        $existingAssignments = $this->readListProperty('RuleOutputAssignments');
+        $assignedByOutputAndRule = [];
+
+        foreach ($existingAssignments as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            if (!(bool) ($row['Active'] ?? true)) {
+                continue;
+            }
+
+            $outputID = trim((string) ($row['OutputID'] ?? ''));
+            $ruleID = trim((string) ($row['RuleID'] ?? ''));
+            if ($outputID === '' || $ruleID === '') {
+                continue;
+            }
+
+            $assignedByOutputAndRule[$outputID][$ruleID] = true;
+        }
+
+        $ruleMap = $this->BuildGroupStateRuleMap($groupStateRules);
+
+        $rows = [];
+        foreach ($importedGroups as $group) {
+            $groupKey = trim((string) ($group['GroupKey'] ?? ''));
+            $groupLabel = trim((string) ($group['GroupLabel'] ?? $groupKey));
+            if ($groupKey === '') {
+                continue;
+            }
+
+            foreach ($this->readListProperty('OutputResources') as $outputRow) {
+                if (!is_array($outputRow)) {
+                    continue;
+                }
+
+                $outputID = trim((string) ($outputRow['OutputID'] ?? ''));
+                if ($outputID === '') {
+                    continue;
+                }
+
+                $row = [
+                    'OutputID'    => $outputID,
+                    'OutputLabel' => trim((string) ($outputRow['Name'] ?? $outputID)),
+                    'GroupKey'    => $groupKey,
+                    'GroupLabel'  => $groupLabel,
+                    'AllStates'   => false,
+                    'NoneStates'  => false,
+                    'HS_0'        => false,
+                    'HS_2'        => false,
+                    'HS_3'        => false,
+                    'HS_6'        => false,
+                    'HS_9'        => false
+                ];
+
+                foreach (['0', '2', '3', '6', '9'] as $state) {
+                    $ruleID = $ruleMap[$groupKey . '|' . $state] ?? '';
+                    if ($ruleID !== '' && isset($assignedByOutputAndRule[$outputID][$ruleID])) {
+                        $row['HS_' . $state] = true;
+                    }
+                }
+
+                $rows[] = $this->NormalizeAssignmentMatrixRow($row);
+            }
+        }
+
+        return $rows;
+    }
+
+    private function NormalizeAssignmentMatrixRows(array $rows, array $importedGroups): array
+    {
+        $validGroups = [];
+        foreach ($importedGroups as $group) {
+            $groupKey = trim((string) ($group['GroupKey'] ?? ''));
+            $groupLabel = trim((string) ($group['GroupLabel'] ?? $groupKey));
+            if ($groupKey !== '') {
+                $validGroups[$groupKey] = $groupLabel;
+            }
+        }
+
+        $validOutputs = [];
+        foreach ($this->readListProperty('OutputResources') as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $outputID = trim((string) ($row['OutputID'] ?? ''));
+            if ($outputID === '') {
+                continue;
+            }
+
+            $validOutputs[$outputID] = trim((string) ($row['Name'] ?? $outputID));
+        }
+
+        $normalized = [];
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $outputID = trim((string) ($row['OutputID'] ?? ''));
+            $groupKey = trim((string) ($row['GroupKey'] ?? ''));
+            if ($outputID === '' || $groupKey === '') {
+                continue;
+            }
+
+            if (!isset($validOutputs[$outputID]) || !isset($validGroups[$groupKey])) {
+                continue;
+            }
+
+            $row['OutputLabel'] = $validOutputs[$outputID];
+            $row['GroupLabel'] = $validGroups[$groupKey];
+            $normalized[] = $this->NormalizeAssignmentMatrixRow($row);
+        }
+
+        return array_values($normalized);
+    }
+
+    private function NormalizeAssignmentMatrixRow(array $row): array
+    {
+        foreach (['HS_0', 'HS_2', 'HS_3', 'HS_6', 'HS_9', 'AllStates', 'NoneStates'] as $key) {
+            $row[$key] = (bool) ($row[$key] ?? false);
+        }
+
+        if ($row['AllStates']) {
+            $row['HS_0'] = true;
+            $row['HS_2'] = true;
+            $row['HS_3'] = true;
+            $row['HS_6'] = true;
+            $row['HS_9'] = true;
+            $row['NoneStates'] = false;
+        } elseif ($row['NoneStates']) {
+            $row['HS_0'] = false;
+            $row['HS_2'] = false;
+            $row['HS_3'] = false;
+            $row['HS_6'] = false;
+            $row['HS_9'] = false;
+            $row['AllStates'] = false;
+        } else {
+            $all = $row['HS_0'] && $row['HS_2'] && $row['HS_3'] && $row['HS_6'] && $row['HS_9'];
+            $none = !$row['HS_0'] && !$row['HS_2'] && !$row['HS_3'] && !$row['HS_6'] && !$row['HS_9'];
+            $row['AllStates'] = $all;
+            $row['NoneStates'] = $none;
+        }
+
+        return $row;
+    }
+
+    private function BuildGroupStateRuleMap(array $groupStateRules): array
+    {
+        $ruleMap = [];
+        foreach ($groupStateRules as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $groupKey = trim((string) ($row['GroupKey'] ?? ''));
+            $houseState = trim((string) ($row['HouseState'] ?? ''));
+            $ruleID = trim((string) ($row['RuleID'] ?? ''));
+
+            if ($groupKey === '' || $houseState === '' || $ruleID === '') {
+                continue;
+            }
+
+            $ruleMap[$groupKey . '|' . $houseState] = $ruleID;
+        }
+
+        return $ruleMap;
+    }
+
+    private function GetEffectiveRuleOutputAssignments(): array
+    {
+        $matrixRows = $this->readListProperty('AssignmentMatrixConfig');
+        if (count($matrixRows) === 0) {
+            return $this->readListProperty('RuleOutputAssignments');
+        }
+
+        $groupStateRules = $this->readListProperty('GroupStateRules');
+        $ruleMap = $this->BuildGroupStateRuleMap($groupStateRules);
+
+        $result = [];
+        foreach ($matrixRows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $row = $this->NormalizeAssignmentMatrixRow($row);
+
+            $outputID = trim((string) ($row['OutputID'] ?? ''));
+            $groupKey = trim((string) ($row['GroupKey'] ?? ''));
+            if ($outputID === '' || $groupKey === '') {
+                continue;
+            }
+
+            foreach (['0', '2', '3', '6', '9'] as $state) {
+                if (!(bool) ($row['HS_' . $state] ?? false)) {
+                    continue;
+                }
+
+                $ruleID = $ruleMap[$groupKey . '|' . $state] ?? '';
+                if ($ruleID === '') {
+                    continue;
+                }
+
+                $result[] = [
+                    'Active'       => true,
+                    'AssignmentID' => 'asgmat_' . substr(md5($outputID . '|' . $groupKey . '|' . $state), 0, 12),
+                    'RuleID'       => $ruleID,
+                    'OutputID'     => $outputID
+                ];
+            }
+        }
+
+        return $result;
     }
 
     protected function ProcessHookData()
@@ -1655,7 +1866,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     private function FindAssignmentsForRuleID(string $ruleID): array
     {
-        $rows = $this->readListProperty('RuleOutputAssignments');
+        $rows = $this->GetEffectiveRuleOutputAssignments();
         $result = [];
 
         foreach ($rows as $row) {
@@ -2223,7 +2434,7 @@ document.addEventListener("DOMContentLoaded", () => {
         $visibleGroupKeys = array_fill_keys($this->GetVisibleGraphGroupKeys($groups), true);
 
         $rules = $this->readListProperty('GroupStateRules');
-        $assignments = $this->readListProperty('RuleOutputAssignments');
+        $assignments = $this->GetEffectiveRuleOutputAssignments();
         $outputs = $this->readListProperty('OutputResources');
 
         $groups = array_values(array_filter($groups, function (array $group) use ($visibleGroupKeys): bool {
