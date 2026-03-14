@@ -557,6 +557,50 @@ class ARMResponseManagerMock extends IPSModule
         return $this->BuildGroupStateMatrixFromFlatRules($importedGroups, $flatGroupStateRules);
     }
 
+    private function NormalizeGroupStateMatrixRow(array $row): array
+    {
+        foreach (['0', '2', '3', '6', '9'] as $state) {
+            $row['S_' . $state . '_Active'] = (bool) ($row['S_' . $state . '_Active'] ?? false);
+            $row['S_' . $state . '_Severity'] = trim((string) ($row['S_' . $state . '_Severity'] ?? ''));
+        }
+
+        $row['All_On'] = (bool) ($row['All_On'] ?? false);
+        $row['All_Severity'] = trim((string) ($row['All_Severity'] ?? ''));
+
+        if ($row['All_On']) {
+            foreach (['0', '2', '3', '6', '9'] as $state) {
+                $row['S_' . $state . '_Active'] = true;
+            }
+        }
+
+        if ($row['All_Severity'] !== '') {
+            foreach (['0', '2', '3', '6', '9'] as $state) {
+                $row['S_' . $state . '_Severity'] = $row['All_Severity'];
+            }
+        }
+
+        $allOn = true;
+        $firstSeverity = null;
+        $sameSeverity = true;
+
+        foreach (['0', '2', '3', '6', '9'] as $state) {
+            if (!$row['S_' . $state . '_Active']) {
+                $allOn = false;
+            }
+
+            if ($firstSeverity === null) {
+                $firstSeverity = $row['S_' . $state . '_Severity'];
+            } elseif ($row['S_' . $state . '_Severity'] !== $firstSeverity) {
+                $sameSeverity = false;
+            }
+        }
+
+        $row['All_On'] = $allOn;
+        $row['All_Severity'] = $sameSeverity ? (string) $firstSeverity : '';
+
+        return $row;
+    }
+
     private function BuildGroupStateMatrixFromFlatRules(array $importedGroups, array $flatGroupStateRules): array
     {
         $ruleMap = [];
@@ -586,20 +630,19 @@ class ARMResponseManagerMock extends IPSModule
             }
 
             $row = [
-                'GroupKey'   => $groupKey,
-                'GroupLabel' => $groupLabel
+                'GroupKey'     => $groupKey,
+                'GroupLabel'   => $groupLabel,
+                'All_On'       => false,
+                'All_Severity' => ''
             ];
 
             foreach (['0', '2', '3', '6', '9'] as $state) {
                 $cell = $ruleMap[$groupKey . '|' . $state] ?? ['Active' => false, 'Severity' => ''];
                 $row['S_' . $state . '_Active'] = (bool) ($cell['Active'] ?? false);
                 $row['S_' . $state . '_Severity'] = trim((string) ($cell['Severity'] ?? ''));
-                $row['S_' . $state . '_Display'] = $row['S_' . $state . '_Active']
-                    ? ($row['S_' . $state . '_Severity'] !== '' ? $row['S_' . $state . '_Severity'] : 'On')
-                    : 'Off';
             }
 
-            $rows[] = $row;
+            $rows[] = $this->NormalizeGroupStateMatrixRow($row);
         }
 
         return $rows;
@@ -628,16 +671,7 @@ class ARMResponseManagerMock extends IPSModule
             }
 
             $row['GroupLabel'] = $validGroups[$groupKey];
-
-            foreach (['0', '2', '3', '6', '9'] as $state) {
-                $row['S_' . $state . '_Active'] = (bool) ($row['S_' . $state . '_Active'] ?? false);
-                $row['S_' . $state . '_Severity'] = trim((string) ($row['S_' . $state . '_Severity'] ?? ''));
-                $row['S_' . $state . '_Display'] = $row['S_' . $state . '_Active']
-                    ? ($row['S_' . $state . '_Severity'] !== '' ? $row['S_' . $state . '_Severity'] : 'On')
-                    : 'Off';
-            }
-
-            $normalized[] = $row;
+            $normalized[] = $this->NormalizeGroupStateMatrixRow($row);
         }
 
         return array_values($normalized);
