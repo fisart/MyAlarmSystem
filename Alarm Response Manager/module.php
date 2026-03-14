@@ -566,12 +566,58 @@ class ARMResponseManagerMock extends IPSModule
 
     private function BuildAssignmentMatrixPropertyValues(array $importedGroups, array $groupStateRules): array
     {
-        $stored = $this->readListProperty('AssignmentMatrixConfig');
-        if (count($stored) > 0) {
-            return $this->NormalizeAssignmentMatrixRows($stored, $importedGroups);
+        $baseRows = $this->BuildAssignmentMatrixFromFlatAssignments($importedGroups, $groupStateRules);
+        $storedRows = $this->readListProperty('AssignmentMatrixConfig');
+
+        if (count($storedRows) === 0) {
+            return $baseRows;
         }
 
-        return $this->BuildAssignmentMatrixFromFlatAssignments($importedGroups, $groupStateRules);
+        $storedRows = $this->NormalizeAssignmentMatrixRows($storedRows, $importedGroups);
+
+        $storedMap = [];
+        foreach ($storedRows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $outputID = trim((string) ($row['OutputID'] ?? ''));
+            $groupKey = trim((string) ($row['GroupKey'] ?? ''));
+            if ($outputID === '' || $groupKey === '') {
+                continue;
+            }
+
+            $storedMap[$outputID . '|' . $groupKey] = $row;
+        }
+
+        $merged = [];
+        foreach ($baseRows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $outputID = trim((string) ($row['OutputID'] ?? ''));
+            $groupKey = trim((string) ($row['GroupKey'] ?? ''));
+            $key = $outputID . '|' . $groupKey;
+
+            if (isset($storedMap[$key])) {
+                $stored = $storedMap[$key];
+
+                $row['HS_0'] = (bool) ($stored['HS_0'] ?? false);
+                $row['HS_2'] = (bool) ($stored['HS_2'] ?? false);
+                $row['HS_3'] = (bool) ($stored['HS_3'] ?? false);
+                $row['HS_6'] = (bool) ($stored['HS_6'] ?? false);
+                $row['HS_9'] = (bool) ($stored['HS_9'] ?? false);
+                $row['AllStates'] = (bool) ($stored['AllStates'] ?? false);
+                $row['NoneStates'] = (bool) ($stored['NoneStates'] ?? false);
+
+                $row = $this->NormalizeAssignmentMatrixRow($row);
+            }
+
+            $merged[] = $row;
+        }
+
+        return array_values($merged);
     }
 
     private function BuildAssignmentMatrixFromFlatAssignments(array $importedGroups, array $groupStateRules): array
