@@ -29,103 +29,235 @@
       "name": "ImportedModule1ConfigJson",
       "caption": "Imported Module 1 Config JSON"
     },
-{
-  "type": "ExpansionPanel",
-  "caption": "3. Rule Output Assignments",
-  "items": [
     {
-      "type": "List",
-      "name": "AssignmentMatrixConfig",
-      "caption": "Rule Output Matrix",
-      "rowCount": 12,
-      "add": false,
-      "delete": false,
-      "loadValuesFromConfiguration": false,
-      "columns": [
+      "type": "ExpansionPanel",
+      "caption": "1. Output Resources",
+      "items": [
         {
-          "caption": "OutputID",
-          "name": "OutputID",
-          "width": "1px",
-          "add": "",
-          "visible": false,
-          "edit": { "type": "ValidationTextBox" }
+          "type": "Label",
+          "caption": "Target Object ID must be a script or an instance."
         },
         {
-          "caption": "GroupKey",
-          "name": "GroupKey",
-          "width": "1px",
-          "add": "",
-          "visible": false,
-          "edit": { "type": "ValidationTextBox" }
-        },
-        {
-          "caption": "Group",
-          "name": "GroupLabel",
-          "width": "220px",
-          "add": "",
-          "save": false
-        },
-        {
-          "caption": "Output",
-          "name": "OutputLabel",
-          "width": "180px",
-          "add": "",
-          "save": false
-        },
-        {
-          "caption": "All",
-          "name": "AllStates",
-          "width": "50px",
-          "add": false,
-          "edit": { "type": "CheckBox" }
-        },
-        {
-          "caption": "None",
-          "name": "NoneStates",
-          "width": "60px",
-          "add": false,
-          "edit": { "type": "CheckBox" }
-        },
-        {
-          "caption": "Disarmed",
-          "name": "HS_0",
-          "width": "75px",
-          "add": false,
-          "edit": { "type": "CheckBox" }
-        },
-        {
-          "caption": "Exit Delay",
-          "name": "HS_2",
-          "width": "75px",
-          "add": false,
-          "edit": { "type": "CheckBox" }
-        },
-        {
-          "caption": "Armed Ext",
-          "name": "HS_3",
-          "width": "80px",
-          "add": false,
-          "edit": { "type": "CheckBox" }
-        },
-        {
-          "caption": "Armed Int",
-          "name": "HS_6",
-          "width": "80px",
-          "add": false,
-          "edit": { "type": "CheckBox" }
-        },
-        {
-          "caption": "Alarm",
-          "name": "HS_9",
-          "width": "65px",
-          "add": false,
-          "edit": { "type": "CheckBox" }
+          "type": "List",
+          "name": "OutputResources",
+          "caption": "Output Resources",
+          "rowCount": 8,
+          "add": true,
+          "delete": true,
+          "loadValuesFromConfiguration": false,
+          "sort": {
+            "column": "Name",
+            "direction": "ascending"
+          },
+          "columns": [
+            {
+              "caption": "Active",
+              "name": "Active",
+              "width": "70px",
+              "add": true,
+              "edit": { "type": "CheckBox" }
+            },
+            {
+              "caption": "OutputID",
+              "name": "OutputID",
+              "width": "140px",
+              "add": "",
+              "edit": { "type": "ValidationTextBox" },
+              "visible": false
+            },
+            {
+              "caption": "Name",
+              "name": "Name",
+              "width": "180px",
+              "add": "",
+              "edit": { "type": "ValidationTextBox" }
+            },
+            {
+              "caption": "TypeID",
+              "name": "TypeID",
+              "width": "180px",
+              "add": "",
+              "edit": {
+                "type": "Select",
+                "options": []
+              }
+            },
+            {
+              "caption": "Target ObjID",
+              "name": "TargetObjectID",
+              "width": "120px",
+              "add": 0,
+              "edit": { "type": "SelectObject" }
+            },
+            {
+              "caption": "Max Msg",
+              "name": "MaxMessages",
+              "width": "85px",
+              "add": 1,
+              "edit": { "type": "NumberSpinner" }
+            },
+            {
+              "caption": "Per Sec",
+              "name": "PerSeconds",
+              "width": "85px",
+              "add": 60,
+              "edit": { "type": "NumberSpinner" }
+            },
+            {
+              "caption": "Prefix",
+              "name": "PrefixText",
+              "width": "140px",
+              "add": "",
+              "edit": { "type": "ValidationTextBox" }
+            },
+            {
+              "caption": "Sensor",
+              "name": "UseSensorName",
+              "width": "60px",
+              "add": true,
+              "edit": { "type": "CheckBox" }
+            },
+            {
+              "caption": "Parent",
+              "name": "UseParentName",
+              "width": "60px",
+              "add": false,
+              "edit": { "type": "CheckBox" }
+            },
+            {
+              "caption": "Grand",
+              "name": "UseGrandparentName",
+              "width": "60px",
+              "add": false,
+              "edit": { "type": "CheckBox" }
+            },
+            {
+              "caption": "Content",
+              "name": "UseContent",
+              "width": "70px",
+              "add": false,
+              "edit": { "type": "CheckBox" }
+            },
+            {
+              "caption": "Suffix",
+              "name": "SuffixText",
+              "width": "140px",
+              "add": "",
+              "edit": { "type": "ValidationTextBox" }
+            },
+            {
+              "caption": "Phone Number",
+              "name": "PhoneNumber",
+              "width": "140px",
+              "add": "",
+              "edit": { "type": "ValidationTextBox" }
+            },
+            {
+              "caption": "Volume",
+              "name": "Volume",
+              "width": "80px",
+              "add": "",
+              "edit": { "type": "ValidationTextBox" }
+            },
+            {
+              "caption": "Type Label",
+              "name": "TypeLabel",
+              "width": "140px",
+              "add": "",
+              "save": false
+            },
+            {
+              "caption": "Summary",
+              "name": "RowSummary",
+              "width": "auto",
+              "add": "",
+              "save": false
+            }
+          ],
+          "form": [
+            {
+              "type": "ValidationTextBox",
+              "name": "OutputID",
+              "caption": "OutputID",
+              "visible": false,
+              "enabled": false
+            },
+            {
+              "type": "CheckBox",
+              "name": "Active",
+              "caption": "Active"
+            },
+            {
+              "type": "ValidationTextBox",
+              "name": "Name",
+              "caption": "Name"
+            },
+            {
+              "type": "Select",
+              "name": "TypeID",
+              "caption": "Type",
+              "options": []
+            },
+            {
+              "type": "SelectObject",
+              "name": "TargetObjectID",
+              "caption": "Target Object"
+            },
+            {
+              "type": "NumberSpinner",
+              "name": "MaxMessages",
+              "caption": "Max Messages"
+            },
+            {
+              "type": "NumberSpinner",
+              "name": "PerSeconds",
+              "caption": "Per Seconds"
+            },
+            {
+              "type": "ValidationTextBox",
+              "name": "PrefixText",
+              "caption": "Prefix"
+            },
+            {
+              "type": "CheckBox",
+              "name": "UseSensorName",
+              "caption": "Use Sensor Name"
+            },
+            {
+              "type": "CheckBox",
+              "name": "UseParentName",
+              "caption": "Use Parent Name"
+            },
+            {
+              "type": "CheckBox",
+              "name": "UseGrandparentName",
+              "caption": "Use Grandparent Name"
+            },
+            {
+              "type": "CheckBox",
+              "name": "UseContent",
+              "caption": "Use Content"
+            },
+            {
+              "type": "ValidationTextBox",
+              "name": "SuffixText",
+              "caption": "Suffix"
+            },
+            {
+              "type": "ValidationTextBox",
+              "name": "PhoneNumber",
+              "caption": "Phone Number"
+            },
+            {
+              "type": "ValidationTextBox",
+              "name": "Volume",
+              "caption": "Volume"
+            }
+          ],
+          "values": []
         }
-      ],
-      "values": []
-    }
-  ]
-},
+      ]
+    },
     {
       "type": "ExpansionPanel",
       "caption": "2. Group-State Rules",
@@ -241,7 +373,6 @@
               "caption": "Severity",
               "options": []
             }
-
           ],
           "values": []
         }
@@ -253,105 +384,91 @@
       "items": [
         {
           "type": "List",
-          "name": "RuleOutputAssignments",
-          "caption": "Rule Output Assignments",
-          "rowCount": 10,
-          "add": true,
-          "delete": true,
+          "name": "AssignmentMatrixConfig",
+          "caption": "Rule Output Matrix",
+          "rowCount": 12,
+          "add": false,
+          "delete": false,
           "loadValuesFromConfiguration": false,
-          "sort": {
-            "column": "RowSummary",
-            "direction": "ascending"
-          },
           "columns": [
-            {
-              "caption": "Active",
-              "name": "Active",
-              "width": "70px",
-              "add": true,
-              "edit": { "type": "CheckBox" }
-            },
-            {
-              "caption": "AssignmentID",
-              "name": "AssignmentID",
-              "width": "140px",
-              "add": "",
-              "edit": { "type": "ValidationTextBox" },
-              "visible": false
-            },
-            {
-              "caption": "RuleID",
-              "name": "RuleID",
-              "width": "220px",
-              "add": "",
-              "edit": {
-                "type": "Select",
-                "options": []
-              }
-            },
             {
               "caption": "OutputID",
               "name": "OutputID",
-              "width": "220px",
+              "width": "1px",
               "add": "",
-              "edit": {
-                "type": "Select",
-                "options": []
-              }
+              "visible": false,
+              "edit": { "type": "ValidationTextBox" }
             },
             {
-              "caption": "Rule Label",
-              "name": "RuleLabel",
+              "caption": "GroupKey",
+              "name": "GroupKey",
+              "width": "1px",
+              "add": "",
+              "visible": false,
+              "edit": { "type": "ValidationTextBox" }
+            },
+            {
+              "caption": "Group",
+              "name": "GroupLabel",
               "width": "220px",
               "add": "",
               "save": false
             },
             {
-              "caption": "Output Name",
-              "name": "OutputName",
+              "caption": "Output",
+              "name": "OutputLabel",
               "width": "180px",
               "add": "",
               "save": false
             },
             {
-              "caption": "Output Type",
-              "name": "OutputTypeLabel",
-              "width": "140px",
-              "add": "",
-              "save": false
+              "caption": "All",
+              "name": "AllStates",
+              "width": "50px",
+              "add": false,
+              "edit": { "type": "CheckBox" }
             },
             {
-              "caption": "Summary",
-              "name": "RowSummary",
-              "width": "auto",
-              "add": "",
-              "save": false
-            }
-          ],
-          "form": [
-            {
-              "type": "ValidationTextBox",
-              "name": "AssignmentID",
-              "caption": "AssignmentID",
-              "visible": false,
-              "enabled": false
+              "caption": "None",
+              "name": "NoneStates",
+              "width": "60px",
+              "add": false,
+              "edit": { "type": "CheckBox" }
             },
             {
-              "type": "CheckBox",
-              "name": "Active",
-              "caption": "Active"
+              "caption": "Disarmed",
+              "name": "HS_0",
+              "width": "75px",
+              "add": false,
+              "edit": { "type": "CheckBox" }
             },
             {
-              "type": "Select",
-              "name": "RuleID",
-              "caption": "Rule",
-              "options": []
+              "caption": "Exit Delay",
+              "name": "HS_2",
+              "width": "75px",
+              "add": false,
+              "edit": { "type": "CheckBox" }
             },
             {
-              "type": "Select",
-              "name": "OutputID",
-              "caption": "Output",
-              "options": []
+              "caption": "Armed Ext",
+              "name": "HS_3",
+              "width": "80px",
+              "add": false,
+              "edit": { "type": "CheckBox" }
+            },
+            {
+              "caption": "Armed Int",
+              "name": "HS_6",
+              "width": "80px",
+              "add": false,
+              "edit": { "type": "CheckBox" }
+            },
+            {
+              "caption": "Alarm",
+              "name": "HS_9",
+              "width": "65px",
+              "add": false,
+              "edit": { "type": "CheckBox" }
             }
           ],
           "values": []
