@@ -59,7 +59,7 @@ class ARMResponseManagerMock extends IPSModule
         $this->RegisterPropertyString('OutputResources', '[]');
         $this->RegisterPropertyString('GroupStateRules', '[]');
         $this->RegisterPropertyString('RuleOutputAssignments', '[]');
-        $this->RegisterPropertyString('GroupStateMatrixConfig', '[]');
+
 
         $this->RegisterAttributeString('CachedHouseStateSnapshot', '');
         $this->RegisterAttributeInteger('CachedHouseStateReceivedAt', 0);
