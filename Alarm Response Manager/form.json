@@ -132,6 +132,13 @@
               "edit": { "type": "CheckBox" }
             },
             {
+              "caption": "Content",
+              "name": "UseContent",
+              "width": "70px",
+              "add": false,
+              "edit": { "type": "CheckBox" }
+            },
+            {
               "caption": "Suffix",
               "name": "SuffixText",
               "width": "140px",
@@ -225,6 +232,11 @@
               "type": "CheckBox",
               "name": "UseGrandparentName",
               "caption": "Use Grandparent Name"
+            },
+            {
+              "type": "CheckBox",
+              "name": "UseContent",
+              "caption": "Use Content"
             },
             {
               "type": "ValidationTextBox",

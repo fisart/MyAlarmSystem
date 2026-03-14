@@ -522,6 +522,7 @@ class ARMResponseManagerMock extends IPSModule
                 'UseSensorName'     => (bool) ($row['UseSensorName'] ?? true),
                 'UseParentName'     => (bool) ($row['UseParentName'] ?? false),
                 'UseGrandparentName' => (bool) ($row['UseGrandparentName'] ?? false),
+                'UseContent'         => (bool) ($row['UseContent'] ?? false),
                 'SuffixText'        => (string) ($row['SuffixText'] ?? ''),
                 'EmailAddress'      => (string) ($row['EmailAddress'] ?? ''),
                 'PhoneNumber'       => (string) ($row['PhoneNumber'] ?? ''),
@@ -1733,12 +1734,20 @@ document.addEventListener("DOMContentLoaded", () => {
         $sensorName = '';
         $parentName = '';
         $grandparentName = '';
+        $content = '';
 
         $trigger = $payload['target_trigger_details'] ?? [];
         if (is_array($trigger)) {
             $sensorName = trim((string) ($trigger['smart_label'] ?? $trigger['SensorName'] ?? ''));
             $parentName = trim((string) ($trigger['ParentName'] ?? $trigger['parent_name'] ?? ''));
             $grandparentName = trim((string) ($trigger['GrandParentName'] ?? $trigger['grandparent_name'] ?? ''));
+
+            $valueHuman = trim((string) ($trigger['value_human'] ?? ''));
+            if ($valueHuman !== '') {
+                $content = $valueHuman;
+            } elseif (array_key_exists('value_raw', $trigger)) {
+                $content = trim((string) $trigger['value_raw']);
+            }
         }
 
         $sensorDetails = $payload['target_active_sensor_details'] ?? [];
@@ -1753,6 +1762,14 @@ document.addEventListener("DOMContentLoaded", () => {
             }
             if ($grandparentName === '') {
                 $grandparentName = trim((string) ($first['GrandParentName'] ?? $first['grandparent_name'] ?? ''));
+            }
+            if ($content === '') {
+                $valueHuman = trim((string) ($first['value_human'] ?? ''));
+                if ($valueHuman !== '') {
+                    $content = $valueHuman;
+                } elseif (array_key_exists('value_raw', $first)) {
+                    $content = trim((string) $first['value_raw']);
+                }
             }
         }
 
@@ -1772,6 +1789,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
         if ((bool) ($resource['UseGrandparentName'] ?? false) && $grandparentName !== '') {
             $parts[] = $grandparentName;
+        }
+
+        if ((bool) ($resource['UseContent'] ?? false) && $content !== '') {
+            $parts[] = $content;
         }
 
         if ($suffix !== '') {
