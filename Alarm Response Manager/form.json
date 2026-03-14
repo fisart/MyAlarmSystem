@@ -262,9 +262,13 @@
       "type": "ExpansionPanel",
       "caption": "2. Group-State Rules",
       "items": [
-        {
-          "type": "List",
-          "name": "GroupStateMatrixConfig",
+  {
+    "type": "Label",
+    "caption": "Abbreviations: D = Disarmed, E = Exit Delay, AE = Armed External, AI = Armed Internal, A = Alarm"
+  },
+  {
+    "type": "List",
+    "name": "GroupStateMatrixConfig",
           "caption": "Group-State Rule Matrix",
           "rowCount": 10,
           "add": false,
