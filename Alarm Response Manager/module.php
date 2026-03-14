@@ -52,6 +52,7 @@ class ARMResponseManagerMock extends IPSModule
         $this->RegisterPropertyString('ImportedModule1ConfigJson', '');
         $this->RegisterPropertyString('ConfigBackupJson', '');
         $this->RegisterPropertyInteger('ScreenLogMaxEntries', 100);
+        $this->RegisterPropertyString('VisibleGraphGroups', '[]');
 
         $this->RegisterPropertyString('OutputResources', '[]');
         $this->RegisterPropertyString('GroupStateRules', '[]');
@@ -84,6 +85,84 @@ class ARMResponseManagerMock extends IPSModule
         $this->RegisterHook('/hook/psm_output_' . $this->InstanceID);
 
         $this->SetStatus(102);
+    }
+
+    private function GetVisibleGraphGroupKeys(array $groups): array
+    {
+        $available = [];
+        foreach ($groups as $group) {
+            $groupKey = trim((string) ($group['GroupKey'] ?? ''));
+            if ($groupKey !== '') {
+                $available[$groupKey] = true;
+            }
+        }
+
+        $raw = $this->ReadPropertyString('VisibleGraphGroups');
+        $stored = json_decode($raw, true);
+
+        if (!is_array($stored) || count($stored) === 0) {
+            return array_keys($available);
+        }
+
+        $result = [];
+        foreach ($stored as $groupKeyRaw) {
+            $groupKey = trim((string) $groupKeyRaw);
+            if ($groupKey !== '' && isset($available[$groupKey])) {
+                $result[] = $groupKey;
+            }
+        }
+
+        return array_values(array_unique($result));
+    }
+
+    private function SaveVisibleGraphGroupKeys(array $groupKeys, array $groups): void
+    {
+        $available = [];
+        foreach ($groups as $group) {
+            $groupKey = trim((string) ($group['GroupKey'] ?? ''));
+            if ($groupKey !== '') {
+                $available[$groupKey] = true;
+            }
+        }
+
+        $clean = [];
+        foreach ($groupKeys as $groupKeyRaw) {
+            $groupKey = trim((string) $groupKeyRaw);
+            if ($groupKey !== '' && isset($available[$groupKey])) {
+                $clean[] = $groupKey;
+            }
+        }
+
+        IPS_SetProperty($this->InstanceID, 'VisibleGraphGroups', json_encode(array_values(array_unique($clean))));
+        IPS_ApplyChanges($this->InstanceID);
+    }
+
+    private function BuildGroupFilterBarHtml(array $groups): string
+    {
+        $visibleKeys = array_fill_keys($this->GetVisibleGraphGroupKeys($groups), true);
+
+        $parts = [];
+        $parts[] = '<div id="group-filter-bar" style="margin-bottom:12px;padding:10px 12px;border:1px solid #333;border-radius:8px;background:#252526;">';
+        $parts[] = '<a href="#" id="show-all-groups" style="color:#9ecbff;margin-right:18px;text-decoration:underline;">All</a>';
+        $parts[] = '<a href="#" id="show-no-groups" style="color:#9ecbff;margin-right:18px;text-decoration:underline;">None</a>';
+
+        foreach ($groups as $group) {
+            $groupKey = trim((string) ($group['GroupKey'] ?? ''));
+            $groupLabel = trim((string) ($group['GroupLabel'] ?? $groupKey));
+            if ($groupKey === '') {
+                continue;
+            }
+
+            $checked = isset($visibleKeys[$groupKey]) ? ' checked' : '';
+            $parts[] = '<label style="margin-right:18px;white-space:nowrap;">'
+                . '<input type="checkbox" class="group-toggle" value="' . htmlspecialchars($groupKey, ENT_QUOTES, 'UTF-8') . '"' . $checked . '> '
+                . htmlspecialchars($groupLabel, ENT_QUOTES, 'UTF-8')
+                . '</label>';
+        }
+
+        $parts[] = '</div>';
+
+        return implode('', $parts);
     }
 
     private function RegisterHook($WebHook)
@@ -516,14 +595,32 @@ class ARMResponseManagerMock extends IPSModule
             }
         }
 
-        // 2. Screen API mode = return only screen HTML fragment
+        $groups = $this->ExtractImportedGroupsFromConfig();
+
+        // 2. Graph filter save API
+        if (isset($_GET['filter_api'])) {
+            $selected = [];
+            $raw = file_get_contents('php://input');
+            $data = json_decode((string) $raw, true);
+            if (is_array($data) && isset($data['visible_groups']) && is_array($data['visible_groups'])) {
+                $selected = $data['visible_groups'];
+            }
+
+            $this->SaveVisibleGraphGroupKeys($selected, $groups);
+
+            header('Content-Type: application/json; charset=utf-8');
+            echo json_encode(['ok' => true]);
+            return;
+        }
+
+        // 3. Screen API mode
         if (isset($_GET['screen_api'])) {
             header('Content-Type: text/html; charset=utf-8');
             echo $this->GetOutputScreenHtml();
             return;
         }
 
-        // 3. Screen page mode
+        // 4. Screen page mode
         if (isset($_GET['screen'])) {
             header('Content-Type: text/html; charset=utf-8');
             echo '<!DOCTYPE html>
@@ -565,47 +662,17 @@ setInterval(refreshScreen, 2000);
             return;
         }
 
-        // 4. API mode = return only Mermaid graph text
+        // 5. Mermaid graph API
         if (isset($_GET['api'])) {
             header('Content-Type: text/plain; charset=utf-8');
             echo $this->BuildMappingGraph();
             return;
         }
 
-        // 5. Full HTML shell
+        // 6. Full Mermaid page
         header('Content-Type: text/html; charset=utf-8');
-        $cached = $this->GetCachedHouseStateSnapshot();
 
-        $cachedStateText = 'No cached snapshot';
-        $syncStatusHtml = '<span style="color:#ff8a80;">No cache</span>';
-
-        if ($cached !== null) {
-            $stateID = (string) ((int) ($cached['system_state_id'] ?? 0));
-            $stateName = (string) ($cached['system_state_name'] ?? '');
-            $cachedEpoch = (string) ($cached['sync']['last_processed_event_epoch'] ?? '0');
-            $cachedSeq = (int) ($cached['sync']['last_processed_event_seq'] ?? 0);
-
-            $lastEventEpoch = $this->ReadAttributeString('LastEventEpoch');
-            $lastEventSeq = $this->ReadAttributeInteger('LastEventSeq');
-
-            $cachedStateText = $stateName . ' [' . $stateID . ']';
-            $syncStatusHtml = '<span style="color:#a5d6a7;">Cache watermark current</span>';
-
-            if ($lastEventEpoch !== '' && $lastEventEpoch !== '0') {
-                $cmp = $this->CompareNumericStrings($cachedEpoch, $lastEventEpoch);
-                $behind = ($cmp < 0) || ($cmp === 0 && $cachedSeq < $lastEventSeq);
-
-                if ($behind) {
-                    $syncStatusHtml = '<span style="color:#ff8a80;font-weight:bold;">Cache watermark behind event</span>'
-                        . ' &nbsp; event=(' . $lastEventEpoch . ',' . $lastEventSeq . ')'
-                        . ' &nbsp; cache=(' . $cachedEpoch . ',' . $cachedSeq . ')';
-                } else {
-                    $syncStatusHtml = '<span style="color:#a5d6a7;">Cache watermark current</span>'
-                        . ' &nbsp; event=(' . $lastEventEpoch . ',' . $lastEventSeq . ')'
-                        . ' &nbsp; cache=(' . $cachedEpoch . ',' . $cachedSeq . ')';
-                }
-            }
-        }
+        $filterBarHtml = $this->BuildGroupFilterBarHtml($groups);
 
         echo '<!DOCTYPE html>
 <html>
@@ -642,6 +709,17 @@ mermaid.initialize({
 let isRendering = false;
 let lastGraphString = "";
 let pzInstance = null;
+
+async function saveGroupFilter() {
+    const selected = Array.from(document.querySelectorAll(".group-toggle:checked")).map(cb => cb.value);
+
+    await fetch("?filter_api=1&t=" + Date.now(), {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ visible_groups: selected })
+    });
+}
 
 async function fetchAndUpdateGraph() {
     if (isRendering) return;
@@ -701,8 +779,38 @@ async function fetchAndUpdateGraph() {
     }
 }
 
-fetchAndUpdateGraph();
-setInterval(fetchAndUpdateGraph, 2000);
+async function applyFilterAndRefresh() {
+    await saveGroupFilter();
+    lastGraphString = "";
+    await fetchAndUpdateGraph();
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+    document.querySelectorAll(".group-toggle").forEach(cb => {
+        cb.addEventListener("change", applyFilterAndRefresh);
+    });
+
+    const allLink = document.getElementById("show-all-groups");
+    if (allLink) {
+        allLink.addEventListener("click", async (ev) => {
+            ev.preventDefault();
+            document.querySelectorAll(".group-toggle").forEach(cb => cb.checked = true);
+            await applyFilterAndRefresh();
+        });
+    }
+
+    const noneLink = document.getElementById("show-no-groups");
+    if (noneLink) {
+        noneLink.addEventListener("click", async (ev) => {
+            ev.preventDefault();
+            document.querySelectorAll(".group-toggle").forEach(cb => cb.checked = false);
+            await applyFilterAndRefresh();
+        });
+    }
+
+    fetchAndUpdateGraph();
+    setInterval(fetchAndUpdateGraph, 2000);
+});
 </script>
 </head>
 
@@ -711,6 +819,7 @@ setInterval(fetchAndUpdateGraph, 2000);
     <h2>' . htmlspecialchars($this->GetModule1TargetDisplayName(), ENT_QUOTES, 'UTF-8') . ' (Live)</h2>
     <small>Instance ID: ' . $this->InstanceID . '</small>
 </div>
+' . $filterBarHtml . '
 <div class="container">
     <div id="mermaid-container">Initializing Live View...</div>
 </div>
@@ -2090,9 +2199,34 @@ setInterval(fetchAndUpdateGraph, 2000);
     private function BuildMappingGraph(): string
     {
         $groups = $this->ExtractImportedGroupsFromConfig();
+        $visibleGroupKeys = array_fill_keys($this->GetVisibleGraphGroupKeys($groups), true);
+
         $rules = $this->readListProperty('GroupStateRules');
         $assignments = $this->readListProperty('RuleOutputAssignments');
         $outputs = $this->readListProperty('OutputResources');
+
+        $groups = array_values(array_filter($groups, function (array $group) use ($visibleGroupKeys): bool {
+            $groupKey = trim((string) ($group['GroupKey'] ?? ''));
+            return $groupKey !== '' && isset($visibleGroupKeys[$groupKey]);
+        }));
+
+        $rules = array_values(array_filter($rules, function (array $rule) use ($visibleGroupKeys): bool {
+            $groupKey = trim((string) ($rule['GroupKey'] ?? ''));
+            return $groupKey !== '' && isset($visibleGroupKeys[$groupKey]);
+        }));
+
+        $visibleRuleIDs = [];
+        foreach ($rules as $rule) {
+            $ruleID = trim((string) ($rule['RuleID'] ?? ''));
+            if ($ruleID !== '') {
+                $visibleRuleIDs[$ruleID] = true;
+            }
+        }
+
+        $assignments = array_values(array_filter($assignments, function (array $assignment) use ($visibleRuleIDs): bool {
+            $ruleID = trim((string) ($assignment['RuleID'] ?? ''));
+            return $ruleID !== '' && isset($visibleRuleIDs[$ruleID]);
+        }));
 
         usort($groups, static function (array $a, array $b): int {
             return strnatcasecmp((string) ($a['GroupLabel'] ?? ''), (string) ($b['GroupLabel'] ?? ''));
@@ -2141,7 +2275,10 @@ setInterval(fetchAndUpdateGraph, 2000);
                 if ($groupLabel === '') {
                     continue;
                 }
-                $activeGroups[$this->MakeGroupKey($groupLabel)] = true;
+                $groupKey = $this->MakeGroupKey($groupLabel);
+                if (isset($visibleGroupKeys[$groupKey])) {
+                    $activeGroups[$groupKey] = true;
+                }
             }
         }
 
@@ -2150,9 +2287,17 @@ setInterval(fetchAndUpdateGraph, 2000);
         if (is_array($lastActiveRuleIDs)) {
             foreach ($lastActiveRuleIDs as $ruleIDRaw) {
                 $ruleID = trim((string) $ruleIDRaw);
-                if ($ruleID !== '') {
+                if ($ruleID !== '' && isset($visibleRuleIDs[$ruleID])) {
                     $activeRuleIDs[$ruleID] = true;
                 }
+            }
+        }
+
+        $visibleOutputIDs = [];
+        foreach ($assignments as $assignment) {
+            $outputID = trim((string) ($assignment['OutputID'] ?? ''));
+            if ($outputID !== '') {
+                $visibleOutputIDs[$outputID] = true;
             }
         }
 
@@ -2161,7 +2306,7 @@ setInterval(fetchAndUpdateGraph, 2000);
         if (is_array($lastActiveOutputIDs)) {
             foreach ($lastActiveOutputIDs as $outputIDRaw) {
                 $outputID = trim((string) $outputIDRaw);
-                if ($outputID !== '') {
+                if ($outputID !== '' && isset($visibleOutputIDs[$outputID])) {
                     $activeOutputIDs[$outputID] = true;
                 }
             }
@@ -2192,6 +2337,13 @@ setInterval(fetchAndUpdateGraph, 2000);
         } else {
             $lines[] = $houseStateNode . '["' . $this->MermaidEscape("House State\nNo cached snapshot") . '"]';
             $lines[] = 'class ' . $houseStateNode . ' grey;';
+        }
+
+        if (count($groups) === 0) {
+            $noteNode = 'N_' . substr(md5('no_groups_' . (string) $this->InstanceID), 0, 10);
+            $lines[] = $noteNode . '["' . $this->MermaidEscape('No groups selected') . '"]';
+            $lines[] = 'class ' . $noteNode . ' grey;';
+            return implode("\n", $lines) . "\n";
         }
 
         $linkCounter = 0;
@@ -2232,11 +2384,7 @@ setInterval(fetchAndUpdateGraph, 2000);
             $lines[] = $ruleNode . '["' . $this->MermaidEscape(implode("\n", $parts)) . '"]';
             $lines[] = $groupNode . ' --> ' . $ruleNode;
             $lines[] = 'class ' . $ruleNode . ' ' . ($ruleActive ? 'red' : 'green') . ';';
-            if ($ruleActive) {
-                $lines[] = 'linkStyle ' . $linkCounter . ' stroke:#ff8a80,stroke-width:2px;';
-            } else {
-                $lines[] = 'linkStyle ' . $linkCounter . ' stroke:#a5d6a7,stroke-width:2px;';
-            }
+            $lines[] = 'linkStyle ' . $linkCounter . ' stroke:' . ($ruleActive ? '#ff8a80' : '#a5d6a7') . ',stroke-width:2px;';
             $linkCounter++;
         }
 
@@ -2257,11 +2405,7 @@ setInterval(fetchAndUpdateGraph, 2000);
             $assignmentLabel = 'Output Action';
             if ($outputID !== '' && isset($outputsByID[$outputID])) {
                 $assignmentOutputName = trim((string) ($outputsByID[$outputID]['Name'] ?? ''));
-                if ($assignmentOutputName !== '') {
-                    $assignmentLabel .= "\n" . $assignmentOutputName;
-                } else {
-                    $assignmentLabel .= "\n" . $outputID;
-                }
+                $assignmentLabel .= "\n" . ($assignmentOutputName !== '' ? $assignmentOutputName : $outputID);
             } elseif ($outputID !== '') {
                 $assignmentLabel .= "\n" . $outputID;
             }
@@ -2269,12 +2413,7 @@ setInterval(fetchAndUpdateGraph, 2000);
             $lines[] = $assignmentNode . '["' . $this->MermaidEscape($assignmentLabel) . '"]';
             $lines[] = $ruleNode . ' --> ' . $assignmentNode;
             $lines[] = 'class ' . $assignmentNode . ' ' . ($assignmentActive ? 'red' : 'green') . ';';
-
-            if ($assignmentActive) {
-                $lines[] = 'linkStyle ' . $linkCounter . ' stroke:#ff8a80,stroke-width:2px;';
-            } else {
-                $lines[] = 'linkStyle ' . $linkCounter . ' stroke:#a5d6a7,stroke-width:2px;';
-            }
+            $lines[] = 'linkStyle ' . $linkCounter . ' stroke:' . ($assignmentActive ? '#ff8a80' : '#a5d6a7') . ',stroke-width:2px;';
             $linkCounter++;
 
             if ($outputID === '') {
@@ -2293,7 +2432,6 @@ setInterval(fetchAndUpdateGraph, 2000);
             }
 
             $output = $outputsByID[$outputID];
-            $outputActive = (bool) ($output['Active'] ?? false);
             $typeID = trim((string) ($output['TypeID'] ?? ''));
             $typeLabel = $typeLabels[$typeID] ?? '[missing type]';
             $targetObjectID = (int) ($output['TargetObjectID'] ?? 0);
@@ -2311,12 +2449,7 @@ setInterval(fetchAndUpdateGraph, 2000);
             $lines[] = $outputNode . '["' . $this->MermaidEscape(implode("\n", $parts)) . '"]';
             $lines[] = $assignmentNode . ' --> ' . $outputNode;
             $lines[] = 'class ' . $outputNode . ' ' . ($outputNodeActive ? 'red' : 'green') . ';';
-
-            if ($assignmentActive) {
-                $lines[] = 'linkStyle ' . $linkCounter . ' stroke:#ff8a80,stroke-width:2px;';
-            } else {
-                $lines[] = 'linkStyle ' . $linkCounter . ' stroke:#a5d6a7,stroke-width:2px;';
-            }
+            $lines[] = 'linkStyle ' . $linkCounter . ' stroke:' . ($assignmentActive ? '#ff8a80' : '#a5d6a7') . ',stroke-width:2px;';
             $linkCounter++;
         }
 
