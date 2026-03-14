@@ -29,177 +29,235 @@
       "name": "ImportedModule1ConfigJson",
       "caption": "Imported Module 1 Config JSON"
     },
-{
-  "type": "ExpansionPanel",
-  "caption": "2. Group-State Rules",
-  "items": [
     {
-      "type": "List",
-      "name": "GroupStateMatrixConfig",
-      "caption": "Group-State Rule Matrix",
-      "rowCount": 10,
-      "add": false,
-      "delete": false,
-      "loadValuesFromConfiguration": false,
-      "columns": [
+      "type": "ExpansionPanel",
+      "caption": "1. Output Resources",
+      "items": [
         {
-          "caption": "GroupKey",
-          "name": "GroupKey",
-          "width": "1px",
-          "add": "",
-          "visible": false,
-          "edit": { "type": "ValidationTextBox" }
+          "type": "Label",
+          "caption": "Target Object ID must be a script or an instance."
         },
         {
-          "caption": "Group",
-          "name": "GroupLabel",
-          "width": "180px",
-          "add": "",
-          "save": false
-        },
-        {
-          "caption": "All On",
-          "name": "All_On",
-          "width": "60px",
-          "add": false,
-          "edit": { "type": "CheckBox" }
-        },
-        {
-          "caption": "All Severity",
-          "name": "All_Severity",
-          "width": "100px",
-          "add": "",
-          "edit": {
-            "type": "Select",
-            "options": [
-              { "caption": "", "value": "" },
-              { "caption": "Low", "value": "Low" },
-              { "caption": "Medium", "value": "Medium" },
-              { "caption": "High", "value": "High" },
-              { "caption": "Critical", "value": "Critical" }
-            ]
-          }
-        },
-        {
-          "caption": "D On",
-          "name": "S_0_Active",
-          "width": "55px",
-          "add": false,
-          "edit": { "type": "CheckBox" }
-        },
-        {
-          "caption": "D Severity",
-          "name": "S_0_Severity",
-          "width": "90px",
-          "add": "",
-          "edit": {
-            "type": "Select",
-            "options": [
-              { "caption": "", "value": "" },
-              { "caption": "Low", "value": "Low" },
-              { "caption": "Medium", "value": "Medium" },
-              { "caption": "High", "value": "High" },
-              { "caption": "Critical", "value": "Critical" }
-            ]
-          }
-        },
-        {
-          "caption": "E On",
-          "name": "S_2_Active",
-          "width": "55px",
-          "add": false,
-          "edit": { "type": "CheckBox" }
-        },
-        {
-          "caption": "E Severity",
-          "name": "S_2_Severity",
-          "width": "90px",
-          "add": "",
-          "edit": {
-            "type": "Select",
-            "options": [
-              { "caption": "", "value": "" },
-              { "caption": "Low", "value": "Low" },
-              { "caption": "Medium", "value": "Medium" },
-              { "caption": "High", "value": "High" },
-              { "caption": "Critical", "value": "Critical" }
-            ]
-          }
-        },
-        {
-          "caption": "AE On",
-          "name": "S_3_Active",
-          "width": "60px",
-          "add": false,
-          "edit": { "type": "CheckBox" }
-        },
-        {
-          "caption": "AE Severity",
-          "name": "S_3_Severity",
-          "width": "95px",
-          "add": "",
-          "edit": {
-            "type": "Select",
-            "options": [
-              { "caption": "", "value": "" },
-              { "caption": "Low", "value": "Low" },
-              { "caption": "Medium", "value": "Medium" },
-              { "caption": "High", "value": "High" },
-              { "caption": "Critical", "value": "Critical" }
-            ]
-          }
-        },
-        {
-          "caption": "AI On",
-          "name": "S_6_Active",
-          "width": "60px",
-          "add": false,
-          "edit": { "type": "CheckBox" }
-        },
-        {
-          "caption": "AI Severity",
-          "name": "S_6_Severity",
-          "width": "95px",
-          "add": "",
-          "edit": {
-            "type": "Select",
-            "options": [
-              { "caption": "", "value": "" },
-              { "caption": "Low", "value": "Low" },
-              { "caption": "Medium", "value": "Medium" },
-              { "caption": "High", "value": "High" },
-              { "caption": "Critical", "value": "Critical" }
-            ]
-          }
-        },
-        {
-          "caption": "A On",
-          "name": "S_9_Active",
-          "width": "55px",
-          "add": false,
-          "edit": { "type": "CheckBox" }
-        },
-        {
-          "caption": "A Severity",
-          "name": "S_9_Severity",
-          "width": "90px",
-          "add": "",
-          "edit": {
-            "type": "Select",
-            "options": [
-              { "caption": "", "value": "" },
-              { "caption": "Low", "value": "Low" },
-              { "caption": "Medium", "value": "Medium" },
-              { "caption": "High", "value": "High" },
-              { "caption": "Critical", "value": "Critical" }
-            ]
-          }
+          "type": "List",
+          "name": "OutputResources",
+          "caption": "Output Resources",
+          "rowCount": 8,
+          "add": true,
+          "delete": true,
+          "loadValuesFromConfiguration": false,
+          "sort": {
+            "column": "Name",
+            "direction": "ascending"
+          },
+          "columns": [
+            {
+              "caption": "Active",
+              "name": "Active",
+              "width": "70px",
+              "add": true,
+              "edit": { "type": "CheckBox" }
+            },
+            {
+              "caption": "OutputID",
+              "name": "OutputID",
+              "width": "140px",
+              "add": "",
+              "edit": { "type": "ValidationTextBox" },
+              "visible": false
+            },
+            {
+              "caption": "Name",
+              "name": "Name",
+              "width": "180px",
+              "add": "",
+              "edit": { "type": "ValidationTextBox" }
+            },
+            {
+              "caption": "TypeID",
+              "name": "TypeID",
+              "width": "180px",
+              "add": "",
+              "edit": {
+                "type": "Select",
+                "options": []
+              }
+            },
+            {
+              "caption": "Target ObjID",
+              "name": "TargetObjectID",
+              "width": "120px",
+              "add": 0,
+              "edit": { "type": "SelectObject" }
+            },
+            {
+              "caption": "Max Msg",
+              "name": "MaxMessages",
+              "width": "85px",
+              "add": 1,
+              "edit": { "type": "NumberSpinner" }
+            },
+            {
+              "caption": "Per Sec",
+              "name": "PerSeconds",
+              "width": "85px",
+              "add": 60,
+              "edit": { "type": "NumberSpinner" }
+            },
+            {
+              "caption": "Prefix",
+              "name": "PrefixText",
+              "width": "140px",
+              "add": "",
+              "edit": { "type": "ValidationTextBox" }
+            },
+            {
+              "caption": "Sensor",
+              "name": "UseSensorName",
+              "width": "60px",
+              "add": true,
+              "edit": { "type": "CheckBox" }
+            },
+            {
+              "caption": "Parent",
+              "name": "UseParentName",
+              "width": "60px",
+              "add": false,
+              "edit": { "type": "CheckBox" }
+            },
+            {
+              "caption": "Grand",
+              "name": "UseGrandparentName",
+              "width": "60px",
+              "add": false,
+              "edit": { "type": "CheckBox" }
+            },
+            {
+              "caption": "Content",
+              "name": "UseContent",
+              "width": "70px",
+              "add": false,
+              "edit": { "type": "CheckBox" }
+            },
+            {
+              "caption": "Suffix",
+              "name": "SuffixText",
+              "width": "140px",
+              "add": "",
+              "edit": { "type": "ValidationTextBox" }
+            },
+            {
+              "caption": "Phone Number",
+              "name": "PhoneNumber",
+              "width": "140px",
+              "add": "",
+              "edit": { "type": "ValidationTextBox" }
+            },
+            {
+              "caption": "Volume",
+              "name": "Volume",
+              "width": "80px",
+              "add": "",
+              "edit": { "type": "ValidationTextBox" }
+            },
+            {
+              "caption": "Type Label",
+              "name": "TypeLabel",
+              "width": "140px",
+              "add": "",
+              "save": false
+            },
+            {
+              "caption": "Summary",
+              "name": "RowSummary",
+              "width": "auto",
+              "add": "",
+              "save": false
+            }
+          ],
+          "form": [
+            {
+              "type": "ValidationTextBox",
+              "name": "OutputID",
+              "caption": "OutputID",
+              "visible": false,
+              "enabled": false
+            },
+            {
+              "type": "CheckBox",
+              "name": "Active",
+              "caption": "Active"
+            },
+            {
+              "type": "ValidationTextBox",
+              "name": "Name",
+              "caption": "Name"
+            },
+            {
+              "type": "Select",
+              "name": "TypeID",
+              "caption": "Type",
+              "options": []
+            },
+            {
+              "type": "SelectObject",
+              "name": "TargetObjectID",
+              "caption": "Target Object"
+            },
+            {
+              "type": "NumberSpinner",
+              "name": "MaxMessages",
+              "caption": "Max Messages"
+            },
+            {
+              "type": "NumberSpinner",
+              "name": "PerSeconds",
+              "caption": "Per Seconds"
+            },
+            {
+              "type": "ValidationTextBox",
+              "name": "PrefixText",
+              "caption": "Prefix"
+            },
+            {
+              "type": "CheckBox",
+              "name": "UseSensorName",
+              "caption": "Use Sensor Name"
+            },
+            {
+              "type": "CheckBox",
+              "name": "UseParentName",
+              "caption": "Use Parent Name"
+            },
+            {
+              "type": "CheckBox",
+              "name": "UseGrandparentName",
+              "caption": "Use Grandparent Name"
+            },
+            {
+              "type": "CheckBox",
+              "name": "UseContent",
+              "caption": "Use Content"
+            },
+            {
+              "type": "ValidationTextBox",
+              "name": "SuffixText",
+              "caption": "Suffix"
+            },
+            {
+              "type": "ValidationTextBox",
+              "name": "PhoneNumber",
+              "caption": "Phone Number"
+            },
+            {
+              "type": "ValidationTextBox",
+              "name": "Volume",
+              "caption": "Volume"
+            }
+          ],
+          "values": []
         }
-      ],
-      "values": []
-    }
-  ]
-},
+      ]
+    },
     {
       "type": "ExpansionPanel",
       "caption": "2. Group-State Rules",
@@ -229,14 +287,30 @@
               "save": false
             },
             {
-              "caption": "Disarmed",
-              "name": "S_0_Display",
-              "width": "90px",
-              "add": "Off",
-              "save": false
+              "caption": "All On",
+              "name": "All_On",
+              "width": "60px",
+              "add": false,
+              "edit": { "type": "CheckBox" }
             },
             {
-              "caption": "D Active",
+              "caption": "All Severity",
+              "name": "All_Severity",
+              "width": "100px",
+              "add": "",
+              "edit": {
+                "type": "Select",
+                "options": [
+                  { "caption": "", "value": "" },
+                  { "caption": "Low", "value": "Low" },
+                  { "caption": "Medium", "value": "Medium" },
+                  { "caption": "High", "value": "High" },
+                  { "caption": "Critical", "value": "Critical" }
+                ]
+              }
+            },
+            {
+              "caption": "D On",
               "name": "S_0_Active",
               "width": "55px",
               "add": false,
@@ -259,14 +333,7 @@
               }
             },
             {
-              "caption": "Exit Delay",
-              "name": "S_2_Display",
-              "width": "90px",
-              "add": "Off",
-              "save": false
-            },
-            {
-              "caption": "E Active",
+              "caption": "E On",
               "name": "S_2_Active",
               "width": "55px",
               "add": false,
@@ -289,14 +356,7 @@
               }
             },
             {
-              "caption": "Armed Ext",
-              "name": "S_3_Display",
-              "width": "90px",
-              "add": "Off",
-              "save": false
-            },
-            {
-              "caption": "AE Active",
+              "caption": "AE On",
               "name": "S_3_Active",
               "width": "60px",
               "add": false,
@@ -319,14 +379,7 @@
               }
             },
             {
-              "caption": "Armed Int",
-              "name": "S_6_Display",
-              "width": "90px",
-              "add": "Off",
-              "save": false
-            },
-            {
-              "caption": "AI Active",
+              "caption": "AI On",
               "name": "S_6_Active",
               "width": "60px",
               "add": false,
@@ -349,14 +402,7 @@
               }
             },
             {
-              "caption": "Alarm",
-              "name": "S_9_Display",
-              "width": "90px",
-              "add": "Off",
-              "save": false
-            },
-            {
-              "caption": "A Active",
+              "caption": "A On",
               "name": "S_9_Active",
               "width": "55px",
               "add": false,
