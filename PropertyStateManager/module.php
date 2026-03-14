@@ -1056,8 +1056,8 @@ class PropertyStateManager extends IPSModule
             'Data' => $data
         ]);
 
-        if (count($history) > 200) {
-            $history = array_slice($history, 0, 200);
+        if (count($history) > 20) {
+            $history = array_slice($history, 0, 20);
         }
         $this->WriteAttributeString("PayloadHistory", json_encode($history));
         // --- HISTORY LOGGING END ---
