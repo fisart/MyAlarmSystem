@@ -42,6 +42,8 @@ class SensorGroup extends IPSModule
 
         $this->RegisterAttributeString('DispatchTargetsBuffer', '[]');
         $this->RegisterAttributeString('LastTargetProjectionState', '{}');
+        $this->RegisterAttributeString('LastSensorValueMap', '{}');
+        $this->RegisterAttributeString('SensorPulseUntilMap', '{}');
 
         $this->RegisterAttributeString('LastMainStatus', '0');
         IPS_SetHidden($this->GetIDForIdent('EventData'), true);
@@ -636,6 +638,19 @@ class SensorGroup extends IPSModule
                     if (($exRow['ClassID'] ?? '') === $classID && (int)($exRow['VariableID'] ?? 0) === $inVID) {
                         $exRow = array_merge($exRow, $inRow);
                         $exRow['ClassID'] = $classID;
+
+                        if (!isset($exRow['TriggerMode'])) {
+                            $exRow['TriggerMode'] = 0;
+                        } else {
+                            $exRow['TriggerMode'] = (int)$exRow['TriggerMode'];
+                        }
+
+                        if (!isset($exRow['PulseSeconds']) || (int)$exRow['PulseSeconds'] <= 0) {
+                            $exRow['PulseSeconds'] = 1;
+                        } else {
+                            $exRow['PulseSeconds'] = (int)$exRow['PulseSeconds'];
+                        }
+
                         if (isset($metadata[$inVID])) {
                             $exRow['DisplayID']       = $metadata[$inVID]['DisplayID'];
                             $exRow['ParentName']      = $metadata[$inVID]['ParentName'];
@@ -1282,9 +1297,21 @@ class SensorGroup extends IPSModule
         if ($this->ReadPropertyBoolean('DebugMode')) $this->LogMessage("DEBUG: COMMIT - Classes: " . count($classList) . " | Groups: " . count($groupList), KL_MESSAGE);
         if ($this->ReadPropertyBoolean('DebugMode')) $this->LogMessage("DEBUG: COMMIT - Sensors: " . count($sensorList) . " | Bedrooms: " . count($bedroomList) . " | Members: " . count($groupMembers), KL_MESSAGE);
 
-        // 2. Final Label Healing (Source of Truth)
+        // 2. Final Label Healing (Source of Truth) + Sensor defaults
         $metadata = $this->GetMasterMetadata();
         foreach ($sensorList as &$s) {
+            if (!isset($s['TriggerMode'])) {
+                $s['TriggerMode'] = 0;
+            } else {
+                $s['TriggerMode'] = (int)$s['TriggerMode'];
+            }
+
+            if (!isset($s['PulseSeconds']) || (int)$s['PulseSeconds'] <= 0) {
+                $s['PulseSeconds'] = 1;
+            } else {
+                $s['PulseSeconds'] = (int)$s['PulseSeconds'];
+            }
+
             $vid = $s['VariableID'] ?? 0;
             if (isset($metadata[$vid])) {
                 $s['DisplayID'] = $metadata[$vid]['DisplayID'];
@@ -2713,9 +2740,21 @@ class SensorGroup extends IPSModule
                 ' groupMembers=' . (is_array($groupMembers) ? count($groupMembers) : -1)
         );
 
-        // Blueprint 2.0 - Step 2: Label Healing
+        // Blueprint 2.0 - Step 2: Label Healing + Sensor defaults
         $metadata = $this->GetMasterMetadata();
         foreach ($sensorList as &$s) {
+            if (!isset($s['TriggerMode'])) {
+                $s['TriggerMode'] = 0;
+            } else {
+                $s['TriggerMode'] = (int)$s['TriggerMode'];
+            }
+
+            if (!isset($s['PulseSeconds']) || (int)$s['PulseSeconds'] <= 0) {
+                $s['PulseSeconds'] = 1;
+            } else {
+                $s['PulseSeconds'] = (int)$s['PulseSeconds'];
+            }
+
             $vid = $s['VariableID'] ?? 0;
             if (isset($metadata[$vid])) {
                 $s['DisplayID']       = $metadata[$vid]['DisplayID'];
@@ -2842,6 +2881,8 @@ class SensorGroup extends IPSModule
                                     ["caption" => "Area (GP)", "name" => "GrandParentName", "width" => "100px"],
                                     ["caption" => "Op", "name" => "Operator", "width" => "100px", "edit" => ["type" => "Select", "options" => [["caption" => "=", "value" => 0], ["caption" => "!=", "value" => 1], ["caption" => ">", "value" => 2], ["caption" => "<", "value" => 3], ["caption" => ">=", "value" => 4], ["caption" => "<=", "value" => 5]]]],
                                     ["caption" => "Value", "name" => "ComparisonValue", "width" => "100px", "edit" => ["type" => "ValidationTextBox"]],
+                                    ["caption" => "Mode", "name" => "TriggerMode", "width" => "100px", "edit" => ["type" => "Select", "options" => [["caption" => "LEVEL", "value" => 0], ["caption" => "CHANGE", "value" => 1]]]],
+                                    ["caption" => "Pulse", "name" => "PulseSeconds", "width" => "80px", "edit" => ["type" => "ValidationTextBox"]],
                                     ["caption" => "Action", "name" => "Action", "width" => "80px", "edit" => ["type" => "Button", "caption" => "Delete", "onClick" => "IPS_RequestAction(\$id, 'DEL_SENS_$safeID', \$VariableID);"]]
                                 ],
                                 "values"  => $classSensors
