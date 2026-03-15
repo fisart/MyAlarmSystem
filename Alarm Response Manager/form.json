@@ -181,6 +181,48 @@
               "edit": { "type": "ValidationTextBox" }
             },
             {
+              "caption": "Prefix Ord",
+              "name": "PrefixOrder",
+              "width": "85px",
+              "add": 10,
+              "edit": { "type": "NumberSpinner" }
+            },
+            {
+              "caption": "Sensor Ord",
+              "name": "SensorOrder",
+              "width": "85px",
+              "add": 20,
+              "edit": { "type": "NumberSpinner" }
+            },
+            {
+              "caption": "Parent Ord",
+              "name": "ParentOrder",
+              "width": "85px",
+              "add": 30,
+              "edit": { "type": "NumberSpinner" }
+            },
+            {
+              "caption": "Grand Ord",
+              "name": "GrandparentOrder",
+              "width": "85px",
+              "add": 40,
+              "edit": { "type": "NumberSpinner" }
+            },
+            {
+              "caption": "Content Ord",
+              "name": "ContentOrder",
+              "width": "85px",
+              "add": 50,
+              "edit": { "type": "NumberSpinner" }
+            },
+            {
+              "caption": "Suffix Ord",
+              "name": "SuffixOrder",
+              "width": "85px",
+              "add": 60,
+              "edit": { "type": "NumberSpinner" }
+            },
+            {
               "caption": "Type Label",
               "name": "TypeLabel",
               "width": "140px",
@@ -288,6 +330,36 @@
               "type": "ValidationTextBox",
               "name": "ActionFixedValue",
               "caption": "Action Fixed Value"
+            },
+            {
+              "type": "NumberSpinner",
+              "name": "PrefixOrder",
+              "caption": "Prefix Order"
+            },
+            {
+              "type": "NumberSpinner",
+              "name": "SensorOrder",
+              "caption": "Sensor Order"
+            },
+            {
+              "type": "NumberSpinner",
+              "name": "ParentOrder",
+              "caption": "Parent Order"
+            },
+            {
+              "type": "NumberSpinner",
+              "name": "GrandparentOrder",
+              "caption": "Grandparent Order"
+            },
+            {
+              "type": "NumberSpinner",
+              "name": "ContentOrder",
+              "caption": "Content Order"
+            },
+            {
+              "type": "NumberSpinner",
+              "name": "SuffixOrder",
+              "caption": "Suffix Order"
             }
           ],
           "values": []

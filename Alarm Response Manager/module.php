@@ -533,6 +533,12 @@ class AlarmResponseManager extends IPSModule
                 'Volume'             => (string) ($row['Volume'] ?? ''),
                 'ActionValueMode'    => (string) ($row['ActionValueMode'] ?? 'message_text'),
                 'ActionFixedValue'   => (string) ($row['ActionFixedValue'] ?? ''),
+                'PrefixOrder'        => (int) ($row['PrefixOrder'] ?? 10),
+                'SensorOrder'        => (int) ($row['SensorOrder'] ?? 20),
+                'ParentOrder'        => (int) ($row['ParentOrder'] ?? 30),
+                'GrandparentOrder'   => (int) ($row['GrandparentOrder'] ?? 40),
+                'ContentOrder'       => (int) ($row['ContentOrder'] ?? 50),
+                'SuffixOrder'        => (int) ($row['SuffixOrder'] ?? 60),
                 'TypeLabel'          => $typeLabels[$typeID] ?? '[missing type]',
                 'RowSummary'         => $this->buildOutputSummary($row, $typeLabels)
             ];
@@ -2327,30 +2333,63 @@ document.addEventListener("DOMContentLoaded", () => {
         $parts = [];
 
         if ($prefix !== '') {
-            $parts[] = $prefix;
+            $parts[] = [
+                'order' => (int) ($resource['PrefixOrder'] ?? 10),
+                'text'  => $prefix
+            ];
         }
 
         if ((bool) ($resource['UseSensorName'] ?? false) && $sensorName !== '') {
-            $parts[] = $sensorName;
+            $parts[] = [
+                'order' => (int) ($resource['SensorOrder'] ?? 20),
+                'text'  => $sensorName
+            ];
         }
 
         if ((bool) ($resource['UseParentName'] ?? false) && $parentName !== '') {
-            $parts[] = $parentName;
+            $parts[] = [
+                'order' => (int) ($resource['ParentOrder'] ?? 30),
+                'text'  => $parentName
+            ];
         }
 
         if ((bool) ($resource['UseGrandparentName'] ?? false) && $grandparentName !== '') {
-            $parts[] = $grandparentName;
+            $parts[] = [
+                'order' => (int) ($resource['GrandparentOrder'] ?? 40),
+                'text'  => $grandparentName
+            ];
         }
 
         if ((bool) ($resource['UseContent'] ?? false) && $content !== '') {
-            $parts[] = $content;
+            $parts[] = [
+                'order' => (int) ($resource['ContentOrder'] ?? 50),
+                'text'  => $content
+            ];
         }
 
         if ($suffix !== '') {
-            $parts[] = $suffix;
+            $parts[] = [
+                'order' => (int) ($resource['SuffixOrder'] ?? 60),
+                'text'  => $suffix
+            ];
         }
 
-        $text = trim(implode(' ', $parts));
+        usort($parts, static function (array $a, array $b): int {
+            if ($a['order'] === $b['order']) {
+                return 0;
+            }
+            return ($a['order'] < $b['order']) ? -1 : 1;
+        });
+
+        $textParts = [];
+        foreach ($parts as $part) {
+            $text = trim((string) ($part['text'] ?? ''));
+            if ($text !== '') {
+                $textParts[] = $text;
+            }
+        }
+
+        $text = trim(implode(' ', $textParts));
         if ($text !== '') {
             return $text;
         }
