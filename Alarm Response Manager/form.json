@@ -160,6 +160,34 @@
               "edit": { "type": "ValidationTextBox" }
             },
             {
+              "caption": "Action Ident",
+              "name": "ActionIdent",
+              "width": "140px",
+              "add": "",
+              "edit": { "type": "ValidationTextBox" }
+            },
+            {
+              "caption": "Value Mode",
+              "name": "ActionValueMode",
+              "width": "120px",
+              "add": "message_text",
+              "edit": {
+                "type": "Select",
+                "options": [
+                  { "caption": "Message Text", "value": "message_text" },
+                  { "caption": "JSON Payload", "value": "json_payload" },
+                  { "caption": "Fixed Value", "value": "fixed_value" }
+                ]
+              }
+            },
+            {
+              "caption": "Fixed Value",
+              "name": "ActionFixedValue",
+              "width": "140px",
+              "add": "",
+              "edit": { "type": "ValidationTextBox" }
+            },
+            {
               "caption": "Type Label",
               "name": "TypeLabel",
               "width": "140px",
@@ -252,6 +280,26 @@
               "type": "ValidationTextBox",
               "name": "Volume",
               "caption": "Volume"
+            },
+            {
+              "type": "ValidationTextBox",
+              "name": "ActionIdent",
+              "caption": "Action Ident"
+            },
+            {
+              "type": "Select",
+              "name": "ActionValueMode",
+              "caption": "Action Value Mode",
+              "options": [
+                { "caption": "Message Text", "value": "message_text" },
+                { "caption": "JSON Payload", "value": "json_payload" },
+                { "caption": "Fixed Value", "value": "fixed_value" }
+              ]
+            },
+            {
+              "type": "ValidationTextBox",
+              "name": "ActionFixedValue",
+              "caption": "Action Fixed Value"
             }
           ],
           "values": []
@@ -262,13 +310,13 @@
       "type": "ExpansionPanel",
       "caption": "2. Group-State Rules — define which group reacts in which house state and with what severity",
       "items": [
-  {
-    "type": "Label",
-    "caption": "Abbreviations: D = Disarmed, E = Exit Delay, AE = Armed External, AI = Armed Internal, A = Alarm"
-  },
-  {
-    "type": "List",
-    "name": "GroupStateMatrixConfig",
+        {
+          "type": "Label",
+          "caption": "Abbreviations: D = Disarmed, E = Exit Delay, AE = Armed External, AI = Armed Internal, A = Alarm"
+        },
+        {
+          "type": "List",
+          "name": "GroupStateMatrixConfig",
           "caption": "Group-State Rule Matrix",
           "rowCount": 10,
           "add": false,

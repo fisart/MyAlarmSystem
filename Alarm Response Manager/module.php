@@ -22,24 +22,25 @@ class AlarmResponseManager extends IPSModule
     ];
 
     private const OUTPUT_TYPE_CATALOG = [
-        ['TypeID' => 'bell',         'TypeName' => 'Bell'],
-        ['TypeID' => 'siren',        'TypeName' => 'Siren'],
-        ['TypeID' => 'email_1',      'TypeName' => 'Email 1'],
-        ['TypeID' => 'email_2',      'TypeName' => 'Email 2'],
-        ['TypeID' => 'email_3',      'TypeName' => 'Email 3'],
-        ['TypeID' => 'email_4',      'TypeName' => 'Email 4'],
-        ['TypeID' => 'sms',          'TypeName' => 'SMS'],
-        ['TypeID' => 'notification', 'TypeName' => 'Notification'],
-        ['TypeID' => 'voice',        'TypeName' => 'Voice'],
-        ['TypeID' => 'voip',         'TypeName' => 'VOIP'],
-        ['TypeID' => 'screen',       'TypeName' => 'Screen'],
-        ['TypeID' => 'script',       'TypeName' => 'Script'],
-        ['TypeID' => 'external',     'TypeName' => 'External Service'],
-        ['TypeID' => 'remote_voice', 'TypeName' => 'Remote Voice'],
-        ['TypeID' => 'remote_bell',  'TypeName' => 'Remote Alarm Bell'],
-        ['TypeID' => 'op1',          'TypeName' => 'OP1'],
-        ['TypeID' => 'op2',          'TypeName' => 'OP2'],
-        ['TypeID' => 'op3',          'TypeName' => 'OP3']
+        ['TypeID' => 'bell',           'TypeName' => 'Bell'],
+        ['TypeID' => 'siren',          'TypeName' => 'Siren'],
+        ['TypeID' => 'email_1',        'TypeName' => 'Email 1'],
+        ['TypeID' => 'email_2',        'TypeName' => 'Email 2'],
+        ['TypeID' => 'email_3',        'TypeName' => 'Email 3'],
+        ['TypeID' => 'email_4',        'TypeName' => 'Email 4'],
+        ['TypeID' => 'sms',            'TypeName' => 'SMS'],
+        ['TypeID' => 'notification',   'TypeName' => 'Notification'],
+        ['TypeID' => 'voice',          'TypeName' => 'Voice'],
+        ['TypeID' => 'voip',           'TypeName' => 'VOIP'],
+        ['TypeID' => 'screen',         'TypeName' => 'Screen'],
+        ['TypeID' => 'request_action', 'TypeName' => 'RequestAction'],
+        ['TypeID' => 'script',         'TypeName' => 'Script'],
+        ['TypeID' => 'external',       'TypeName' => 'External Service'],
+        ['TypeID' => 'remote_voice',   'TypeName' => 'Remote Voice'],
+        ['TypeID' => 'remote_bell',    'TypeName' => 'Remote Alarm Bell'],
+        ['TypeID' => 'op1',            'TypeName' => 'OP1'],
+        ['TypeID' => 'op2',            'TypeName' => 'OP2'],
+        ['TypeID' => 'op3',            'TypeName' => 'OP3']
     ];
 
     public function Create()
@@ -514,13 +515,6 @@ class AlarmResponseManager extends IPSModule
             $typeID = trim((string) ($row['TypeID'] ?? ''));
 
             $resourceValues[] = [
-                'Active'             => (bool) ($row['Active'] ?? true),
-                'OutputID'           => $outputID,
-                'Name'               => (string) ($row['Name'] ?? ''),
-                'TypeID'             => $typeID,
-                'TargetObjectID'     => (int) ($row['TargetObjectID'] ?? 0),
-                'MaxMessages'        => (int) ($row['MaxMessages'] ?? 1),
-                'PerSeconds'         => (int) ($row['PerSeconds'] ?? 60),
                 'PrefixText'         => (string) ($row['PrefixText'] ?? ''),
                 'UseSensorName'      => (bool) ($row['UseSensorName'] ?? true),
                 'UseParentName'      => (bool) ($row['UseParentName'] ?? false),
@@ -530,6 +524,9 @@ class AlarmResponseManager extends IPSModule
                 'EmailAddress'       => (string) ($row['EmailAddress'] ?? ''),
                 'PhoneNumber'        => (string) ($row['PhoneNumber'] ?? ''),
                 'Volume'             => (string) ($row['Volume'] ?? ''),
+                'ActionIdent'        => (string) ($row['ActionIdent'] ?? ''),
+                'ActionValueMode'    => (string) ($row['ActionValueMode'] ?? 'message_text'),
+                'ActionFixedValue'   => (string) ($row['ActionFixedValue'] ?? ''),
                 'TypeLabel'          => $typeLabels[$typeID] ?? '[missing type]',
                 'RowSummary'         => $this->buildOutputSummary($row, $typeLabels)
             ];
@@ -2118,6 +2115,70 @@ document.addEventListener("DOMContentLoaded", () => {
         return $result;
     }
 
+    private function SendRequestActionOutputResource(array $resource, array $payload, array $house, string $groupLabel): bool
+    {
+        $targetObjectID = (int) ($resource['TargetObjectID'] ?? 0);
+        $actionIdent = trim((string) ($resource['ActionIdent'] ?? ''));
+        $valueMode = trim((string) ($resource['ActionValueMode'] ?? 'message_text'));
+
+        if ($targetObjectID <= 0 || !@IPS_ObjectExists($targetObjectID)) {
+            $this->LogMessage('SendRequestActionOutputResource: invalid target object', KL_MESSAGE);
+            return false;
+        }
+
+        if ($actionIdent === '') {
+            $this->LogMessage('SendRequestActionOutputResource: ActionIdent is empty', KL_MESSAGE);
+            return false;
+        }
+
+        $value = $this->BuildRequestActionValue($resource, $payload, $house, $groupLabel, $valueMode);
+
+        $this->LogMessage('SendRequestActionOutputResource: TargetObjectID=' . $targetObjectID, KL_MESSAGE);
+        $this->LogMessage('SendRequestActionOutputResource: ActionIdent=' . $actionIdent, KL_MESSAGE);
+        $this->LogMessage('SendRequestActionOutputResource: ActionValueMode=' . $valueMode, KL_MESSAGE);
+        $this->LogMessage(
+            'SendRequestActionOutputResource: Value=' . (is_scalar($value) || $value === null ? (string) $value : json_encode($value)),
+            KL_MESSAGE
+        );
+
+        try {
+            IPS_RequestAction($targetObjectID, $actionIdent, $value);
+            $this->LogMessage('SendRequestActionOutputResource: IPS_RequestAction executed successfully', KL_MESSAGE);
+            return true;
+        } catch (Throwable $e) {
+            $this->LogMessage('SendRequestActionOutputResource failed: ' . $e->getMessage(), KL_MESSAGE);
+            return false;
+        }
+    }
+
+    private function BuildRequestActionValue(array $resource, array $payload, array $house, string $groupLabel, string $valueMode)
+    {
+        switch ($valueMode) {
+            case 'fixed_value':
+                return (string) ($resource['ActionFixedValue'] ?? '');
+
+            case 'json_payload':
+                $houseStateID = (string) ((int) ($house['system_state_id'] ?? 0));
+                $houseStateName = (string) ($house['system_state_name'] ?? $this->labelFromOptions(self::HOUSE_STATES, $houseStateID));
+                $message = $this->BuildOutputMessageText($resource, $payload);
+
+                return json_encode([
+                    'group' => $groupLabel,
+                    'house_state_id' => $houseStateID,
+                    'house_state_name' => $houseStateName,
+                    'message' => $message,
+                    'event_epoch' => (string) ($payload['event_epoch'] ?? '0'),
+                    'event_seq' => (int) ($payload['event_seq'] ?? 0),
+                    'target_trigger_details' => $payload['target_trigger_details'] ?? null
+                ], JSON_UNESCAPED_SLASHES);
+
+            case 'message_text':
+            default:
+                return $this->BuildOutputMessageText($resource, $payload);
+        }
+    }
+
+
     private function ExecuteOutputResource(array $resource, array $payload, array $house, string $groupLabel): bool
     {
         $typeID = trim((string) ($resource['TypeID'] ?? ''));
@@ -2130,6 +2191,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
         if ($typeID === 'screen') {
             return $this->WriteScreenOutputResource($resource, $payload, $house, $groupLabel);
+        }
+
+        if ($typeID === 'request_action') {
+            return $this->SendRequestActionOutputResource($resource, $payload, $house, $groupLabel);
         }
 
         $this->LogMessage('ExecuteOutputResource: unsupported TypeID=' . $typeID, KL_MESSAGE);
@@ -2525,6 +2590,8 @@ document.addEventListener("DOMContentLoaded", () => {
         $typeID = trim((string) ($row['TypeID'] ?? ''));
         $typeLabel = $typeLabels[$typeID] ?? '[missing type]';
         $targetObjectID = (int) ($row['TargetObjectID'] ?? 0);
+        $actionIdent = trim((string) ($row['ActionIdent'] ?? ''));
+        $actionValueMode = trim((string) ($row['ActionValueMode'] ?? ''));
 
         $parts = [];
         if ($outputID !== '') {
@@ -2538,6 +2605,12 @@ document.addEventListener("DOMContentLoaded", () => {
         }
         if ($targetObjectID > 0) {
             $parts[] = 'ObjID: ' . $targetObjectID;
+        }
+        if ($actionIdent !== '') {
+            $parts[] = 'Ident: ' . $actionIdent;
+        }
+        if ($actionValueMode !== '') {
+            $parts[] = 'Mode: ' . $actionValueMode;
         }
 
         return implode(' / ', $parts);
