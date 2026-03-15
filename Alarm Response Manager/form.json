@@ -160,13 +160,6 @@
               "edit": { "type": "ValidationTextBox" }
             },
             {
-              "caption": "Action Ident",
-              "name": "ActionIdent",
-              "width": "140px",
-              "add": "",
-              "edit": { "type": "ValidationTextBox" }
-            },
-            {
               "caption": "Value Mode",
               "name": "ActionValueMode",
               "width": "120px",
@@ -280,11 +273,6 @@
               "type": "ValidationTextBox",
               "name": "Volume",
               "caption": "Volume"
-            },
-            {
-              "type": "ValidationTextBox",
-              "name": "ActionIdent",
-              "caption": "Action Ident"
             },
             {
               "type": "Select",

@@ -531,7 +531,6 @@ class AlarmResponseManager extends IPSModule
                 'EmailAddress'       => (string) ($row['EmailAddress'] ?? ''),
                 'PhoneNumber'        => (string) ($row['PhoneNumber'] ?? ''),
                 'Volume'             => (string) ($row['Volume'] ?? ''),
-                'ActionIdent'        => (string) ($row['ActionIdent'] ?? ''),
                 'ActionValueMode'    => (string) ($row['ActionValueMode'] ?? 'message_text'),
                 'ActionFixedValue'   => (string) ($row['ActionFixedValue'] ?? ''),
                 'TypeLabel'          => $typeLabels[$typeID] ?? '[missing type]',
@@ -2125,7 +2124,6 @@ document.addEventListener("DOMContentLoaded", () => {
     private function SendRequestActionOutputResource(array $resource, array $payload, array $house, string $groupLabel): bool
     {
         $targetObjectID = (int) ($resource['TargetObjectID'] ?? 0);
-        $actionIdent = trim((string) ($resource['ActionIdent'] ?? ''));
         $valueMode = trim((string) ($resource['ActionValueMode'] ?? 'message_text'));
 
         if ($targetObjectID <= 0 || !@IPS_ObjectExists($targetObjectID)) {
@@ -2133,15 +2131,9 @@ document.addEventListener("DOMContentLoaded", () => {
             return false;
         }
 
-        if ($actionIdent === '') {
-            $this->LogMessage('SendRequestActionOutputResource: ActionIdent is empty', KL_MESSAGE);
-            return false;
-        }
-
         $value = $this->BuildRequestActionValue($resource, $payload, $house, $groupLabel, $valueMode);
 
         $this->LogMessage('SendRequestActionOutputResource: TargetObjectID=' . $targetObjectID, KL_MESSAGE);
-        $this->LogMessage('SendRequestActionOutputResource: ActionIdent=' . $actionIdent, KL_MESSAGE);
         $this->LogMessage('SendRequestActionOutputResource: ActionValueMode=' . $valueMode, KL_MESSAGE);
         $this->LogMessage(
             'SendRequestActionOutputResource: Value=' . (is_scalar($value) || $value === null ? (string) $value : json_encode($value)),
@@ -2149,8 +2141,8 @@ document.addEventListener("DOMContentLoaded", () => {
         );
 
         try {
-            IPS_RequestAction($targetObjectID, $actionIdent, $value);
-            $this->LogMessage('SendRequestActionOutputResource: IPS_RequestAction executed successfully', KL_MESSAGE);
+            RequestAction($targetObjectID, $value);
+            $this->LogMessage('SendRequestActionOutputResource: RequestAction executed successfully', KL_MESSAGE);
             return true;
         } catch (Throwable $e) {
             $this->LogMessage('SendRequestActionOutputResource failed: ' . $e->getMessage(), KL_MESSAGE);
@@ -2597,7 +2589,6 @@ document.addEventListener("DOMContentLoaded", () => {
         $typeID = trim((string) ($row['TypeID'] ?? ''));
         $typeLabel = $typeLabels[$typeID] ?? '[missing type]';
         $targetObjectID = (int) ($row['TargetObjectID'] ?? 0);
-        $actionIdent = trim((string) ($row['ActionIdent'] ?? ''));
         $actionValueMode = trim((string) ($row['ActionValueMode'] ?? ''));
 
         $parts = [];
@@ -2612,9 +2603,6 @@ document.addEventListener("DOMContentLoaded", () => {
         }
         if ($targetObjectID > 0) {
             $parts[] = 'ObjID: ' . $targetObjectID;
-        }
-        if ($actionIdent !== '') {
-            $parts[] = 'Ident: ' . $actionIdent;
         }
         if ($actionValueMode !== '') {
             $parts[] = 'Mode: ' . $actionValueMode;
