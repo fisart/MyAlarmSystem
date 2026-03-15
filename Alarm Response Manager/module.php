@@ -2177,6 +2177,48 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     }
 
+    private function SendVoipOutputResource(array $resource, array $payload, array $house, string $groupLabel): bool
+    {
+        $typeID = trim((string) ($resource['TypeID'] ?? ''));
+        $targetObjectID = (int) ($resource['TargetObjectID'] ?? 0);
+        $phoneNumber = trim((string) ($resource['PhoneNumber'] ?? ''));
+        $message = $this->BuildOutputMessageText($resource, $payload);
+
+        $this->LogMessage('SendVoipOutputResource: TypeID=' . $typeID, KL_MESSAGE);
+        $this->LogMessage('SendVoipOutputResource: TargetObjectID=' . $targetObjectID, KL_MESSAGE);
+        $this->LogMessage('SendVoipOutputResource: PhoneNumber=' . $phoneNumber, KL_MESSAGE);
+        $this->LogMessage('SendVoipOutputResource: Message=' . $message, KL_MESSAGE);
+
+        if ($typeID !== 'voip') {
+            $this->LogMessage('SendVoipOutputResource: invalid voip type', KL_MESSAGE);
+            return false;
+        }
+
+        if ($targetObjectID <= 0 || !@IPS_InstanceExists($targetObjectID)) {
+            $this->LogMessage('SendVoipOutputResource: invalid target instance', KL_MESSAGE);
+            return false;
+        }
+
+        if ($phoneNumber === '') {
+            $this->LogMessage('SendVoipOutputResource: PhoneNumber is empty', KL_MESSAGE);
+            return false;
+        }
+
+        if (!function_exists('TA_StartCallEx')) {
+            $this->LogMessage('SendVoipOutputResource: TA_StartCallEx not available', KL_MESSAGE);
+            return false;
+        }
+
+        try {
+            TA_StartCallEx($targetObjectID, $phoneNumber, $message);
+            $this->LogMessage('SendVoipOutputResource: TA_StartCallEx executed successfully', KL_MESSAGE);
+            return true;
+        } catch (Throwable $e) {
+            $this->LogMessage('SendVoipOutputResource failed: ' . $e->getMessage(), KL_MESSAGE);
+            return false;
+        }
+    }
+
 
     private function ExecuteOutputResource(array $resource, array $payload, array $house, string $groupLabel): bool
     {
@@ -2194,6 +2236,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
         if ($typeID === 'request_action') {
             return $this->SendRequestActionOutputResource($resource, $payload, $house, $groupLabel);
+        }
+
+        if ($typeID === 'voip') {
+            return $this->SendVoipOutputResource($resource, $payload, $house, $groupLabel);
         }
 
         $this->LogMessage('ExecuteOutputResource: unsupported TypeID=' . $typeID, KL_MESSAGE);
