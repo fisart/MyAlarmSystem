@@ -515,6 +515,13 @@ class AlarmResponseManager extends IPSModule
             $typeID = trim((string) ($row['TypeID'] ?? ''));
 
             $resourceValues[] = [
+                'Active'             => (bool) ($row['Active'] ?? true),
+                'OutputID'           => $outputID,
+                'Name'               => (string) ($row['Name'] ?? ''),
+                'TypeID'             => $typeID,
+                'TargetObjectID'     => (int) ($row['TargetObjectID'] ?? 0),
+                'MaxMessages'        => (int) ($row['MaxMessages'] ?? 1),
+                'PerSeconds'         => (int) ($row['PerSeconds'] ?? 60),
                 'PrefixText'         => (string) ($row['PrefixText'] ?? ''),
                 'UseSensorName'      => (bool) ($row['UseSensorName'] ?? true),
                 'UseParentName'      => (bool) ($row['UseParentName'] ?? false),
