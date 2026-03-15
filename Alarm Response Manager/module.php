@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-class ARMResponseManagerMock extends IPSModule
+class AlarmResponseManager extends IPSModule
 {
     private const HOUSE_STATES = [
         ['caption' => '',                'value' => ''],
