@@ -392,11 +392,13 @@ class AlarmResponseManager extends IPSModule
 
         $outputResources = $config['OutputResources'];
         $groupStateRules = $config['GroupStateRules'];
+        $groupStateMatrixConfig = $config['GroupStateMatrixConfig'];
         $ruleOutputAssignments = $config['RuleOutputAssignments'];
         $assignmentMatrixConfig = $config['AssignmentMatrixConfig'] ?? [];
 
         IPS_SetProperty($this->InstanceID, 'OutputResources', json_encode(array_values($outputResources)));
         IPS_SetProperty($this->InstanceID, 'GroupStateRules', json_encode(array_values($groupStateRules)));
+        IPS_SetProperty($this->InstanceID, 'GroupStateMatrixConfig', json_encode(array_values($groupStateMatrixConfig)));
         IPS_SetProperty($this->InstanceID, 'RuleOutputAssignments', json_encode(array_values($ruleOutputAssignments)));
         IPS_SetProperty($this->InstanceID, 'AssignmentMatrixConfig', json_encode(array_values($assignmentMatrixConfig)));
         IPS_ApplyChanges($this->InstanceID);
@@ -417,7 +419,7 @@ class AlarmResponseManager extends IPSModule
             throw new Exception('Backup JSON is missing config block.');
         }
 
-        foreach (['OutputResources', 'GroupStateRules', 'RuleOutputAssignments'] as $key) {
+        foreach (['OutputResources', 'GroupStateRules', 'GroupStateMatrixConfig', 'RuleOutputAssignments'] as $key) {
             if (!array_key_exists($key, $config)) {
                 throw new Exception('Backup JSON is missing ' . $key . '.');
             }
@@ -468,6 +470,7 @@ class AlarmResponseManager extends IPSModule
             'config' => [
                 'OutputResources'        => $this->readListProperty('OutputResources'),
                 'GroupStateRules'        => $this->readListProperty('GroupStateRules'),
+                'GroupStateMatrixConfig' => $this->readListProperty('GroupStateMatrixConfig'),
                 'RuleOutputAssignments'  => $this->readListProperty('RuleOutputAssignments'),
                 'AssignmentMatrixConfig' => $this->readListProperty('AssignmentMatrixConfig')
             ]
@@ -567,12 +570,60 @@ class AlarmResponseManager extends IPSModule
 
     private function BuildGroupStateMatrixPropertyValues(array $importedGroups, array $flatGroupStateRules): array
     {
-        $stored = $this->readListProperty('GroupStateMatrixConfig');
-        if (count($stored) > 0) {
-            return $this->NormalizeGroupStateMatrixRows($stored, $importedGroups);
+        $baseRows = $this->BuildGroupStateMatrixFromFlatRules($importedGroups, $flatGroupStateRules);
+        $storedRows = $this->readListProperty('GroupStateMatrixConfig');
+
+        if (count($storedRows) === 0) {
+            return $baseRows;
         }
 
-        return $this->BuildGroupStateMatrixFromFlatRules($importedGroups, $flatGroupStateRules);
+        $storedRows = $this->NormalizeGroupStateMatrixRows($storedRows, $importedGroups);
+
+        $storedMap = [];
+        foreach ($storedRows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $groupKey = trim((string) ($row['GroupKey'] ?? ''));
+            if ($groupKey === '') {
+                continue;
+            }
+
+            $storedMap[$groupKey] = $row;
+        }
+
+        $merged = [];
+        foreach ($baseRows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $groupKey = trim((string) ($row['GroupKey'] ?? ''));
+            if ($groupKey === '') {
+                continue;
+            }
+
+            if (isset($storedMap[$groupKey])) {
+                $stored = $storedMap[$groupKey];
+
+                $row['All_On'] = (bool) ($stored['All_On'] ?? false);
+                $row['All_Severity'] = trim((string) ($stored['All_Severity'] ?? ''));
+
+                foreach (['0', '2', '3', '6', '9'] as $state) {
+                    $row['S_' . $state . '_Active'] = (bool) ($stored['S_' . $state . '_Active'] ?? false);
+                    $row['S_' . $state . '_Severity'] = trim((string) ($stored['S_' . $state . '_Severity'] ?? ''));
+                    $row['S_' . $state . '_CondGroupKey'] = trim((string) ($stored['S_' . $state . '_CondGroupKey'] ?? ''));
+                    $row['S_' . $state . '_CondMode'] = trim((string) ($stored['S_' . $state . '_CondMode'] ?? ''));
+                }
+
+                $row = $this->NormalizeGroupStateMatrixRow($row);
+            }
+
+            $merged[] = $row;
+        }
+
+        return array_values($merged);
     }
 
     private function NormalizeGroupStateMatrixRow(array $row): array
