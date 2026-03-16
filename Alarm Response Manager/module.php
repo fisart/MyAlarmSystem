@@ -2226,6 +2226,43 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
 
+    private function SendNotificationOutputResource(array $resource, array $payload, array $house, string $groupLabel): bool
+    {
+        $typeID = trim((string) ($resource['TypeID'] ?? ''));
+        $targetObjectID = (int) ($resource['TargetObjectID'] ?? 0);
+        $title = $this->BuildEmailSubject($groupLabel, $house);
+        $message = $this->BuildOutputMessageText($resource, $payload);
+
+        $this->LogMessage('SendNotificationOutputResource: TypeID=' . $typeID, KL_MESSAGE);
+        $this->LogMessage('SendNotificationOutputResource: TargetObjectID=' . $targetObjectID, KL_MESSAGE);
+        $this->LogMessage('SendNotificationOutputResource: Title=' . $title, KL_MESSAGE);
+        $this->LogMessage('SendNotificationOutputResource: Message=' . $message, KL_MESSAGE);
+
+        if ($typeID !== 'notification') {
+            $this->LogMessage('SendNotificationOutputResource: invalid notification type', KL_MESSAGE);
+            return false;
+        }
+
+        if ($targetObjectID <= 0 || !@IPS_InstanceExists($targetObjectID)) {
+            $this->LogMessage('SendNotificationOutputResource: invalid target instance', KL_MESSAGE);
+            return false;
+        }
+
+        if (!function_exists('TUPO_SendMessage')) {
+            $this->LogMessage('SendNotificationOutputResource: TUPO_SendMessage not available', KL_MESSAGE);
+            return false;
+        }
+
+        try {
+            TUPO_SendMessage($targetObjectID, $title, $message, 0);
+            $this->LogMessage('SendNotificationOutputResource: TUPO_SendMessage executed successfully', KL_MESSAGE);
+            return true;
+        } catch (Throwable $e) {
+            $this->LogMessage('SendNotificationOutputResource failed: ' . $e->getMessage(), KL_MESSAGE);
+            return false;
+        }
+    }
+
     private function ExecuteOutputResource(array $resource, array $payload, array $house, string $groupLabel): bool
     {
         $typeID = trim((string) ($resource['TypeID'] ?? ''));
@@ -2246,6 +2283,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
         if ($typeID === 'voip') {
             return $this->SendVoipOutputResource($resource, $payload, $house, $groupLabel);
+        }
+
+        if ($typeID === 'notification') {
+            return $this->SendNotificationOutputResource($resource, $payload, $house, $groupLabel);
         }
 
         $this->LogMessage('ExecuteOutputResource: unsupported TypeID=' . $typeID, KL_MESSAGE);
