@@ -3027,14 +3027,14 @@ document.addEventListener("DOMContentLoaded", () => {
 
     private function BuildMappingGraph(): string
     {
-        $groups = $this->ExtractImportedGroupsFromConfig();
-        $visibleGroupKeys = array_fill_keys($this->GetVisibleGraphGroupKeys($groups), true);
+        $allGroups = $this->ExtractImportedGroupsFromConfig();
+        $visibleGroupKeys = array_fill_keys($this->GetVisibleGraphGroupKeys($allGroups), true);
 
         $rules = $this->GetEffectiveGroupStateRules();
         $assignments = $this->GetEffectiveRuleOutputAssignments();
         $outputs = $this->readListProperty('OutputResources');
 
-        $groups = array_values(array_filter($groups, function (array $group) use ($visibleGroupKeys): bool {
+        $groups = array_values(array_filter($allGroups, function (array $group) use ($visibleGroupKeys): bool {
             $groupKey = trim((string) ($group['GroupKey'] ?? ''));
             return $groupKey !== '' && isset($visibleGroupKeys[$groupKey]);
         }));
@@ -3077,7 +3077,7 @@ document.addEventListener("DOMContentLoaded", () => {
             return strnatcasecmp((string) ($a['Name'] ?? ''), (string) ($b['Name'] ?? ''));
         });
 
-        $groupLabels = $this->buildGroupLabels($groups, $rules);
+        $groupLabels = $this->buildGroupLabels($allGroups, $rules);
         $typeLabels = $this->buildTypeLabels($this->GetBuiltInOutputTypes(), $outputs);
 
         $rulesByID = [];
