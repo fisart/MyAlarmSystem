@@ -2779,6 +2779,30 @@ document.addEventListener("DOMContentLoaded", () => {
         return $options;
     }
 
+
+    private function buildRuleConditionText(array $row, array $groupLabels): string
+    {
+        $conditionGroupKey = trim((string) ($row['ConditionGroupKey'] ?? ''));
+        $conditionMode = trim((string) ($row['ConditionMode'] ?? ''));
+
+        if ($conditionGroupKey === '' || $conditionMode === '') {
+            return '';
+        }
+
+        $conditionGroupLabel = $groupLabels[$conditionGroupKey] ?? '[missing group]';
+
+        if ($conditionMode === 'active') {
+            return 'If group active: ' . $conditionGroupLabel;
+        }
+
+        if ($conditionMode === 'inactive') {
+            return 'If group inactive: ' . $conditionGroupLabel;
+        }
+
+        return '';
+    }
+
+
     private function buildRuleLabels(array $rules, array $groupLabels): array
     {
         $labels = [];
@@ -3175,11 +3199,15 @@ document.addEventListener("DOMContentLoaded", () => {
 
             $ruleLabel = $this->buildRuleLabel($rule, $groupLabels);
             $severity = trim((string) ($rule['Severity'] ?? ''));
+            $conditionText = $this->buildRuleConditionText($rule, $groupLabels);
 
             $parts = [];
             $parts[] = $ruleLabel !== '' ? $ruleLabel : $ruleID;
             if ($severity !== '') {
                 $parts[] = 'Severity: ' . $severity;
+            }
+            if ($conditionText !== '') {
+                $parts[] = $conditionText;
             }
 
             $lines[] = $ruleNode . '["' . $this->MermaidEscape(implode("\n", $parts)) . '"]';
