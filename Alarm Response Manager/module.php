@@ -3228,9 +3228,12 @@ document.addEventListener("DOMContentLoaded", () => {
             if ($conditionGroupKey !== '' && $conditionMode !== '' && isset($visibleGroupKeys[$conditionGroupKey])) {
                 $conditionNode = 'G_' . substr(md5($conditionGroupKey), 0, 10);
                 $conditionLabel = ($conditionMode === 'active') ? 'requires active' : 'requires inactive';
+                $conditionSatisfied = $this->isRuleConditionCurrentlySatisfied($rule);
 
                 $lines[] = $conditionNode . ' -. "' . $this->MermaidEscape($conditionLabel) . '" .-> ' . $ruleNode;
-                $lines[] = 'linkStyle ' . $linkCounter . ' stroke:#90caf9,stroke-width:2px,stroke-dasharray: 6 4;';
+                $lines[] = 'linkStyle ' . $linkCounter
+                    . ' stroke:' . ($conditionSatisfied ? '#ff8a80' : '#90caf9')
+                    . ',stroke-width:2px,stroke-dasharray: 6 4;';
                 $linkCounter++;
             }
         }
@@ -3301,6 +3304,30 @@ document.addEventListener("DOMContentLoaded", () => {
         }
 
         return implode("\n", $lines) . "\n";
+    }
+
+
+    private function isRuleConditionCurrentlySatisfied(array $rule): bool
+    {
+        $conditionGroupKey = trim((string) ($rule['ConditionGroupKey'] ?? ''));
+        $conditionMode = trim((string) ($rule['ConditionMode'] ?? ''));
+
+        if ($conditionGroupKey === '' || $conditionMode === '') {
+            return false;
+        }
+
+        $activeGroupKeys = $this->GetCurrentTargetActiveGroupKeySet();
+        $isActive = isset($activeGroupKeys[$conditionGroupKey]);
+
+        if ($conditionMode === 'active') {
+            return $isActive;
+        }
+
+        if ($conditionMode === 'inactive') {
+            return !$isActive;
+        }
+
+        return false;
     }
 
     private function MermaidEscape(string $value): string
