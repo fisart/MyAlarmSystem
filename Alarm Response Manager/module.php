@@ -20,7 +20,11 @@ class AlarmResponseManager extends IPSModule
         ['caption' => 'High',     'value' => 'High'],
         ['caption' => 'Critical', 'value' => 'Critical']
     ];
-
+    private const CONDITION_MODES = [
+        ['caption' => '',                 'value' => ''],
+        ['caption' => 'must be active',   'value' => 'active'],
+        ['caption' => 'must be inactive', 'value' => 'inactive']
+    ];
     private const OUTPUT_TYPE_CATALOG = [
         ['TypeID' => 'bell',           'TypeName' => 'Bell'],
         ['TypeID' => 'siren',          'TypeName' => 'Siren'],
@@ -509,6 +513,11 @@ class AlarmResponseManager extends IPSModule
         $this->setListColumnOptions($form, 'OutputResources', 'TypeID', $typeOptions);
         $this->setListFormFieldOptions($form, 'OutputResources', 'TypeID', $typeOptions);
 
+        foreach (['0', '2', '3', '6', '9'] as $state) {
+            $this->setListColumnOptions($form, 'GroupStateMatrixConfig', 'S_' . $state . '_CondGroupKey', $groupOptions);
+            $this->setListColumnOptions($form, 'GroupStateMatrixConfig', 'S_' . $state . '_CondMode', self::CONDITION_MODES);
+        }
+
         $resourceValues = [];
         foreach ($outputResources as $row) {
             $outputID = trim((string) ($row['OutputID'] ?? ''));
@@ -571,6 +580,13 @@ class AlarmResponseManager extends IPSModule
         foreach (['0', '2', '3', '6', '9'] as $state) {
             $row['S_' . $state . '_Active'] = (bool) ($row['S_' . $state . '_Active'] ?? false);
             $row['S_' . $state . '_Severity'] = trim((string) ($row['S_' . $state . '_Severity'] ?? ''));
+            $row['S_' . $state . '_CondGroupKey'] = trim((string) ($row['S_' . $state . '_CondGroupKey'] ?? ''));
+            $row['S_' . $state . '_CondMode'] = trim((string) ($row['S_' . $state . '_CondMode'] ?? ''));
+
+            if ($row['S_' . $state . '_CondGroupKey'] === '' || $row['S_' . $state . '_CondMode'] === '') {
+                $row['S_' . $state . '_CondGroupKey'] = '';
+                $row['S_' . $state . '_CondMode'] = '';
+            }
         }
 
         $row['All_On'] = (bool) ($row['All_On'] ?? false);
@@ -625,8 +641,10 @@ class AlarmResponseManager extends IPSModule
             }
 
             $ruleMap[$groupKey . '|' . $houseState] = [
-                'Active'   => (bool) ($row['Active'] ?? true),
-                'Severity' => trim((string) ($row['Severity'] ?? ''))
+                'Active'            => (bool) ($row['Active'] ?? true),
+                'Severity'          => trim((string) ($row['Severity'] ?? '')),
+                'ConditionGroupKey' => trim((string) ($row['ConditionGroupKey'] ?? '')),
+                'ConditionMode'     => trim((string) ($row['ConditionMode'] ?? ''))
             ];
         }
 
@@ -646,9 +664,17 @@ class AlarmResponseManager extends IPSModule
             ];
 
             foreach (['0', '2', '3', '6', '9'] as $state) {
-                $cell = $ruleMap[$groupKey . '|' . $state] ?? ['Active' => false, 'Severity' => ''];
+                $cell = $ruleMap[$groupKey . '|' . $state] ?? [
+                    'Active'            => false,
+                    'Severity'          => '',
+                    'ConditionGroupKey' => '',
+                    'ConditionMode'     => ''
+                ];
+
                 $row['S_' . $state . '_Active'] = (bool) ($cell['Active'] ?? false);
                 $row['S_' . $state . '_Severity'] = trim((string) ($cell['Severity'] ?? ''));
+                $row['S_' . $state . '_CondGroupKey'] = trim((string) ($cell['ConditionGroupKey'] ?? ''));
+                $row['S_' . $state . '_CondMode'] = trim((string) ($cell['ConditionMode'] ?? ''));
             }
 
             $rows[] = $this->NormalizeGroupStateMatrixRow($row);
@@ -680,10 +706,65 @@ class AlarmResponseManager extends IPSModule
             }
 
             $row['GroupLabel'] = $validGroups[$groupKey];
+
+            foreach (['0', '2', '3', '6', '9'] as $state) {
+                $condGroupKey = trim((string) ($row['S_' . $state . '_CondGroupKey'] ?? ''));
+                if ($condGroupKey !== '' && !isset($validGroups[$condGroupKey])) {
+                    $row['S_' . $state . '_CondGroupKey'] = '';
+                    $row['S_' . $state . '_CondMode'] = '';
+                }
+            }
+
             $normalized[] = $this->NormalizeGroupStateMatrixRow($row);
         }
 
         return array_values($normalized);
+    }
+
+    private function GetCurrentTargetActiveGroupKeySet(): array
+    {
+        $raw = $this->ReadAttributeString('CachedTargetActiveGroups');
+        $data = json_decode($raw, true);
+
+        $result = [];
+        if (!is_array($data)) {
+            return $result;
+        }
+
+        foreach ($data as $groupLabelRaw) {
+            $groupLabel = trim((string) $groupLabelRaw);
+            if ($groupLabel === '') {
+                continue;
+            }
+
+            $groupKey = $this->MakeGroupKey($groupLabel);
+            $result[$groupKey] = true;
+        }
+
+        return $result;
+    }
+
+    private function DoesRuleGroupConditionMatch(array $rule): bool
+    {
+        $conditionGroupKey = trim((string) ($rule['ConditionGroupKey'] ?? ''));
+        $conditionMode = trim((string) ($rule['ConditionMode'] ?? ''));
+
+        if ($conditionGroupKey === '' || $conditionMode === '') {
+            return true;
+        }
+
+        $activeGroupKeys = $this->GetCurrentTargetActiveGroupKeySet();
+        $isActive = isset($activeGroupKeys[$conditionGroupKey]);
+
+        if ($conditionMode === 'active') {
+            return $isActive;
+        }
+
+        if ($conditionMode === 'inactive') {
+            return !$isActive;
+        }
+
+        return true;
     }
 
     private function GetEffectiveGroupStateRules(): array
@@ -710,13 +791,22 @@ class AlarmResponseManager extends IPSModule
             foreach (['0', '2', '3', '6', '9'] as $state) {
                 $active = (bool) ($row['S_' . $state . '_Active'] ?? false);
                 $severity = trim((string) ($row['S_' . $state . '_Severity'] ?? ''));
+                $conditionGroupKey = trim((string) ($row['S_' . $state . '_CondGroupKey'] ?? ''));
+                $conditionMode = trim((string) ($row['S_' . $state . '_CondMode'] ?? ''));
+
+                if ($conditionGroupKey === '' || $conditionMode === '') {
+                    $conditionGroupKey = '';
+                    $conditionMode = '';
+                }
 
                 $result[] = [
-                    'Active'     => $active,
-                    'RuleID'     => 'rulemat_' . substr(md5($groupKey . '|' . $state), 0, 12),
-                    'GroupKey'   => $groupKey,
-                    'HouseState' => $state,
-                    'Severity'   => $severity
+                    'Active'            => $active,
+                    'RuleID'            => 'rulemat_' . substr(md5($groupKey . '|' . $state), 0, 12),
+                    'GroupKey'          => $groupKey,
+                    'HouseState'        => $state,
+                    'Severity'          => $severity,
+                    'ConditionGroupKey' => $conditionGroupKey,
+                    'ConditionMode'     => $conditionMode
                 ];
             }
         }
@@ -2091,6 +2181,10 @@ document.addEventListener("DOMContentLoaded", () => {
             }
 
             if ((string) ($row['HouseState'] ?? '') !== $houseState) {
+                continue;
+            }
+
+            if (!$this->DoesRuleGroupConditionMatch($row)) {
                 continue;
             }
 
