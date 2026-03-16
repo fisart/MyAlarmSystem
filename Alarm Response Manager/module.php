@@ -2691,11 +2691,15 @@ document.addEventListener("DOMContentLoaded", () => {
         }
 
         foreach ($rules as $row) {
-            $key = trim((string) ($row['GroupKey'] ?? ''));
-            if ($key === '' || isset($labels[$key])) {
-                continue;
+            $groupKey = trim((string) ($row['GroupKey'] ?? ''));
+            if ($groupKey !== '' && !isset($labels[$groupKey])) {
+                $labels[$groupKey] = '[missing group]';
             }
-            $labels[$key] = '[missing group]';
+
+            $conditionGroupKey = trim((string) ($row['ConditionGroupKey'] ?? ''));
+            if ($conditionGroupKey !== '' && !isset($labels[$conditionGroupKey])) {
+                $labels[$conditionGroupKey] = '[missing group]';
+            }
         }
 
         return $labels;
