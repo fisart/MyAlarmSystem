@@ -2784,7 +2784,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
 
-    private function buildRuleConditionText(array $row, array $groupLabels): string
+    private function buildRuleConditionText(array $row, array $groupLabels, array $visibleGroupKeys = []): string
     {
         $conditionGroupKey = trim((string) ($row['ConditionGroupKey'] ?? ''));
         $conditionMode = trim((string) ($row['ConditionMode'] ?? ''));
@@ -2793,14 +2793,16 @@ document.addEventListener("DOMContentLoaded", () => {
             return '';
         }
 
-        $conditionGroupLabel = $groupLabels[$conditionGroupKey] ?? '[missing group]';
+        if (isset($visibleGroupKeys[$conditionGroupKey])) {
+            return '';
+        }
 
         if ($conditionMode === 'active') {
-            return 'If group active: ' . $conditionGroupLabel;
+            return 'Cond: active';
         }
 
         if ($conditionMode === 'inactive') {
-            return 'If group inactive: ' . $conditionGroupLabel;
+            return 'Cond: inactive';
         }
 
         return '';
@@ -3203,7 +3205,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
             $ruleLabel = $this->buildRuleLabel($rule, $groupLabels);
             $severity = trim((string) ($rule['Severity'] ?? ''));
-            $conditionText = $this->buildRuleConditionText($rule, $groupLabels);
+            $conditionText = $this->buildRuleConditionText($rule, $groupLabels, $visibleGroupKeys);
 
             $parts = [];
             $parts[] = $ruleLabel !== '' ? $ruleLabel : $ruleID;
@@ -3219,6 +3221,18 @@ document.addEventListener("DOMContentLoaded", () => {
             $lines[] = 'class ' . $ruleNode . ' ' . ($ruleActive ? 'red' : 'green') . ';';
             $lines[] = 'linkStyle ' . $linkCounter . ' stroke:' . ($ruleActive ? '#ff8a80' : '#a5d6a7') . ',stroke-width:2px;';
             $linkCounter++;
+
+            $conditionGroupKey = trim((string) ($rule['ConditionGroupKey'] ?? ''));
+            $conditionMode = trim((string) ($rule['ConditionMode'] ?? ''));
+
+            if ($conditionGroupKey !== '' && $conditionMode !== '' && isset($visibleGroupKeys[$conditionGroupKey])) {
+                $conditionNode = 'G_' . substr(md5($conditionGroupKey), 0, 10);
+                $conditionLabel = ($conditionMode === 'active') ? 'requires active' : 'requires inactive';
+
+                $lines[] = $conditionNode . ' -. "' . $this->MermaidEscape($conditionLabel) . '" .-> ' . $ruleNode;
+                $lines[] = 'linkStyle ' . $linkCounter . ' stroke:#90caf9,stroke-width:2px,stroke-dasharray: 6 4;';
+                $linkCounter++;
+            }
         }
 
         foreach ($assignments as $assignment) {
