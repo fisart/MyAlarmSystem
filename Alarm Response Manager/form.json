@@ -1,3 +1,13 @@
+Yes, your `form.json` is wrong.
+
+You currently have:
+
+* `Block 1` missing completely
+* `Block 2` duplicated twice
+
+Use this complete corrected `form.json`:
+
+```json
 {
   "elements": [
     {
@@ -29,290 +39,343 @@
       "name": "ImportedModule1ConfigJson",
       "caption": "Imported Module 1 Config JSON"
     },
-{
-  "type": "ExpansionPanel",
-  "caption": "2. Group-State Rules — define which group reacts in which house state and with what severity",
-  "items": [
     {
-      "type": "Label",
-      "caption": "Abbreviations: D = Disarmed, E = Exit Delay, AE = Armed External, AI = Armed Internal, A = Alarm"
-    },
-    {
-      "type": "Label",
-      "caption": "Optional condition: a rule can require another Module 1 group to be active or inactive before it applies."
-    },
-    {
-      "type": "List",
-      "name": "GroupStateMatrixConfig",
-      "caption": "Group-State Rule Matrix",
-      "rowCount": 10,
-      "add": false,
-      "delete": false,
-      "loadValuesFromConfiguration": false,
-      "columns": [
+      "type": "ExpansionPanel",
+      "caption": "1. Output Resources — define where and how alerts are sent",
+      "items": [
         {
-          "caption": "GroupKey",
-          "name": "GroupKey",
-          "width": "1px",
-          "add": "",
-          "visible": false,
-          "edit": { "type": "ValidationTextBox" }
+          "type": "Label",
+          "caption": "Target Object ID must be a script or an instance."
         },
         {
-          "caption": "Group",
-          "name": "GroupLabel",
-          "width": "180px",
-          "add": "",
-          "save": false
-        },
-        {
-          "caption": "All On",
-          "name": "All_On",
-          "width": "60px",
-          "add": false,
-          "edit": { "type": "CheckBox" }
-        },
-        {
-          "caption": "All Severity",
-          "name": "All_Severity",
-          "width": "100px",
-          "add": "",
-          "edit": {
-            "type": "Select",
-            "options": [
-              { "caption": "", "value": "" },
-              { "caption": "Low", "value": "Low" },
-              { "caption": "Medium", "value": "Medium" },
-              { "caption": "High", "value": "High" },
-              { "caption": "Critical", "value": "Critical" }
-            ]
-          }
-        },
-
-        {
-          "caption": "D On",
-          "name": "S_0_Active",
-          "width": "55px",
-          "add": false,
-          "edit": { "type": "CheckBox" }
-        },
-        {
-          "caption": "D Sev",
-          "name": "S_0_Severity",
-          "width": "80px",
-          "add": "",
-          "edit": {
-            "type": "Select",
-            "options": [
-              { "caption": "", "value": "" },
-              { "caption": "Low", "value": "Low" },
-              { "caption": "Medium", "value": "Medium" },
-              { "caption": "High", "value": "High" },
-              { "caption": "Critical", "value": "Critical" }
-            ]
-          }
-        },
-        {
-          "caption": "D Cond Group",
-          "name": "S_0_CondGroupKey",
-          "width": "160px",
-          "add": "",
-          "edit": {
-            "type": "Select",
-            "options": []
-          }
-        },
-        {
-          "caption": "D Cond",
-          "name": "S_0_CondMode",
-          "width": "120px",
-          "add": "",
-          "edit": {
-            "type": "Select",
-            "options": []
-          }
-        },
-
-        {
-          "caption": "E On",
-          "name": "S_2_Active",
-          "width": "55px",
-          "add": false,
-          "edit": { "type": "CheckBox" }
-        },
-        {
-          "caption": "E Sev",
-          "name": "S_2_Severity",
-          "width": "80px",
-          "add": "",
-          "edit": {
-            "type": "Select",
-            "options": [
-              { "caption": "", "value": "" },
-              { "caption": "Low", "value": "Low" },
-              { "caption": "Medium", "value": "Medium" },
-              { "caption": "High", "value": "High" },
-              { "caption": "Critical", "value": "Critical" }
-            ]
-          }
-        },
-        {
-          "caption": "E Cond Group",
-          "name": "S_2_CondGroupKey",
-          "width": "160px",
-          "add": "",
-          "edit": {
-            "type": "Select",
-            "options": []
-          }
-        },
-        {
-          "caption": "E Cond",
-          "name": "S_2_CondMode",
-          "width": "120px",
-          "add": "",
-          "edit": {
-            "type": "Select",
-            "options": []
-          }
-        },
-
-        {
-          "caption": "AE On",
-          "name": "S_3_Active",
-          "width": "60px",
-          "add": false,
-          "edit": { "type": "CheckBox" }
-        },
-        {
-          "caption": "AE Sev",
-          "name": "S_3_Severity",
-          "width": "85px",
-          "add": "",
-          "edit": {
-            "type": "Select",
-            "options": [
-              { "caption": "", "value": "" },
-              { "caption": "Low", "value": "Low" },
-              { "caption": "Medium", "value": "Medium" },
-              { "caption": "High", "value": "High" },
-              { "caption": "Critical", "value": "Critical" }
-            ]
-          }
-        },
-        {
-          "caption": "AE Cond Group",
-          "name": "S_3_CondGroupKey",
-          "width": "165px",
-          "add": "",
-          "edit": {
-            "type": "Select",
-            "options": []
-          }
-        },
-        {
-          "caption": "AE Cond",
-          "name": "S_3_CondMode",
-          "width": "125px",
-          "add": "",
-          "edit": {
-            "type": "Select",
-            "options": []
-          }
-        },
-
-        {
-          "caption": "AI On",
-          "name": "S_6_Active",
-          "width": "60px",
-          "add": false,
-          "edit": { "type": "CheckBox" }
-        },
-        {
-          "caption": "AI Sev",
-          "name": "S_6_Severity",
-          "width": "85px",
-          "add": "",
-          "edit": {
-            "type": "Select",
-            "options": [
-              { "caption": "", "value": "" },
-              { "caption": "Low", "value": "Low" },
-              { "caption": "Medium", "value": "Medium" },
-              { "caption": "High", "value": "High" },
-              { "caption": "Critical", "value": "Critical" }
-            ]
-          }
-        },
-        {
-          "caption": "AI Cond Group",
-          "name": "S_6_CondGroupKey",
-          "width": "165px",
-          "add": "",
-          "edit": {
-            "type": "Select",
-            "options": []
-          }
-        },
-        {
-          "caption": "AI Cond",
-          "name": "S_6_CondMode",
-          "width": "125px",
-          "add": "",
-          "edit": {
-            "type": "Select",
-            "options": []
-          }
-        },
-
-        {
-          "caption": "A On",
-          "name": "S_9_Active",
-          "width": "55px",
-          "add": false,
-          "edit": { "type": "CheckBox" }
-        },
-        {
-          "caption": "A Sev",
-          "name": "S_9_Severity",
-          "width": "80px",
-          "add": "",
-          "edit": {
-            "type": "Select",
-            "options": [
-              { "caption": "", "value": "" },
-              { "caption": "Low", "value": "Low" },
-              { "caption": "Medium", "value": "Medium" },
-              { "caption": "High", "value": "High" },
-              { "caption": "Critical", "value": "Critical" }
-            ]
-          }
-        },
-        {
-          "caption": "A Cond Group",
-          "name": "S_9_CondGroupKey",
-          "width": "160px",
-          "add": "",
-          "edit": {
-            "type": "Select",
-            "options": []
-          }
-        },
-        {
-          "caption": "A Cond",
-          "name": "S_9_CondMode",
-          "width": "120px",
-          "add": "",
-          "edit": {
-            "type": "Select",
-            "options": []
-          }
+          "type": "List",
+          "name": "OutputResources",
+          "caption": "Output Resources",
+          "rowCount": 8,
+          "add": true,
+          "delete": true,
+          "loadValuesFromConfiguration": false,
+          "sort": {
+            "column": "Name",
+            "direction": "ascending"
+          },
+          "columns": [
+            {
+              "caption": "Active",
+              "name": "Active",
+              "width": "70px",
+              "add": true,
+              "edit": { "type": "CheckBox" }
+            },
+            {
+              "caption": "OutputID",
+              "name": "OutputID",
+              "width": "140px",
+              "add": "",
+              "edit": { "type": "ValidationTextBox" },
+              "visible": false
+            },
+            {
+              "caption": "Name",
+              "name": "Name",
+              "width": "180px",
+              "add": "",
+              "edit": { "type": "ValidationTextBox" }
+            },
+            {
+              "caption": "TypeID",
+              "name": "TypeID",
+              "width": "180px",
+              "add": "",
+              "edit": {
+                "type": "Select",
+                "options": []
+              }
+            },
+            {
+              "caption": "Target ObjID",
+              "name": "TargetObjectID",
+              "width": "120px",
+              "add": 0,
+              "edit": { "type": "SelectObject" }
+            },
+            {
+              "caption": "Max Msg",
+              "name": "MaxMessages",
+              "width": "85px",
+              "add": 1,
+              "edit": { "type": "NumberSpinner" }
+            },
+            {
+              "caption": "Per Sec",
+              "name": "PerSeconds",
+              "width": "85px",
+              "add": 60,
+              "edit": { "type": "NumberSpinner" }
+            },
+            {
+              "caption": "Prefix",
+              "name": "PrefixText",
+              "width": "140px",
+              "add": "",
+              "edit": { "type": "ValidationTextBox" }
+            },
+            {
+              "caption": "Sensor",
+              "name": "UseSensorName",
+              "width": "60px",
+              "add": true,
+              "edit": { "type": "CheckBox" }
+            },
+            {
+              "caption": "Parent",
+              "name": "UseParentName",
+              "width": "60px",
+              "add": false,
+              "edit": { "type": "CheckBox" }
+            },
+            {
+              "caption": "Grand",
+              "name": "UseGrandparentName",
+              "width": "60px",
+              "add": false,
+              "edit": { "type": "CheckBox" }
+            },
+            {
+              "caption": "Content",
+              "name": "UseContent",
+              "width": "70px",
+              "add": false,
+              "edit": { "type": "CheckBox" }
+            },
+            {
+              "caption": "Suffix",
+              "name": "SuffixText",
+              "width": "140px",
+              "add": "",
+              "edit": { "type": "ValidationTextBox" }
+            },
+            {
+              "caption": "Phone Number",
+              "name": "PhoneNumber",
+              "width": "140px",
+              "add": "",
+              "edit": { "type": "ValidationTextBox" }
+            },
+            {
+              "caption": "Volume",
+              "name": "Volume",
+              "width": "80px",
+              "add": "",
+              "edit": { "type": "ValidationTextBox" }
+            },
+            {
+              "caption": "Value Mode",
+              "name": "ActionValueMode",
+              "width": "120px",
+              "add": "message_text",
+              "edit": {
+                "type": "Select",
+                "options": [
+                  { "caption": "Message Text", "value": "message_text" },
+                  { "caption": "JSON Payload", "value": "json_payload" },
+                  { "caption": "Fixed Value", "value": "fixed_value" }
+                ]
+              }
+            },
+            {
+              "caption": "Fixed Value",
+              "name": "ActionFixedValue",
+              "width": "140px",
+              "add": "",
+              "edit": { "type": "ValidationTextBox" }
+            },
+            {
+              "caption": "Prefix Ord",
+              "name": "PrefixOrder",
+              "width": "85px",
+              "add": 10,
+              "edit": { "type": "NumberSpinner" }
+            },
+            {
+              "caption": "Sensor Ord",
+              "name": "SensorOrder",
+              "width": "85px",
+              "add": 20,
+              "edit": { "type": "NumberSpinner" }
+            },
+            {
+              "caption": "Parent Ord",
+              "name": "ParentOrder",
+              "width": "85px",
+              "add": 30,
+              "edit": { "type": "NumberSpinner" }
+            },
+            {
+              "caption": "Grand Ord",
+              "name": "GrandparentOrder",
+              "width": "85px",
+              "add": 40,
+              "edit": { "type": "NumberSpinner" }
+            },
+            {
+              "caption": "Content Ord",
+              "name": "ContentOrder",
+              "width": "85px",
+              "add": 50,
+              "edit": { "type": "NumberSpinner" }
+            },
+            {
+              "caption": "Suffix Ord",
+              "name": "SuffixOrder",
+              "width": "85px",
+              "add": 60,
+              "edit": { "type": "NumberSpinner" }
+            },
+            {
+              "caption": "Type Label",
+              "name": "TypeLabel",
+              "width": "140px",
+              "add": "",
+              "save": false
+            },
+            {
+              "caption": "Summary",
+              "name": "RowSummary",
+              "width": "auto",
+              "add": "",
+              "save": false
+            }
+          ],
+          "form": [
+            {
+              "type": "ValidationTextBox",
+              "name": "OutputID",
+              "caption": "OutputID",
+              "visible": false,
+              "enabled": false
+            },
+            {
+              "type": "CheckBox",
+              "name": "Active",
+              "caption": "Active"
+            },
+            {
+              "type": "ValidationTextBox",
+              "name": "Name",
+              "caption": "Name"
+            },
+            {
+              "type": "Select",
+              "name": "TypeID",
+              "caption": "Type",
+              "options": []
+            },
+            {
+              "type": "SelectObject",
+              "name": "TargetObjectID",
+              "caption": "Target Object"
+            },
+            {
+              "type": "NumberSpinner",
+              "name": "MaxMessages",
+              "caption": "Max Messages"
+            },
+            {
+              "type": "NumberSpinner",
+              "name": "PerSeconds",
+              "caption": "Per Seconds"
+            },
+            {
+              "type": "ValidationTextBox",
+              "name": "PrefixText",
+              "caption": "Prefix"
+            },
+            {
+              "type": "CheckBox",
+              "name": "UseSensorName",
+              "caption": "Use Sensor Name"
+            },
+            {
+              "type": "CheckBox",
+              "name": "UseParentName",
+              "caption": "Use Parent Name"
+            },
+            {
+              "type": "CheckBox",
+              "name": "UseGrandparentName",
+              "caption": "Use Grandparent Name"
+            },
+            {
+              "type": "CheckBox",
+              "name": "UseContent",
+              "caption": "Use Content"
+            },
+            {
+              "type": "ValidationTextBox",
+              "name": "SuffixText",
+              "caption": "Suffix"
+            },
+            {
+              "type": "ValidationTextBox",
+              "name": "PhoneNumber",
+              "caption": "Phone Number"
+            },
+            {
+              "type": "ValidationTextBox",
+              "name": "Volume",
+              "caption": "Volume"
+            },
+            {
+              "type": "Select",
+              "name": "ActionValueMode",
+              "caption": "Action Value Mode",
+              "options": [
+                { "caption": "Message Text", "value": "message_text" },
+                { "caption": "JSON Payload", "value": "json_payload" },
+                { "caption": "Fixed Value", "value": "fixed_value" }
+              ]
+            },
+            {
+              "type": "ValidationTextBox",
+              "name": "ActionFixedValue",
+              "caption": "Action Fixed Value"
+            },
+            {
+              "type": "NumberSpinner",
+              "name": "PrefixOrder",
+              "caption": "Prefix Order"
+            },
+            {
+              "type": "NumberSpinner",
+              "name": "SensorOrder",
+              "caption": "Sensor Order"
+            },
+            {
+              "type": "NumberSpinner",
+              "name": "ParentOrder",
+              "caption": "Parent Order"
+            },
+            {
+              "type": "NumberSpinner",
+              "name": "GrandparentOrder",
+              "caption": "Grandparent Order"
+            },
+            {
+              "type": "NumberSpinner",
+              "name": "ContentOrder",
+              "caption": "Content Order"
+            },
+            {
+              "type": "NumberSpinner",
+              "name": "SuffixOrder",
+              "caption": "Suffix Order"
+            }
+          ],
+          "values": []
         }
-      ],
-      "values": []
-    }
-  ]
-},
+      ]
+    },
     {
       "type": "ExpansionPanel",
       "caption": "2. Group-State Rules — define which group reacts in which house state and with what severity",
@@ -320,6 +383,10 @@
         {
           "type": "Label",
           "caption": "Abbreviations: D = Disarmed, E = Exit Delay, AE = Armed External, AI = Armed Internal, A = Alarm"
+        },
+        {
+          "type": "Label",
+          "caption": "Optional condition: a rule can require another Module 1 group to be active or inactive before it applies."
         },
         {
           "type": "List",
@@ -376,9 +443,9 @@
               "edit": { "type": "CheckBox" }
             },
             {
-              "caption": "D Severity",
+              "caption": "D Sev",
               "name": "S_0_Severity",
-              "width": "90px",
+              "width": "80px",
               "add": "",
               "edit": {
                 "type": "Select",
@@ -389,6 +456,26 @@
                   { "caption": "High", "value": "High" },
                   { "caption": "Critical", "value": "Critical" }
                 ]
+              }
+            },
+            {
+              "caption": "D Cond Group",
+              "name": "S_0_CondGroupKey",
+              "width": "160px",
+              "add": "",
+              "edit": {
+                "type": "Select",
+                "options": []
+              }
+            },
+            {
+              "caption": "D Cond",
+              "name": "S_0_CondMode",
+              "width": "120px",
+              "add": "",
+              "edit": {
+                "type": "Select",
+                "options": []
               }
             },
             {
@@ -399,9 +486,9 @@
               "edit": { "type": "CheckBox" }
             },
             {
-              "caption": "E Severity",
+              "caption": "E Sev",
               "name": "S_2_Severity",
-              "width": "90px",
+              "width": "80px",
               "add": "",
               "edit": {
                 "type": "Select",
@@ -412,6 +499,26 @@
                   { "caption": "High", "value": "High" },
                   { "caption": "Critical", "value": "Critical" }
                 ]
+              }
+            },
+            {
+              "caption": "E Cond Group",
+              "name": "S_2_CondGroupKey",
+              "width": "160px",
+              "add": "",
+              "edit": {
+                "type": "Select",
+                "options": []
+              }
+            },
+            {
+              "caption": "E Cond",
+              "name": "S_2_CondMode",
+              "width": "120px",
+              "add": "",
+              "edit": {
+                "type": "Select",
+                "options": []
               }
             },
             {
@@ -422,9 +529,9 @@
               "edit": { "type": "CheckBox" }
             },
             {
-              "caption": "AE Severity",
+              "caption": "AE Sev",
               "name": "S_3_Severity",
-              "width": "95px",
+              "width": "85px",
               "add": "",
               "edit": {
                 "type": "Select",
@@ -435,6 +542,26 @@
                   { "caption": "High", "value": "High" },
                   { "caption": "Critical", "value": "Critical" }
                 ]
+              }
+            },
+            {
+              "caption": "AE Cond Group",
+              "name": "S_3_CondGroupKey",
+              "width": "165px",
+              "add": "",
+              "edit": {
+                "type": "Select",
+                "options": []
+              }
+            },
+            {
+              "caption": "AE Cond",
+              "name": "S_3_CondMode",
+              "width": "125px",
+              "add": "",
+              "edit": {
+                "type": "Select",
+                "options": []
               }
             },
             {
@@ -445,9 +572,9 @@
               "edit": { "type": "CheckBox" }
             },
             {
-              "caption": "AI Severity",
+              "caption": "AI Sev",
               "name": "S_6_Severity",
-              "width": "95px",
+              "width": "85px",
               "add": "",
               "edit": {
                 "type": "Select",
@@ -461,6 +588,26 @@
               }
             },
             {
+              "caption": "AI Cond Group",
+              "name": "S_6_CondGroupKey",
+              "width": "165px",
+              "add": "",
+              "edit": {
+                "type": "Select",
+                "options": []
+              }
+            },
+            {
+              "caption": "AI Cond",
+              "name": "S_6_CondMode",
+              "width": "125px",
+              "add": "",
+              "edit": {
+                "type": "Select",
+                "options": []
+              }
+            },
+            {
               "caption": "A On",
               "name": "S_9_Active",
               "width": "55px",
@@ -468,9 +615,9 @@
               "edit": { "type": "CheckBox" }
             },
             {
-              "caption": "A Severity",
+              "caption": "A Sev",
               "name": "S_9_Severity",
-              "width": "90px",
+              "width": "80px",
               "add": "",
               "edit": {
                 "type": "Select",
@@ -481,6 +628,26 @@
                   { "caption": "High", "value": "High" },
                   { "caption": "Critical", "value": "Critical" }
                 ]
+              }
+            },
+            {
+              "caption": "A Cond Group",
+              "name": "S_9_CondGroupKey",
+              "width": "160px",
+              "add": "",
+              "edit": {
+                "type": "Select",
+                "options": []
+              }
+            },
+            {
+              "caption": "A Cond",
+              "name": "S_9_CondMode",
+              "width": "120px",
+              "add": "",
+              "edit": {
+                "type": "Select",
+                "options": []
               }
             }
           ],
@@ -667,3 +834,4 @@
     }
   ]
 }
+```
