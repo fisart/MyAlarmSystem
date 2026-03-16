@@ -1,13 +1,3 @@
-Yes, your `form.json` is wrong.
-
-You currently have:
-
-* `Block 1` missing completely
-* `Block 2` duplicated twice
-
-Use this complete corrected `form.json`:
-
-```json
 {
   "elements": [
     {
@@ -834,4 +824,3 @@ Use this complete corrected `form.json`:
     }
   ]
 }
-```
