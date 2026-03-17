@@ -85,10 +85,18 @@ class PropertyStateManager extends IPSModule
         $this->RegisterHook('/hook/psm_logic_' . $this->InstanceID);
 
         // SYNC: Request current sensor state from Module 1 on startup/change
+        // Safeguard: Module 2 must still start even if Module 1 is slow or not ready.
         $sensorGroupID = $this->ReadPropertyInteger("SensorGroupInstanceID");
         if ($sensorGroupID > 0 && @IPS_InstanceExists($sensorGroupID)) {
             if (function_exists('MYALARM_RequestStateSync')) {
-                @MYALARM_RequestStateSync($sensorGroupID);
+                try {
+                    @MYALARM_RequestStateSync($sensorGroupID);
+                } catch (\Throwable $e) {
+                    $this->LogMessage(
+                        "[PSM-Apply] Startup sync skipped because Module 1 RequestStateSync failed: " . $e->getMessage(),
+                        KL_WARNING
+                    );
+                }
             }
         }
 
@@ -98,7 +106,16 @@ class PropertyStateManager extends IPSModule
 
         if ($sensorGroupID > 0 && @IPS_InstanceExists($sensorGroupID) && function_exists('MYALARM_GetConfiguration')) {
 
-            $configJSON = @MYALARM_GetConfiguration($sensorGroupID);
+            $configJSON = false;
+            try {
+                $configJSON = @MYALARM_GetConfiguration($sensorGroupID);
+            } catch (\Throwable $e) {
+                $this->LogMessage(
+                    "[PSM-Apply] Module 1 configuration fetch failed: " . $e->getMessage(),
+                    KL_WARNING
+                );
+            }
+
             if ($configJSON !== false && $configJSON !== "") {
 
                 $this->WriteAttributeString("ImportedConfig", (string)$configJSON);

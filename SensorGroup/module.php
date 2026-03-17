@@ -3277,7 +3277,13 @@ class SensorGroup extends IPSModule
             $this->LogMessage("SYNC REQUEST: Executing Full Active Iteration.", KL_MESSAGE);
         }
 
-        $sensorList = json_decode($this->ReadPropertyString('SensorList'), true) ?: [];
+        $rawSensorList = $this->ReadPropertyString('SensorList');
+        if (!is_string($rawSensorList) || $rawSensorList === '') {
+            $sensorList = [];
+        } else {
+            $tmp = json_decode($rawSensorList, true);
+            $sensorList = is_array($tmp) ? $tmp : [];
+        }
         $activeCount = 0;
 
         // Iterate through ALL defined sensors
