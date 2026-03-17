@@ -1469,11 +1469,13 @@ class PropertyStateManager extends IPSModule
             'ArmingDelayDuration'   => $this->ReadPropertyInteger('ArmingDelayDuration'),
             'VaultInstanceID'       => $this->ReadPropertyInteger('VaultInstanceID'),
             'BedroomDoorPolarity'   => $this->ReadPropertyString('BedroomDoorPolarity'),
+            'StatePushTargets'      => json_decode($this->ReadPropertyString('StatePushTargets'), true),
         ];
 
         // make sure arrays are arrays (not null)
         if (!is_array($snapshot['GroupMapping'])) $snapshot['GroupMapping'] = [];
         if (!is_array($snapshot['DecisionMap'])) $snapshot['DecisionMap'] = [];
+        if (!is_array($snapshot['StatePushTargets'])) $snapshot['StatePushTargets'] = [];
 
         return json_encode($snapshot, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
     }
@@ -1521,6 +1523,9 @@ class PropertyStateManager extends IPSModule
         $decisionMap = $props['DecisionMap'] ?? [];
         if (!is_array($decisionMap)) $decisionMap = [];
 
+        $statePushTargets = $props['StatePushTargets'] ?? [];
+        if (!is_array($statePushTargets)) $statePushTargets = [];
+
         // Basic sanity: keep module usable even if import is incomplete
         if ($sensorGroup <= 0) {
             $this->LogMessage("[PSM-Import] Warning: SensorGroupInstanceID is 0/invalid in import.", KL_WARNING);
@@ -1537,8 +1542,9 @@ class PropertyStateManager extends IPSModule
         IPS_SetProperty($this->InstanceID, 'VaultInstanceID',        $vaultID);
         IPS_SetProperty($this->InstanceID, 'BedroomDoorPolarity',    $bedroomPolarity);
 
-        IPS_SetProperty($this->InstanceID, 'GroupMapping', json_encode($groupMapping));
-        IPS_SetProperty($this->InstanceID, 'DecisionMap',  json_encode($decisionMap));
+        IPS_SetProperty($this->InstanceID, 'GroupMapping',     json_encode($groupMapping));
+        IPS_SetProperty($this->InstanceID, 'DecisionMap',      json_encode($decisionMap));
+        IPS_SetProperty($this->InstanceID, 'StatePushTargets', json_encode($statePushTargets));
 
         // Optional: persist the JSON in the UI field/property (so the pasted content remains)
         // Only do this if you've registered the property "ConfigBackupJson"
