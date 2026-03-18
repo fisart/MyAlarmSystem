@@ -2854,7 +2854,10 @@ class SensorGroup extends IPSModule
                 "values" => []
             ];
         }
-        $groupMembers = json_decode($this->ReadAttributeString('GroupMembersBuffer'), true) ?: json_decode($this->ReadPropertyString('GroupMembers'), true) ?: [];
+        $raw = (string)$this->ReadPropertyString('GroupMembers');
+        $tmp = json_decode($raw, true);
+        $groupMembers = is_array($tmp) ? $tmp : [];
+        unset($raw, $tmp);
         // FIX: Dispatch lists are standard properties. Buffer fallback resurrects deleted "zombie" rows.
         $dispatchTargets = json_decode($this->ReadPropertyString('DispatchTargets'), true);
         if (!is_array($dispatchTargets)) $dispatchTargets = [];
@@ -2900,7 +2903,6 @@ class SensorGroup extends IPSModule
         $this->WriteAttributeString('GroupListBuffer', json_encode($definedGroups));
         $this->WriteAttributeString('SensorListBuffer', json_encode($sensorList));
         $this->WriteAttributeString('BedroomListBuffer', json_encode($bedroomList));
-        $this->WriteAttributeString('GroupMembersBuffer', json_encode($groupMembers));
         $this->WriteAttributeString('DispatchTargetsBuffer', json_encode($dispatchTargets));
         $this->WriteAttributeString('GroupDispatchBuffer', json_encode($groupDispatch));
         // === DEBUG: after sync to RAM buffers ===
