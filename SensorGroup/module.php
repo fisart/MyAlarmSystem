@@ -371,12 +371,16 @@ class SensorGroup extends IPSModule
         IPS_SetProperty($this->InstanceID, 'BedroomList', $jsonBed);
         $this->WriteAttributeString('BedroomListBuffer', $jsonBed);
 
-        $groupMembers = json_decode($this->ReadAttributeString('GroupMembersBuffer'), true) ?: json_decode($this->ReadPropertyString('GroupMembers'), true) ?: [];
+        $raw = (string)$this->ReadPropertyString('GroupMembers');
+        $tmp = json_decode($raw, true);
+        $groupMembers = is_array($tmp) ? $tmp : [];
+        unset($raw, $tmp);
+
         $cleanMembers = [];
 
         foreach ($groupMembers as $m) {
-            $gName = $m['GroupName'] ?? '';
-            $cID   = $m['ClassID'] ?? '';
+            $gName = trim((string)($m['GroupName'] ?? ''));
+            $cID   = (string)($m['ClassID'] ?? '');
 
             // Group must exist
             if (!in_array($gName, $validGroupNames, true)) {
@@ -384,7 +388,7 @@ class SensorGroup extends IPSModule
             }
 
             // --- HEAL: if membership references ClassName (pre-ID), map it to the current ClassID ---
-            if (!in_array($cID, $validClassIDs, true) && is_string($cID) && isset($classNameMap[$cID])) {
+            if (!in_array($cID, $validClassIDs, true) && $cID !== '' && isset($classNameMap[$cID])) {
                 $cID = $classNameMap[$cID];
                 $m['ClassID'] = $cID;
                 $idsChanged = true;
@@ -392,11 +396,12 @@ class SensorGroup extends IPSModule
 
             // Keep only if class now exists
             if (in_array($cID, $validClassIDs, true)) {
+                $m['GroupName'] = $gName;
                 $cleanMembers[] = $m;
             }
         }
 
-        $jsonMem = json_encode($cleanMembers);
+        $jsonMem = json_encode(array_values($cleanMembers));
         IPS_SetProperty($this->InstanceID, 'GroupMembers', $jsonMem);
         $this->WriteAttributeString('GroupMembersBuffer', $jsonMem);
 
@@ -1137,26 +1142,37 @@ class SensorGroup extends IPSModule
 
             case 'UpdateMemberProperty': {
                     $data = json_decode($Value, true);
-                    $gName = $data['GroupName'] ?? '';
+                    $gName = trim((string)($data['GroupName'] ?? ''));
                     $matrixValues = (isset($data['Values']['ClassID'])) ? [$data['Values']] : ($data['Values'] ?? []);
-                    $master = json_decode($this->ReadAttributeString('GroupMembersBuffer'), true)
-                        ?: json_decode($this->ReadPropertyString('GroupMembers'), true)
-                        ?: [];
+
+                    $raw = (string)$this->ReadPropertyString('GroupMembers');
+                    $tmp = json_decode($raw, true);
+                    $master = is_array($tmp) ? $tmp : [];
+                    unset($raw, $tmp);
+
                     foreach ((array)$matrixValues as $row) {
                         if (!is_array($row)) {
                             continue;
                         }
-                        $cID = $row['ClassID'] ?? '';
+
+                        $cID = (string)($row['ClassID'] ?? '');
+                        if ($gName === '' || $cID === '') {
+                            continue;
+                        }
+
                         $master = array_values(array_filter($master, function ($m) use ($gName, $cID) {
-                            return !(($m['GroupName'] ?? '') === $gName && ($m['ClassID'] ?? '') === $cID);
+                            return !(trim((string)($m['GroupName'] ?? '')) === $gName && (string)($m['ClassID'] ?? '') === $cID);
                         }));
+
                         if (!empty($row['Assigned'])) {
                             $master[] = ['GroupName' => $gName, 'ClassID' => $cID];
                         }
                     }
-                    $json = json_encode($master);
-                    $this->WriteAttributeString('GroupMembersBuffer', $json);
+
+                    $json = json_encode(array_values($master));
                     IPS_SetProperty($this->InstanceID, 'GroupMembers', $json);
+                    $this->WriteAttributeString('GroupMembersBuffer', $json);
+                    $this->ReloadForm();
                     break;
                 }
 
@@ -1253,7 +1269,7 @@ class SensorGroup extends IPSModule
         $rawGroupList       = (string)$this->ReadAttributeString('GroupListBuffer');
         $rawSensorList      = (string)$this->ReadAttributeString('SensorListBuffer');
         $rawBedroomList     = (string)$this->ReadAttributeString('BedroomListBuffer');
-        $rawGroupMembers    = (string)$this->ReadAttributeString('GroupMembersBuffer');
+        $rawGroupMembers    = (string)$this->ReadPropertyString('GroupMembers');
         $rawDispatchTargets = (string)$this->ReadPropertyString('DispatchTargets');
 
         $tmp = json_decode($rawClassList, true);
