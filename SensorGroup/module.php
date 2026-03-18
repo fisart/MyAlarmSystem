@@ -371,16 +371,12 @@ class SensorGroup extends IPSModule
         IPS_SetProperty($this->InstanceID, 'BedroomList', $jsonBed);
         $this->WriteAttributeString('BedroomListBuffer', $jsonBed);
 
-        $raw = (string)$this->ReadPropertyString('GroupMembers');
-        $tmp = json_decode($raw, true);
-        $groupMembers = is_array($tmp) ? $tmp : [];
-        unset($raw, $tmp);
-
+        $groupMembers = json_decode($this->ReadAttributeString('GroupMembersBuffer'), true) ?: json_decode($this->ReadPropertyString('GroupMembers'), true) ?: [];
         $cleanMembers = [];
 
         foreach ($groupMembers as $m) {
-            $gName = trim((string)($m['GroupName'] ?? ''));
-            $cID   = (string)($m['ClassID'] ?? '');
+            $gName = $m['GroupName'] ?? '';
+            $cID   = $m['ClassID'] ?? '';
 
             // Group must exist
             if (!in_array($gName, $validGroupNames, true)) {
@@ -388,7 +384,7 @@ class SensorGroup extends IPSModule
             }
 
             // --- HEAL: if membership references ClassName (pre-ID), map it to the current ClassID ---
-            if (!in_array($cID, $validClassIDs, true) && $cID !== '' && isset($classNameMap[$cID])) {
+            if (!in_array($cID, $validClassIDs, true) && is_string($cID) && isset($classNameMap[$cID])) {
                 $cID = $classNameMap[$cID];
                 $m['ClassID'] = $cID;
                 $idsChanged = true;
@@ -396,12 +392,11 @@ class SensorGroup extends IPSModule
 
             // Keep only if class now exists
             if (in_array($cID, $validClassIDs, true)) {
-                $m['GroupName'] = $gName;
                 $cleanMembers[] = $m;
             }
         }
 
-        $jsonMem = json_encode(array_values($cleanMembers));
+        $jsonMem = json_encode($cleanMembers);
         IPS_SetProperty($this->InstanceID, 'GroupMembers', $jsonMem);
         $this->WriteAttributeString('GroupMembersBuffer', $jsonMem);
 
@@ -1142,37 +1137,26 @@ class SensorGroup extends IPSModule
 
             case 'UpdateMemberProperty': {
                     $data = json_decode($Value, true);
-                    $gName = trim((string)($data['GroupName'] ?? ''));
+                    $gName = $data['GroupName'] ?? '';
                     $matrixValues = (isset($data['Values']['ClassID'])) ? [$data['Values']] : ($data['Values'] ?? []);
-
-                    $raw = (string)$this->ReadPropertyString('GroupMembers');
-                    $tmp = json_decode($raw, true);
-                    $master = is_array($tmp) ? $tmp : [];
-                    unset($raw, $tmp);
-
+                    $master = json_decode($this->ReadAttributeString('GroupMembersBuffer'), true)
+                        ?: json_decode($this->ReadPropertyString('GroupMembers'), true)
+                        ?: [];
                     foreach ((array)$matrixValues as $row) {
                         if (!is_array($row)) {
                             continue;
                         }
-
-                        $cID = (string)($row['ClassID'] ?? '');
-                        if ($gName === '' || $cID === '') {
-                            continue;
-                        }
-
+                        $cID = $row['ClassID'] ?? '';
                         $master = array_values(array_filter($master, function ($m) use ($gName, $cID) {
-                            return !(trim((string)($m['GroupName'] ?? '')) === $gName && (string)($m['ClassID'] ?? '') === $cID);
+                            return !(($m['GroupName'] ?? '') === $gName && ($m['ClassID'] ?? '') === $cID);
                         }));
-
                         if (!empty($row['Assigned'])) {
                             $master[] = ['GroupName' => $gName, 'ClassID' => $cID];
                         }
                     }
-
-                    $json = json_encode(array_values($master));
-                    IPS_SetProperty($this->InstanceID, 'GroupMembers', $json);
+                    $json = json_encode($master);
                     $this->WriteAttributeString('GroupMembersBuffer', $json);
-                    $this->ReloadForm();
+                    IPS_SetProperty($this->InstanceID, 'GroupMembers', $json);
                     break;
                 }
 
@@ -1269,7 +1253,7 @@ class SensorGroup extends IPSModule
         $rawGroupList       = (string)$this->ReadAttributeString('GroupListBuffer');
         $rawSensorList      = (string)$this->ReadAttributeString('SensorListBuffer');
         $rawBedroomList     = (string)$this->ReadAttributeString('BedroomListBuffer');
-        $rawGroupMembers    = (string)$this->ReadPropertyString('GroupMembers');
+        $rawGroupMembers    = (string)$this->ReadAttributeString('GroupMembersBuffer');
         $rawDispatchTargets = (string)$this->ReadPropertyString('DispatchTargets');
 
         $tmp = json_decode($rawClassList, true);
@@ -2870,10 +2854,7 @@ class SensorGroup extends IPSModule
                 "values" => []
             ];
         }
-        $raw = (string)$this->ReadPropertyString('GroupMembers');
-        $tmp = json_decode($raw, true);
-        $groupMembers = is_array($tmp) ? $tmp : [];
-        unset($raw, $tmp);
+        $groupMembers = json_decode($this->ReadAttributeString('GroupMembersBuffer'), true) ?: json_decode($this->ReadPropertyString('GroupMembers'), true) ?: [];
         // FIX: Dispatch lists are standard properties. Buffer fallback resurrects deleted "zombie" rows.
         $dispatchTargets = json_decode($this->ReadPropertyString('DispatchTargets'), true);
         if (!is_array($dispatchTargets)) $dispatchTargets = [];
@@ -2919,6 +2900,7 @@ class SensorGroup extends IPSModule
         $this->WriteAttributeString('GroupListBuffer', json_encode($definedGroups));
         $this->WriteAttributeString('SensorListBuffer', json_encode($sensorList));
         $this->WriteAttributeString('BedroomListBuffer', json_encode($bedroomList));
+        $this->WriteAttributeString('GroupMembersBuffer', json_encode($groupMembers));
         $this->WriteAttributeString('DispatchTargetsBuffer', json_encode($dispatchTargets));
         $this->WriteAttributeString('GroupDispatchBuffer', json_encode($groupDispatch));
         // === DEBUG: after sync to RAM buffers ===
