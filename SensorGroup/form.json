@@ -6,9 +6,9 @@
             "columns": [
                 { "caption": "ID", "name": "ClassID", "width": "0px", "add": "", "visible": false },
                 { "caption": "Class Name", "name": "ClassName", "width": "200px", "add": "NewClass", "edit": { "type": "ValidationTextBox" } },
-                { 
-                    "caption": "Label Mode", "name": "LabelMode", "width": "200px", "add": 0, 
-                    "edit": { "type": "Select", "options": [ { "caption": "Sensor Name", "value": 0 }, { "caption": "Parent (Location)", "value": 1 }, { "caption": "Status Text", "value": 2 } ] } 
+                {
+                    "caption": "Label Mode", "name": "LabelMode", "width": "200px", "add": 0,
+                    "edit": { "type": "Select", "options": [ { "caption": "Sensor Name", "value": 0 }, { "caption": "Parent (Location)", "value": 1 }, { "caption": "Status Text", "value": 2 } ] }
                 },
                 { "caption": "Logic", "name": "LogicMode", "width": "200px", "add": 0, "edit": { "type": "Select", "options": [ { "caption": "OR (Instant)", "value": 0 }, { "caption": "AND (All)", "value": 1 }, { "caption": "COUNT", "value": 2 } ] } },
                 { "caption": "Threshold", "name": "Threshold", "width": "100px", "add": 1, "edit": { "type": "NumberSpinner", "minimum": 1 } },
@@ -28,63 +28,75 @@
         { "type": "ExpansionPanel", "name": "DynamicGroupMemberContainer", "caption": "Step B: Assign Classes to Groups", "items": [] },
 
         { "type": "Label", "caption": "4. DISPATCH TARGETS (Module 2 Routing)" },
-{
-    "type": "List",
-    "name": "DispatchTargets",
-    "caption": "Module 2 Instances",
-    "rowCount": 5,
-    "add": true,
-    "delete": true,
-    "onEdit": "IPS_RequestAction($id, 'UpdateDispatchTargets', json_encode($DispatchTargets));",
-    "columns": [
-        { "caption": "Name", "name": "Name", "width": "220px", "add": "New Target", "edit": { "type": "ValidationTextBox" } },
-        { "caption": "Instance", "name": "InstanceID", "width": "220px", "add": 0, "edit": { "type": "SelectInstance" } }
-    ],
-  "values": []
-},
-      {
-  "type": "List",
-  "name": "GroupDispatch",
-  "caption": "Step 3c: Route Groups to Module 2 Targets",
-  "rowCount": 5,
-  "add": true,
-  "delete": true,
-  "onEdit": "IPS_RequestAction($id, 'UpdateGroupDispatch', json_encode($GroupDispatch));",
-  "columns": [
-    {
-      "caption": "Group",
-      "name": "GroupName",
-      "width": "220px",
-      "add": "",
-      "edit": { "type": "Select", "options": [] }
-    },
-    {
-      "caption": "Target",
-      "name": "InstanceID",
-      "width": "320px",
-      "add": 0,
-      "edit": { "type": "Select", "options": [] }
-    }
-  ],
-  "values": []
-},
-{ "type": "Select", "name": "BedroomTarget", "caption": "Global Bedroom Target Server", "options": [] },
+        {
+            "type": "List",
+            "name": "DispatchTargets",
+            "caption": "Module 2 Instances",
+            "rowCount": 5,
+            "add": true,
+            "delete": true,
+            "onEdit": "IPS_RequestAction($id, 'UpdateDispatchTargets', json_encode($DispatchTargets));",
+            "columns": [
+                { "caption": "Name", "name": "Name", "width": "220px", "add": "New Target", "edit": { "type": "ValidationTextBox" } },
+                { "caption": "Instance", "name": "InstanceID", "width": "220px", "add": 0, "edit": { "type": "SelectInstance" } }
+            ],
+            "values": []
+        },
+        {
+            "type": "List",
+            "name": "GroupDispatch",
+            "caption": "Step 3c: Route Groups to Module 2 Targets",
+            "rowCount": 5,
+            "add": true,
+            "delete": true,
+            "onEdit": "IPS_RequestAction($id, 'UpdateGroupDispatch', json_encode($GroupDispatch));",
+            "columns": [
+                {
+                    "caption": "Group",
+                    "name": "GroupName",
+                    "width": "220px",
+                    "add": "",
+                    "edit": { "type": "Select", "options": [] }
+                },
+                {
+                    "caption": "Target",
+                    "name": "InstanceID",
+                    "width": "320px",
+                    "add": 0,
+                    "edit": { "type": "Select", "options": [] }
+                }
+            ],
+            "values": []
+        },
+        { "type": "Select", "name": "BedroomTarget", "caption": "Global Bedroom Target Server", "options": [] },
         { "type": "SelectInstance", "name": "VaultInstanceID", "caption": "Security Vault (Webhook Protection)" },
         { "type": "CheckBox", "name": "MaintenanceMode", "caption": "Maintenance Mode" },
         { "type": "CheckBox", "name": "DebugMode", "caption": "Debug Logging" },
-       {
-  "type": "List",
-  "name": "BedroomList",
-  "visible": false,
-  "rowCount": 0,
-  "add": false,
-  "delete": false,
-  "columns": [
-    { "caption": "GroupName", "name": "GroupName", "width": "150px" },
-    { "caption": "ActiveVariableID", "name": "ActiveVariableID", "width": "120px" },
-    { "caption": "BedroomDoorClassID", "name": "BedroomDoorClassID", "width": "150px" }
-  ]
-}
+        {
+            "type": "List",
+            "name": "BedroomList",
+            "visible": false,
+            "rowCount": 0,
+            "add": false,
+            "delete": false,
+            "columns": [
+                { "caption": "GroupName", "name": "GroupName", "width": "150px" },
+                { "caption": "ActiveVariableID", "name": "ActiveVariableID", "width": "120px" },
+                { "caption": "BedroomDoorClassID", "name": "BedroomDoorClassID", "width": "150px" }
+            ]
+        },
+        {
+            "type": "List",
+            "name": "GroupMembers",
+            "visible": false,
+            "rowCount": 0,
+            "add": false,
+            "delete": false,
+            "columns": [
+                { "caption": "GroupName", "name": "GroupName", "width": "150px" },
+                { "caption": "ClassID", "name": "ClassID", "width": "150px" }
+            ]
+        }
     ],
     "actions": [
         {
@@ -98,14 +110,14 @@
                 { "type": "Select", "name": "ImportClass", "caption": "Assign to Class", "options": [] },
                 { "type": "Button", "caption": "SCAN", "onClick": "MYALARM_UI_Scan($id, $ImportRootID);" },
                 { "type": "Label", "caption": "Filter Results:" },
-                { 
+                {
                     "type": "RowLayout",
                     "items": [
                         { "type": "ValidationTextBox", "name": "WizardFilterText", "caption": "Search Name..." },
                         { "type": "Button", "caption": "Filter", "onClick": "IPS_RequestAction($id, 'FilterWizard', $WizardFilterText);" }
                     ]
                 },
-{
+                {
                     "type": "List", "name": "ImportCandidates", "caption": "Found Variables", "visible": false, "rowCount": 8,
                     "onEdit": "IPS_RequestAction($id, 'UpdateWizardList', json_encode($ImportCandidates));",
                     "columns":[
