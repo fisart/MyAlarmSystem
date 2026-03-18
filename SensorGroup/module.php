@@ -1157,10 +1157,6 @@ class SensorGroup extends IPSModule
                     $json = json_encode($master);
                     $this->WriteAttributeString('GroupMembersBuffer', $json);
                     IPS_SetProperty($this->InstanceID, 'GroupMembers', $json);
-
-                    // Trigger Symcon "dirty" flag via hidden property-bound field
-                    $this->UpdateFormField('GroupMembers', 'values', json_encode(json_decode($json, true) ?: []));
-                    $this->ReloadForm();
                     break;
                 }
 
@@ -1183,9 +1179,6 @@ class SensorGroup extends IPSModule
                     $json = json_encode(array_merge($others, $target));
                     $this->WriteAttributeString('GroupMembersBuffer', $json);
                     IPS_SetProperty($this->InstanceID, 'GroupMembers', $json);
-
-                    // Trigger Symcon "dirty" flag via hidden property-bound field
-                    $this->UpdateFormField('GroupMembers', 'values', json_encode(json_decode($json, true) ?: []));
                     $this->ReloadForm();
                     break;
                 }
@@ -2861,32 +2854,6 @@ class SensorGroup extends IPSModule
                 "values" => []
             ];
         }
-
-        // === FIX: Ensure a property-bound (hidden) GroupMembers field exists in "elements"
-        // This is required so Symcon can show the orange "Apply changes" button when memberships change.
-        $hasGroupMembersField = false;
-        foreach ($form['elements'] as $e) {
-            if (isset($e['name']) && $e['name'] === 'GroupMembers') {
-                $hasGroupMembersField = true;
-                break;
-            }
-        }
-
-        if (!$hasGroupMembersField) {
-            $form['elements'][] = [
-                "type"     => "List",
-                "name"     => "GroupMembers",
-                "visible"  => false,
-                "rowCount" => 1,
-                "add"      => false,
-                "delete"   => false,
-                "columns"  => [
-                    ["caption" => "GroupName", "name" => "GroupName", "width" => "150px"],
-                    ["caption" => "ClassID",   "name" => "ClassID",   "width" => "150px"]
-                ],
-                "values" => []
-            ];
-        }
         $groupMembers = json_decode($this->ReadAttributeString('GroupMembersBuffer'), true) ?: json_decode($this->ReadPropertyString('GroupMembers'), true) ?: [];
         // FIX: Dispatch lists are standard properties. Buffer fallback resurrects deleted "zombie" rows.
         $dispatchTargets = json_decode($this->ReadPropertyString('DispatchTargets'), true);
@@ -3214,12 +3181,6 @@ class SensorGroup extends IPSModule
             // Keep hidden property-bound BedroomList filled
             if (isset($e['name']) && $e['name'] === 'BedroomList') {
                 $e['values'] = $bedroomList;
-                continue;
-            }
-
-            // Keep hidden property-bound GroupMembers filled
-            if (isset($e['name']) && $e['name'] === 'GroupMembers') {
-                $e['values'] = $groupMembers;
                 continue;
             }
 
