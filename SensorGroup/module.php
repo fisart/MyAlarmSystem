@@ -41,6 +41,7 @@ class SensorGroup extends IPSModule
 
 
         $this->RegisterAttributeString('DispatchTargetsBuffer', '[]');
+        $this->RegisterAttributeString('DispatchTargetsBufferInitialized', '0');
         $this->RegisterAttributeString('LastTargetProjectionState', '{}');
         $this->RegisterAttributeString('LastSensorValueMap', '{}');
         $this->RegisterAttributeString('SensorPulseUntilMap', '{}');
@@ -765,6 +766,7 @@ class SensorGroup extends IPSModule
                     }
 
                     $this->WriteBufferedSectionList('DispatchTargetsBuffer', $clean);
+                    $this->WriteAttributeString('DispatchTargetsBufferInitialized', '1');
 
                     if ($this->ReadPropertyBoolean('DebugMode')) {
                         $this->LogMessage("DEBUG: DispatchTargetsBuffer updated rows=" . count($clean), KL_MESSAGE);
@@ -1399,6 +1401,7 @@ class SensorGroup extends IPSModule
         $jsonDispatchTargets = json_encode($dispatchTargets);
         IPS_SetProperty($this->InstanceID, 'DispatchTargets', $jsonDispatchTargets);
         $this->WriteAttributeString('DispatchTargetsBuffer', $jsonDispatchTargets);
+        $this->WriteAttributeString('DispatchTargetsBufferInitialized', '1');
         IPS_SetProperty($this->InstanceID, 'GroupDispatch', json_encode($groupDispatch));
         // 4. Force System Apply
         if (IPS_HasChanges($this->InstanceID)) {
@@ -2815,6 +2818,12 @@ class SensorGroup extends IPSModule
         }
         $groupMembers = $this->GetBufferedSectionList('GroupMembersBuffer', 'GroupMembers');
         // FIX: Dispatch lists are standard properties. Buffer fallback resurrects deleted "zombie" rows.
+        if ($this->ReadAttributeString('DispatchTargetsBufferInitialized') !== '1') {
+            $seedDispatchTargets = $this->ReadConfigPropertyList('DispatchTargets');
+            $this->WriteAttributeString('DispatchTargetsBuffer', json_encode(array_values($seedDispatchTargets)));
+            $this->WriteAttributeString('DispatchTargetsBufferInitialized', '1');
+        }
+
         $dispatchTargets = $this->GetBufferedSectionList('DispatchTargetsBuffer', 'DispatchTargets');
 
         $groupDispatch = json_decode($this->ReadPropertyString('GroupDispatch'), true);
