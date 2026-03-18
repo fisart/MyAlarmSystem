@@ -371,35 +371,36 @@ class SensorGroup extends IPSModule
         IPS_SetProperty($this->InstanceID, 'BedroomList', $jsonBed);
         $this->WriteAttributeString('BedroomListBuffer', $jsonBed);
 
-        $groupMembers = json_decode($this->ReadAttributeString('GroupMembersBuffer'), true) ?: json_decode($this->ReadPropertyString('GroupMembers'), true) ?: [];
+        $groupMembers = $this->ReadConfigPropertyList('GroupMembers');
         $cleanMembers = [];
 
         foreach ($groupMembers as $m) {
-            $gName = $m['GroupName'] ?? '';
-            $cID   = $m['ClassID'] ?? '';
+            $gName = trim((string)($m['GroupName'] ?? ''));
+            $cID   = trim((string)($m['ClassID'] ?? ''));
 
-            // Group must exist
-            if (!in_array($gName, $validGroupNames, true)) {
+            if ($gName === '' || $cID === '') {
                 continue;
             }
 
-            // --- HEAL: if membership references ClassName (pre-ID), map it to the current ClassID ---
-            if (!in_array($cID, $validClassIDs, true) && is_string($cID) && isset($classNameMap[$cID])) {
+            // Conservative legacy heal only: old ClassName reference -> current ClassID
+            if (!in_array($cID, $validClassIDs, true) && isset($classNameMap[$cID])) {
                 $cID = $classNameMap[$cID];
                 $m['ClassID'] = $cID;
                 $idsChanged = true;
             }
 
-            // Keep only if class now exists
-            if (in_array($cID, $validClassIDs, true)) {
-                $cleanMembers[] = $m;
-            }
+            // Keep structurally meaningful rows; do not prune aggressively in this migration step
+            $m['GroupName'] = $gName;
+            $m['ClassID']   = $cID;
+            $cleanMembers[] = $m;
         }
 
-        $jsonMem = json_encode($cleanMembers);
-        IPS_SetProperty($this->InstanceID, 'GroupMembers', $jsonMem);
-        $this->WriteAttributeString('GroupMembersBuffer', $jsonMem);
+        $originalJsonMem = json_encode(array_values($groupMembers));
+        $jsonMem = json_encode(array_values($cleanMembers));
 
+        if ($jsonMem !== $originalJsonMem) {
+            IPS_SetProperty($this->InstanceID, 'GroupMembers', $jsonMem);
+        }
         // 3. REGISTRATION
         $messages = $this->GetMessageList();
         foreach ($messages as $senderID => $messageList) {
@@ -442,7 +443,11 @@ class SensorGroup extends IPSModule
         $this->CheckLogic();
     }
 
-
+    private function ReadConfigPropertyList(string $propName): array
+    {
+        $tmp = json_decode((string)$this->ReadPropertyString($propName), true);
+        return is_array($tmp) ? $tmp : [];
+    }
     private function GetMasterMetadata()
     {
         // FIX: Read from Buffer first to include unsaved (newly added) sensors
@@ -1137,26 +1142,43 @@ class SensorGroup extends IPSModule
 
             case 'UpdateMemberProperty': {
                     $data = json_decode($Value, true);
-                    $gName = $data['GroupName'] ?? '';
+                    $gName = trim((string)($data['GroupName'] ?? ''));
                     $matrixValues = (isset($data['Values']['ClassID'])) ? [$data['Values']] : ($data['Values'] ?? []);
-                    $master = json_decode($this->ReadAttributeString('GroupMembersBuffer'), true)
-                        ?: json_decode($this->ReadPropertyString('GroupMembers'), true)
-                        ?: [];
+
+                    $master = $this->GetBufferedSectionList('GroupMembersBuffer', 'GroupMembers');
+
                     foreach ((array)$matrixValues as $row) {
                         if (!is_array($row)) {
                             continue;
                         }
-                        $cID = $row['ClassID'] ?? '';
+
+                        $cID = trim((string)($row['ClassID'] ?? ''));
+                        if ($gName === '' || $cID === '') {
+                            continue;
+                        }
+
                         $master = array_values(array_filter($master, function ($m) use ($gName, $cID) {
-                            return !(($m['GroupName'] ?? '') === $gName && ($m['ClassID'] ?? '') === $cID);
+                            return !(
+                                trim((string)($m['GroupName'] ?? '')) === $gName &&
+                                trim((string)($m['ClassID'] ?? '')) === $cID
+                            );
                         }));
+
                         if (!empty($row['Assigned'])) {
-                            $master[] = ['GroupName' => $gName, 'ClassID' => $cID];
+                            $master[] = [
+                                'GroupName' => $gName,
+                                'ClassID'   => $cID
+                            ];
                         }
                     }
-                    $json = json_encode($master);
-                    $this->WriteAttributeString('GroupMembersBuffer', $json);
-                    IPS_SetProperty($this->InstanceID, 'GroupMembers', $json);
+
+                    $this->WriteBufferedSectionList('GroupMembersBuffer', $master);
+
+                    if ($this->ReadPropertyBoolean('DebugMode')) {
+                        $this->LogMessage("DEBUG: GroupMembersBuffer updated rows=" . count($master), KL_MESSAGE);
+                    }
+
+                    $this->ReloadForm();
                     break;
                 }
 
@@ -1433,7 +1455,9 @@ class SensorGroup extends IPSModule
         IPS_SetProperty($this->InstanceID, 'GroupList', json_encode($groupList));
         IPS_SetProperty($this->InstanceID, 'SensorList', json_encode($sensorList));
         IPS_SetProperty($this->InstanceID, 'BedroomList', json_encode($bedroomList));
-        IPS_SetProperty($this->InstanceID, 'GroupMembers', json_encode($groupMembers));
+        $jsonGroupMembers = json_encode(array_values($groupMembers));
+        IPS_SetProperty($this->InstanceID, 'GroupMembers', $jsonGroupMembers);
+        $this->WriteAttributeString('GroupMembersBuffer', $jsonGroupMembers);
         IPS_SetProperty($this->InstanceID, 'DispatchTargets', json_encode($dispatchTargets));
         IPS_SetProperty($this->InstanceID, 'GroupDispatch', json_encode($groupDispatch));
         // 4. Force System Apply
@@ -2854,7 +2878,7 @@ class SensorGroup extends IPSModule
                 "values" => []
             ];
         }
-        $groupMembers = json_decode($this->ReadAttributeString('GroupMembersBuffer'), true) ?: json_decode($this->ReadPropertyString('GroupMembers'), true) ?: [];
+        $groupMembers = $this->GetBufferedSectionList('GroupMembersBuffer', 'GroupMembers');
         // FIX: Dispatch lists are standard properties. Buffer fallback resurrects deleted "zombie" rows.
         $dispatchTargets = json_decode($this->ReadPropertyString('DispatchTargets'), true);
         if (!is_array($dispatchTargets)) $dispatchTargets = [];
@@ -2900,7 +2924,6 @@ class SensorGroup extends IPSModule
         $this->WriteAttributeString('GroupListBuffer', json_encode($definedGroups));
         $this->WriteAttributeString('SensorListBuffer', json_encode($sensorList));
         $this->WriteAttributeString('BedroomListBuffer', json_encode($bedroomList));
-        $this->WriteAttributeString('GroupMembersBuffer', json_encode($groupMembers));
         $this->WriteAttributeString('DispatchTargetsBuffer', json_encode($dispatchTargets));
         $this->WriteAttributeString('GroupDispatchBuffer', json_encode($groupDispatch));
         // === DEBUG: after sync to RAM buffers ===
@@ -3546,6 +3569,31 @@ class SensorGroup extends IPSModule
                 }
             }
         }
+    }
+
+    private function GetBufferedSectionList(string $attrName, string $propName): array
+    {
+        $rawBuffer = (string) $this->ReadAttributeString($attrName);
+        $tmpBuffer = json_decode($rawBuffer, true);
+
+        // Valid buffer, including empty [], is authoritative for the UI session
+        if (is_array($tmpBuffer)) {
+            return $tmpBuffer;
+        }
+
+        $rawProp = (string) $this->ReadPropertyString($propName);
+        $tmpProp = json_decode($rawProp, true);
+        $list = is_array($tmpProp) ? $tmpProp : [];
+
+        // Initialize buffer from property once if buffer is missing/invalid
+        $this->WriteAttributeString($attrName, json_encode(array_values($list)));
+
+        return $list;
+    }
+
+    private function WriteBufferedSectionList(string $attrName, array $list): void
+    {
+        $this->WriteAttributeString($attrName, json_encode(array_values($list)));
     }
 
     public function UI_SelectAll()
