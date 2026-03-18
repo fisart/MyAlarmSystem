@@ -125,16 +125,7 @@ class SensorGroup extends IPSModule
         $classList = json_decode($this->ReadPropertyString('ClassList'), true)
             ?: json_decode($this->ReadAttributeString('ClassListBuffer'), true)
             ?: [];
-        // FIX: Prioritize Buffer for stateless Group definitions to prevent GC wipeout
-        $tmp = json_decode((string)$this->ReadAttributeString('GroupListBuffer'), true);
-        if (is_array($tmp)) {
-            $groupList = $tmp;               // buffer is valid (even if empty [])
-        } else {
-            $tmp2 = json_decode((string)$this->ReadPropertyString('GroupList'), true);
-            $groupList = is_array($tmp2) ? $tmp2 : [];
-            unset($tmp2);
-        }
-        unset($tmp);
+        $groupList = $this->ReadConfigPropertyList('GroupList');
 
         // Load persistent ID Map
         $stateData = json_decode($this->ReadAttributeString('ClassStateAttribute'), true) ?: [];
@@ -310,7 +301,6 @@ class SensorGroup extends IPSModule
 
         // Save Maps and Buffers
         $this->WriteAttributeString('ClassListBuffer', json_encode($classList));
-        $this->WriteAttributeString('GroupListBuffer', json_encode($groupList)); // Sync Group Buffer
         // --- FIX 2: Purge state entries for deleted classes (COUNT buffers etc.) ---
         // Keep only runtime state keys that are still valid ClassIDs.
         // Do NOT touch the mapping keys.
@@ -329,7 +319,12 @@ class SensorGroup extends IPSModule
 
         if ($idsChanged) {
             IPS_SetProperty($this->InstanceID, 'ClassList', json_encode($classList));
-            IPS_SetProperty($this->InstanceID, 'GroupList', json_encode($groupList));
+        }
+
+        $originalGroupJson = json_encode(array_values($this->ReadConfigPropertyList('GroupList')));
+        $healedGroupJson = json_encode(array_values($groupList));
+        if ($healedGroupJson !== $originalGroupJson) {
+            IPS_SetProperty($this->InstanceID, 'GroupList', $healedGroupJson);
         }
 
         // 2. GARBAGE COLLECTION & REPAIR
@@ -371,35 +366,36 @@ class SensorGroup extends IPSModule
         IPS_SetProperty($this->InstanceID, 'BedroomList', $jsonBed);
         $this->WriteAttributeString('BedroomListBuffer', $jsonBed);
 
-        $groupMembers = json_decode($this->ReadAttributeString('GroupMembersBuffer'), true) ?: json_decode($this->ReadPropertyString('GroupMembers'), true) ?: [];
+        $groupMembers = $this->ReadConfigPropertyList('GroupMembers');
         $cleanMembers = [];
 
         foreach ($groupMembers as $m) {
-            $gName = $m['GroupName'] ?? '';
-            $cID   = $m['ClassID'] ?? '';
+            $gName = trim((string)($m['GroupName'] ?? ''));
+            $cID   = trim((string)($m['ClassID'] ?? ''));
 
-            // Group must exist
-            if (!in_array($gName, $validGroupNames, true)) {
+            if ($gName === '' || $cID === '') {
                 continue;
             }
 
-            // --- HEAL: if membership references ClassName (pre-ID), map it to the current ClassID ---
-            if (!in_array($cID, $validClassIDs, true) && is_string($cID) && isset($classNameMap[$cID])) {
+            // Conservative legacy heal only: old ClassName reference -> current ClassID
+            if (!in_array($cID, $validClassIDs, true) && isset($classNameMap[$cID])) {
                 $cID = $classNameMap[$cID];
                 $m['ClassID'] = $cID;
                 $idsChanged = true;
             }
 
-            // Keep only if class now exists
-            if (in_array($cID, $validClassIDs, true)) {
-                $cleanMembers[] = $m;
-            }
+            // Keep structurally meaningful rows; do not prune aggressively in this migration step
+            $m['GroupName'] = $gName;
+            $m['ClassID']   = $cID;
+            $cleanMembers[] = $m;
         }
 
-        $jsonMem = json_encode($cleanMembers);
-        IPS_SetProperty($this->InstanceID, 'GroupMembers', $jsonMem);
-        $this->WriteAttributeString('GroupMembersBuffer', $jsonMem);
+        $originalJsonMem = json_encode(array_values($groupMembers));
+        $jsonMem = json_encode(array_values($cleanMembers));
 
+        if ($jsonMem !== $originalJsonMem) {
+            IPS_SetProperty($this->InstanceID, 'GroupMembers', $jsonMem);
+        }
         // 3. REGISTRATION
         $messages = $this->GetMessageList();
         foreach ($messages as $senderID => $messageList) {
@@ -442,7 +438,11 @@ class SensorGroup extends IPSModule
         $this->CheckLogic();
     }
 
-
+    private function ReadConfigPropertyList(string $propName): array
+    {
+        $tmp = json_decode((string)$this->ReadPropertyString($propName), true);
+        return is_array($tmp) ? $tmp : [];
+    }
     private function GetMasterMetadata()
     {
         // FIX: Read from Buffer first to include unsaved (newly added) sensors
@@ -767,64 +767,27 @@ class SensorGroup extends IPSModule
                     break;
                 }
             case 'UpdateGroupList': {
-                    if ($this->ReadPropertyBoolean('DebugMode')) IPS_LogMessage('SensorGroup', "DEBUG: UpdateGroupList START raw=" . (is_string($Value) ? $Value : json_encode($Value)));
-
                     $incoming = json_decode($Value, true);
-                    if ($this->ReadPropertyBoolean('DebugMode')) IPS_LogMessage(
-                        'SensorGroup',
-                        "DEBUG: UpdateGroupList decoded_type=" . gettype($incoming) .
-                            " decoded_count=" . (is_array($incoming) ? count($incoming) : -1)
-                    );
-
-                    // === DEBUG: Show first item if it's an array of rows ===
-                    if (is_array($incoming) && !isset($incoming['GroupName']) && count($incoming) > 0) {
-                        if ($this->ReadPropertyBoolean('DebugMode')) IPS_LogMessage('SensorGroup', "DEBUG: UpdateGroupList firstRow=" . json_encode($incoming[0]));
-                    }
-                    // === DEBUG: Show single row if it's a single object ===
-                    if (is_array($incoming) && isset($incoming['GroupName'])) {
-                        if ($this->ReadPropertyBoolean('DebugMode')) IPS_LogMessage('SensorGroup', "DEBUG: UpdateGroupList singleRow=" . json_encode($incoming));
-                    }
-
                     if (!is_array($incoming)) {
-                        if ($this->ReadPropertyBoolean('DebugMode')) IPS_LogMessage('SensorGroup', "DEBUG: UpdateGroupList ABORT - incoming not array");
                         return;
                     }
+
                     $rowsToProcess = isset($incoming['GroupName']) ? [$incoming] : $incoming;
+                    $master = $this->GetBufferedSectionList('GroupListBuffer', 'GroupList');
 
-                    // Load master list (buffer is source of truth)
-                    $master = json_decode($this->ReadAttributeString('GroupListBuffer'), true)
-                        ?: json_decode($this->ReadPropertyString('GroupList'), true)
-                        ?: [];
-                    if (!is_array($master)) {
-                        $master = [];
-                    }
-
-                    // === DEBUG: Master before merge ===
-                    if ($this->ReadPropertyBoolean('DebugMode')) IPS_LogMessage(
-                        'SensorGroup',
-                        "DEBUG: UpdateGroupList master_before count=" . count($master) .
-                            " buffer_len=" . strlen($this->ReadAttributeString('GroupListBuffer')) .
-                            " prop_len=" . strlen($this->ReadPropertyString('GroupList'))
-                    );
-                    if (count($master) > 0) {
-                        if ($this->ReadPropertyBoolean('DebugMode')) IPS_LogMessage('SensorGroup', "DEBUG: UpdateGroupList master_before lastRow=" . json_encode(end($master)));
-                    }
-
-                    // Load GroupIDMap to survive "readOnly/invisible column sends empty"
                     $stateData  = json_decode($this->ReadAttributeString('ClassStateAttribute'), true) ?: [];
                     $groupIDMap = $stateData['GroupIDMap'] ?? [];
                     if (!is_array($groupIDMap)) {
                         $groupIDMap = [];
                     }
 
-                    if ($this->ReadPropertyBoolean('DebugMode')) IPS_LogMessage('SensorGroup', "DEBUG: UpdateGroupList groupIDMap_count=" . count($groupIDMap));
-
-                    // Build quick indexes for master
                     $idxById   = [];
                     $idxByName = [];
+
                     foreach ($master as $i => $row) {
                         $name = trim((string)($row['GroupName'] ?? ''));
-                        $gid  = (string)($row['GroupID'] ?? '');
+                        $gid  = trim((string)($row['GroupID'] ?? ''));
+
                         if ($gid !== '') {
                             $idxById[$gid] = $i;
                         }
@@ -833,155 +796,91 @@ class SensorGroup extends IPSModule
                         }
                     }
 
-                    $mergedExisting = 0;
-                    $addedNew = 0;
-
                     foreach ($rowsToProcess as $inRow) {
                         if (!is_array($inRow)) {
                             continue;
                         }
 
-                        // === DEBUG: log each incoming row ===
-                        if ($this->ReadPropertyBoolean('DebugMode')) IPS_LogMessage('SensorGroup', "DEBUG: UpdateGroupList inRow=" . json_encode($inRow));
-
-                        // UI spacer is not persisted
                         unset($inRow['Spacer']);
 
                         $gName = trim((string)($inRow['GroupName'] ?? ''));
-                        $gId   = (string)($inRow['GroupID'] ?? '');
+                        $gId   = trim((string)($inRow['GroupID'] ?? ''));
 
-                        // Ignore empty placeholder rows
+                        // Placeholder row -> ignore for session persistence
                         if ($gName === '') {
-                            if ($this->ReadPropertyBoolean('DebugMode')) IPS_LogMessage('SensorGroup', "DEBUG: UpdateGroupList skip empty GroupName row");
                             continue;
                         }
+
                         $inRow['GroupName'] = $gName;
 
-                        // If UI dropped GroupID, recover/assign on server side
+                        // Stable technical identity inside the session
                         if ($gId === '') {
                             if (isset($groupIDMap[$gName]) && $groupIDMap[$gName] !== '') {
                                 $gId = (string)$groupIDMap[$gName];
-                                if ($this->ReadPropertyBoolean('DebugMode')) IPS_LogMessage('SensorGroup', "DEBUG: UpdateGroupList recovered GroupID={$gId} for GroupName={$gName}");
                             } else {
                                 $gId = uniqid('grp_');
                                 $groupIDMap[$gName] = $gId;
-                                if ($this->ReadPropertyBoolean('DebugMode')) IPS_LogMessage('SensorGroup', "DEBUG: UpdateGroupList assigned NEW GroupID={$gId} for GroupName={$gName}");
                             }
                             $inRow['GroupID'] = $gId;
                         } else {
                             $groupIDMap[$gName] = $gId;
-                            if ($this->ReadPropertyBoolean('DebugMode')) IPS_LogMessage('SensorGroup', "DEBUG: UpdateGroupList incoming GroupID={$gId} for GroupName={$gName}");
                         }
 
-                        // Keyed merge: prefer GroupID, fallback to GroupName
-                        $this->LogMessage("DEBUG [GroupList]: Processing Row - Name: '{$gName}' | ID: '{$gId}'", KL_MESSAGE);
-
                         if ($gId !== '' && isset($idxById[$gId])) {
-                            $this->LogMessage("DEBUG [GroupList]: MATCHED by ID. Updating existing row.", KL_MESSAGE);
                             $pos = $idxById[$gId];
                             $master[$pos] = array_merge($master[$pos], $inRow);
                             $idxByName[$gName] = $pos;
-                            $mergedExisting++;
                             continue;
                         }
 
                         if (isset($idxByName[$gName])) {
-                            $this->LogMessage("DEBUG [GroupList]: MATCHED by Name. ID was missing or new.", KL_MESSAGE);
                             $pos = $idxByName[$gName];
+                            $existingGroupID = trim((string)($master[$pos]['GroupID'] ?? ''));
                             $master[$pos] = array_merge($master[$pos], $inRow);
+
+                            // Preserve existing stable row identity if already present
+                            if ($existingGroupID !== '') {
+                                $master[$pos]['GroupID'] = $existingGroupID;
+                                $gId = $existingGroupID;
+                            }
+
                             if ($gId !== '') {
                                 $idxById[$gId] = $pos;
                             }
-                            $mergedExisting++;
+                            $idxByName[$gName] = $pos;
                             continue;
                         }
 
-                        // New group
                         $master[] = $inRow;
                         $newPos = count($master) - 1;
                         $idxByName[$gName] = $newPos;
                         if ($gId !== '') {
                             $idxById[$gId] = $newPos;
                         }
-                        $addedNew++;
                     }
-
-                    if ($this->ReadPropertyBoolean('DebugMode')) IPS_LogMessage('SensorGroup', "DEBUG: UpdateGroupList merge_result mergedExisting={$mergedExisting} addedNew={$addedNew}");
-
-                    // Persist back to buffer + property, and update GroupIDMap
-                    $master = array_values($master);
 
                     $stateData['GroupIDMap'] = $groupIDMap;
                     $this->WriteAttributeString('ClassStateAttribute', json_encode($stateData));
 
-                    if ($this->ReadPropertyBoolean('DebugMode')) IPS_LogMessage('SensorGroup', "DEBUG: UpdateGroupList Persist MasterCount=" . count($master));
-                    if (count($master) > 0) {
-                        $last = end($master);
-                        if ($this->ReadPropertyBoolean('DebugMode')) IPS_LogMessage('SensorGroup', "DEBUG: UpdateGroupList LastMasterRow=" . json_encode($last));
-                    }
-
-                    $json = json_encode($master);
-
-                    // DEBUG: Peek at what we are saving
-                    $this->LogMessage("DEBUG [GroupList]: Saving Master List. Count: " . count($master) . ". Content: " . substr($json, 0, 100) . "...", KL_MESSAGE);
-
-                    $this->WriteAttributeString('GroupListBuffer', $json);
-                    IPS_SetProperty($this->InstanceID, 'GroupList', $json);
-
-                    if ($this->ReadPropertyBoolean('DebugMode')) IPS_LogMessage(
-                        'SensorGroup',
-                        "DEBUG: UpdateGroupList END GroupListBufferLen=" . strlen($this->ReadAttributeString('GroupListBuffer')) .
-                            " GroupListPropertyLen=" . strlen($this->ReadPropertyString('GroupList')) .
-                            " master_count=" . count($master)
-                    );
-
+                    $this->WriteBufferedSectionList('GroupListBuffer', array_values($master));
                     $this->ReloadForm();
                     break;
                 }
 
             case 'DeleteGroupListItemByName': {
-                    if ($this->ReadPropertyBoolean('DebugMode')) IPS_LogMessage('SensorGroup', "DEBUG: DeleteGroupListItemByName START raw=" . (is_string($Value) ? $Value : json_encode($Value)));
-
-                    $gNameToDelete = (string)$Value;
-                    $master = json_decode($this->ReadAttributeString('GroupListBuffer'), true)
-                        ?: json_decode($this->ReadPropertyString('GroupList'), true)
-                        ?: [];
-
-                    if ($this->ReadPropertyBoolean('DebugMode')) IPS_LogMessage('SensorGroup', "DEBUG: DeleteGroupListItemByName master_before=" . (is_array($master) ? count($master) : -1));
+                    $gNameToDelete = trim((string)$Value);
+                    $master = $this->GetBufferedSectionList('GroupListBuffer', 'GroupList');
 
                     $newMaster = [];
-                    $removed = 0;
                     foreach ($master as $row) {
-                        if (($row['GroupName'] ?? '') !== $gNameToDelete) {
+                        if (trim((string)($row['GroupName'] ?? '')) !== $gNameToDelete) {
                             $newMaster[] = $row;
-                        } else {
-                            $removed++;
                         }
                     }
 
-                    if ($this->ReadPropertyBoolean('DebugMode')) IPS_LogMessage('SensorGroup', "DEBUG: DeleteGroupListItemByName removed={$removed} remaining=" . count($newMaster));
-
-                    if ($gNameToDelete !== '') {
-                        $stateData  = json_decode($this->ReadAttributeString('ClassStateAttribute'), true) ?: [];
-                        $groupIDMap = $stateData['GroupIDMap'] ?? [];
-                        if (is_array($groupIDMap) && isset($groupIDMap[$gNameToDelete])) {
-                            unset($groupIDMap[$gNameToDelete]);
-                            $stateData['GroupIDMap'] = $groupIDMap;
-                            $this->WriteAttributeString('ClassStateAttribute', json_encode($stateData));
-                            if ($this->ReadPropertyBoolean('DebugMode')) IPS_LogMessage('SensorGroup', "DEBUG: DeleteGroupListItemByName removed from GroupIDMap name={$gNameToDelete}");
-                        }
-                    }
-
-                    $json = json_encode($newMaster);
-                    $this->WriteAttributeString('GroupListBuffer', $json);
-                    IPS_SetProperty($this->InstanceID, 'GroupList', $json);
-
-                    if ($this->ReadPropertyBoolean('DebugMode')) IPS_LogMessage(
-                        'SensorGroup',
-                        "DEBUG: DeleteGroupListItemByName END GroupListBufferLen=" . strlen($this->ReadAttributeString('GroupListBuffer')) .
-                            " GroupListPropertyLen=" . strlen($this->ReadPropertyString('GroupList'))
-                    );
-                    IPS_ApplyChanges($this->InstanceID);
+                    // Intentionally do NOT clean up GroupIDMap here.
+                    // Mapping cleanup, if any, belongs to commit-time only.
+                    $this->WriteBufferedSectionList('GroupListBuffer', array_values($newMaster));
                     $this->ReloadForm();
                     break;
                 }
@@ -1137,26 +1036,43 @@ class SensorGroup extends IPSModule
 
             case 'UpdateMemberProperty': {
                     $data = json_decode($Value, true);
-                    $gName = $data['GroupName'] ?? '';
+                    $gName = trim((string)($data['GroupName'] ?? ''));
                     $matrixValues = (isset($data['Values']['ClassID'])) ? [$data['Values']] : ($data['Values'] ?? []);
-                    $master = json_decode($this->ReadAttributeString('GroupMembersBuffer'), true)
-                        ?: json_decode($this->ReadPropertyString('GroupMembers'), true)
-                        ?: [];
+
+                    $master = $this->GetBufferedSectionList('GroupMembersBuffer', 'GroupMembers');
+
                     foreach ((array)$matrixValues as $row) {
                         if (!is_array($row)) {
                             continue;
                         }
-                        $cID = $row['ClassID'] ?? '';
+
+                        $cID = trim((string)($row['ClassID'] ?? ''));
+                        if ($gName === '' || $cID === '') {
+                            continue;
+                        }
+
                         $master = array_values(array_filter($master, function ($m) use ($gName, $cID) {
-                            return !(($m['GroupName'] ?? '') === $gName && ($m['ClassID'] ?? '') === $cID);
+                            return !(
+                                trim((string)($m['GroupName'] ?? '')) === $gName &&
+                                trim((string)($m['ClassID'] ?? '')) === $cID
+                            );
                         }));
+
                         if (!empty($row['Assigned'])) {
-                            $master[] = ['GroupName' => $gName, 'ClassID' => $cID];
+                            $master[] = [
+                                'GroupName' => $gName,
+                                'ClassID'   => $cID
+                            ];
                         }
                     }
-                    $json = json_encode($master);
-                    $this->WriteAttributeString('GroupMembersBuffer', $json);
-                    IPS_SetProperty($this->InstanceID, 'GroupMembers', $json);
+
+                    $this->WriteBufferedSectionList('GroupMembersBuffer', $master);
+
+                    if ($this->ReadPropertyBoolean('DebugMode')) {
+                        $this->LogMessage("DEBUG: GroupMembersBuffer updated rows=" . count($master), KL_MESSAGE);
+                    }
+
+                    $this->ReloadForm();
                     break;
                 }
 
@@ -1362,13 +1278,17 @@ class SensorGroup extends IPSModule
 
         // --- Heal GroupList IDs (by GroupName) ---
         $groupIdsFixed = false;
-        foreach ($groupList as &$g) {
+        $cleanGroupList = [];
+
+        foreach ($groupList as $g) {
             if (!is_array($g)) continue;
 
             $gName = trim((string)($g['GroupName'] ?? ''));
-            if ($gName === '') continue;
+            if ($gName === '') continue; // placeholder row: do not persist
 
-            $gId = (string)($g['GroupID'] ?? '');
+            $g['GroupName'] = $gName;
+
+            $gId = trim((string)($g['GroupID'] ?? ''));
             if ($gId === '') {
                 if (isset($groupIDMap[$gName]) && (string)$groupIDMap[$gName] !== '') {
                     $gId = (string)$groupIDMap[$gName];
@@ -1380,8 +1300,10 @@ class SensorGroup extends IPSModule
             }
 
             $groupIDMap[$gName] = $gId;
+            $cleanGroupList[] = $g;
         }
-        unset($g);
+
+        $groupList = array_values($cleanGroupList);
 
         // --- Normalize SensorList ClassID: convert legacy ClassName references to real ClassID ---
         $sensorsFixed = false;
@@ -1430,10 +1352,14 @@ class SensorGroup extends IPSModule
 
         // 4. Persist all verified data to Properties (Physical Disk)
         IPS_SetProperty($this->InstanceID, 'ClassList', json_encode($classList));
-        IPS_SetProperty($this->InstanceID, 'GroupList', json_encode($groupList));
+        $jsonGroupList = json_encode(array_values($groupList));
+        IPS_SetProperty($this->InstanceID, 'GroupList', $jsonGroupList);
+        $this->WriteAttributeString('GroupListBuffer', $jsonGroupList);
         IPS_SetProperty($this->InstanceID, 'SensorList', json_encode($sensorList));
         IPS_SetProperty($this->InstanceID, 'BedroomList', json_encode($bedroomList));
-        IPS_SetProperty($this->InstanceID, 'GroupMembers', json_encode($groupMembers));
+        $jsonGroupMembers = json_encode(array_values($groupMembers));
+        IPS_SetProperty($this->InstanceID, 'GroupMembers', $jsonGroupMembers);
+        $this->WriteAttributeString('GroupMembersBuffer', $jsonGroupMembers);
         IPS_SetProperty($this->InstanceID, 'DispatchTargets', json_encode($dispatchTargets));
         IPS_SetProperty($this->InstanceID, 'GroupDispatch', json_encode($groupDispatch));
         // 4. Force System Apply
@@ -2787,12 +2713,7 @@ class SensorGroup extends IPSModule
         if (!is_array($clProp)) $clProp = [];
         $definedClasses = (count($clProp) >= count($clBuf)) ? $clProp : $clBuf;
 
-        // Groups: prefer PROPERTY if it contains newer/more rows than buffer
-        $grBuf  = json_decode($this->ReadAttributeString('GroupListBuffer'), true);
-        $grProp = json_decode($this->ReadPropertyString('GroupList'), true);
-        if (!is_array($grBuf))  $grBuf  = [];
-        if (!is_array($grProp)) $grProp = [];
-        $definedGroups = (count($grProp) >= count($grBuf)) ? $grProp : $grBuf;
+        $definedGroups = $this->GetBufferedSectionList('GroupListBuffer', 'GroupList');
 
         if ($this->ReadPropertyBoolean('DebugMode')) IPS_LogMessage('SensorGroup', 'DEBUG: ClassListBuffer RAW=' . $this->ReadAttributeString('ClassListBuffer'));
         if ($this->ReadPropertyBoolean('DebugMode')) IPS_LogMessage('SensorGroup', 'DEBUG: ClassListProperty RAW=' . $this->ReadPropertyString('ClassList'));
@@ -2854,7 +2775,7 @@ class SensorGroup extends IPSModule
                 "values" => []
             ];
         }
-        $groupMembers = json_decode($this->ReadAttributeString('GroupMembersBuffer'), true) ?: json_decode($this->ReadPropertyString('GroupMembers'), true) ?: [];
+        $groupMembers = $this->GetBufferedSectionList('GroupMembersBuffer', 'GroupMembers');
         // FIX: Dispatch lists are standard properties. Buffer fallback resurrects deleted "zombie" rows.
         $dispatchTargets = json_decode($this->ReadPropertyString('DispatchTargets'), true);
         if (!is_array($dispatchTargets)) $dispatchTargets = [];
@@ -2897,10 +2818,8 @@ class SensorGroup extends IPSModule
 
         // Sync to RAM Buffers immediately on form load
         $this->WriteAttributeString('ClassListBuffer', json_encode($definedClasses));
-        $this->WriteAttributeString('GroupListBuffer', json_encode($definedGroups));
         $this->WriteAttributeString('SensorListBuffer', json_encode($sensorList));
         $this->WriteAttributeString('BedroomListBuffer', json_encode($bedroomList));
-        $this->WriteAttributeString('GroupMembersBuffer', json_encode($groupMembers));
         $this->WriteAttributeString('DispatchTargetsBuffer', json_encode($dispatchTargets));
         $this->WriteAttributeString('GroupDispatchBuffer', json_encode($groupDispatch));
         // === DEBUG: after sync to RAM buffers ===
@@ -3546,6 +3465,31 @@ class SensorGroup extends IPSModule
                 }
             }
         }
+    }
+
+    private function GetBufferedSectionList(string $attrName, string $propName): array
+    {
+        $rawBuffer = (string) $this->ReadAttributeString($attrName);
+        $tmpBuffer = json_decode($rawBuffer, true);
+
+        // Valid buffer, including empty [], is authoritative for the UI session
+        if (is_array($tmpBuffer)) {
+            return $tmpBuffer;
+        }
+
+        $rawProp = (string) $this->ReadPropertyString($propName);
+        $tmpProp = json_decode($rawProp, true);
+        $list = is_array($tmpProp) ? $tmpProp : [];
+
+        // Initialize buffer from property once if buffer is missing/invalid
+        $this->WriteAttributeString($attrName, json_encode(array_values($list)));
+
+        return $list;
+    }
+
+    private function WriteBufferedSectionList(string $attrName, array $list): void
+    {
+        $this->WriteAttributeString($attrName, json_encode(array_values($list)));
     }
 
     public function UI_SelectAll()
