@@ -40,7 +40,7 @@
         { "caption": "Name", "name": "Name", "width": "220px", "add": "New Target", "edit": { "type": "ValidationTextBox" } },
         { "caption": "Instance", "name": "InstanceID", "width": "220px", "add": 0, "edit": { "type": "SelectInstance" } }
     ],
-  "values": []
+    "values": []
 },
       {
   "type": "List",

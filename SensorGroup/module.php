@@ -216,9 +216,7 @@ class SensorGroup extends IPSModule
         // =========================
         // DISPATCH ROUTER: GC + Buffer/Property sync  (FLAT LIST: GroupDispatch)
         // =========================
-        // FIX: Read directly from Property. List deletions do not trigger onEdit, so buffer becomes stale.
-        $dispatchTargets = json_decode($this->ReadPropertyString('DispatchTargets'), true);
-        if (!is_array($dispatchTargets)) $dispatchTargets = [];
+        $dispatchTargets = $this->ReadConfigPropertyList('DispatchTargets');
 
         // NEW agreed router: flat list
         $groupDispatch = json_decode($this->ReadPropertyString('GroupDispatch'), true);
@@ -271,7 +269,6 @@ class SensorGroup extends IPSModule
         $jsonTargets   = json_encode(array_values($dispatchTargets));
         $jsonDispatch  = json_encode(array_values($cleanDispatch));
 
-        $this->WriteAttributeString('DispatchTargetsBuffer', $jsonTargets);
         $this->WriteAttributeString('GroupDispatchBuffer',  $jsonDispatch);
 
         // Keep properties in sync (so backup/restore + Apply works)
@@ -741,27 +738,37 @@ class SensorGroup extends IPSModule
                     break;
                 }
             case 'UpdateDispatchTargets': {
-                    $this->LogMessage("DEBUG [Dispatch]: UI sent UpdateDispatchTargets with payload: " . $Value, KL_MESSAGE);
                     $incoming = json_decode($Value, true);
                     if (!is_array($incoming)) {
-                        if ($this->ReadPropertyBoolean('DebugMode')) IPS_LogMessage('SensorGroup', "DEBUG: UpdateDispatchTargets ABORT - incoming not array");
                         return;
                     }
 
-                    // normalize rows (optional but safe)
+                    // onEdit sends the full current list -> normalize incoming list directly
                     $clean = [];
                     foreach ($incoming as $row) {
-                        if (!is_array($row)) continue;
+                        if (!is_array($row)) {
+                            continue;
+                        }
+
                         $name = trim((string)($row['Name'] ?? ''));
                         $iid  = (int)($row['InstanceID'] ?? 0);
-                        if ($name === '' || $iid <= 0) continue;
-                        $clean[] = ['Name' => $name, 'InstanceID' => $iid];
+
+                        // placeholder / incomplete rows are allowed in the UI, but not kept in the buffered session list
+                        if ($name === '' || $iid <= 0) {
+                            continue;
+                        }
+
+                        $clean[] = [
+                            'Name'       => $name,
+                            'InstanceID' => $iid
+                        ];
                     }
 
-                    $json = json_encode(array_values($clean));
-                    $this->LogMessage("DEBUG[Dispatch]: Saving to Buffer. Cleaned payload: " . $json, KL_MESSAGE);
-                    $this->WriteAttributeString('DispatchTargetsBuffer', $json);
-                    IPS_SetProperty($this->InstanceID, 'DispatchTargets', $json);
+                    $this->WriteBufferedSectionList('DispatchTargetsBuffer', $clean);
+
+                    if ($this->ReadPropertyBoolean('DebugMode')) {
+                        $this->LogMessage("DEBUG: DispatchTargetsBuffer updated rows=" . count($clean), KL_MESSAGE);
+                    }
 
                     $this->ReloadForm();
                     break;
@@ -1170,7 +1177,7 @@ class SensorGroup extends IPSModule
         $rawSensorList      = (string)$this->ReadAttributeString('SensorListBuffer');
         $rawBedroomList     = (string)$this->ReadAttributeString('BedroomListBuffer');
         $rawGroupMembers    = (string)$this->ReadAttributeString('GroupMembersBuffer');
-        $rawDispatchTargets = (string)$this->ReadPropertyString('DispatchTargets');
+        $rawDispatchTargets = (string)$this->ReadAttributeString('DispatchTargetsBuffer');
 
         $tmp = json_decode($rawClassList, true);
         $classList = (is_array($tmp) && $rawClassList !== '') ? $tmp : [];
@@ -1360,7 +1367,38 @@ class SensorGroup extends IPSModule
         $jsonGroupMembers = json_encode(array_values($groupMembers));
         IPS_SetProperty($this->InstanceID, 'GroupMembers', $jsonGroupMembers);
         $this->WriteAttributeString('GroupMembersBuffer', $jsonGroupMembers);
-        IPS_SetProperty($this->InstanceID, 'DispatchTargets', json_encode($dispatchTargets));
+        $uniqueDispatchTargets = [];
+        $seenDispatchTargets = [];
+
+        foreach ($dispatchTargets as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $name = trim((string)($row['Name'] ?? ''));
+            $iid  = (int)($row['InstanceID'] ?? 0);
+
+            if ($name === '' || $iid <= 0) {
+                continue;
+            }
+
+            // exact duplicate only: same Name + same InstanceID
+            $key = $name . '::' . $iid;
+            if (isset($seenDispatchTargets[$key])) {
+                continue;
+            }
+            $seenDispatchTargets[$key] = true;
+
+            $uniqueDispatchTargets[] = [
+                'Name'       => $name,
+                'InstanceID' => $iid
+            ];
+        }
+
+        $dispatchTargets = array_values($uniqueDispatchTargets);
+        $jsonDispatchTargets = json_encode($dispatchTargets);
+        IPS_SetProperty($this->InstanceID, 'DispatchTargets', $jsonDispatchTargets);
+        $this->WriteAttributeString('DispatchTargetsBuffer', $jsonDispatchTargets);
         IPS_SetProperty($this->InstanceID, 'GroupDispatch', json_encode($groupDispatch));
         // 4. Force System Apply
         if (IPS_HasChanges($this->InstanceID)) {
@@ -2777,8 +2815,7 @@ class SensorGroup extends IPSModule
         }
         $groupMembers = $this->GetBufferedSectionList('GroupMembersBuffer', 'GroupMembers');
         // FIX: Dispatch lists are standard properties. Buffer fallback resurrects deleted "zombie" rows.
-        $dispatchTargets = json_decode($this->ReadPropertyString('DispatchTargets'), true);
-        if (!is_array($dispatchTargets)) $dispatchTargets = [];
+        $dispatchTargets = $this->GetBufferedSectionList('DispatchTargetsBuffer', 'DispatchTargets');
 
         $groupDispatch = json_decode($this->ReadPropertyString('GroupDispatch'), true);
         if (!is_array($groupDispatch)) $groupDispatch = [];
@@ -2820,7 +2857,6 @@ class SensorGroup extends IPSModule
         $this->WriteAttributeString('ClassListBuffer', json_encode($definedClasses));
         $this->WriteAttributeString('SensorListBuffer', json_encode($sensorList));
         $this->WriteAttributeString('BedroomListBuffer', json_encode($bedroomList));
-        $this->WriteAttributeString('DispatchTargetsBuffer', json_encode($dispatchTargets));
         $this->WriteAttributeString('GroupDispatchBuffer', json_encode($groupDispatch));
         // === DEBUG: after sync to RAM buffers ===
         if ($this->ReadPropertyBoolean('DebugMode')) IPS_LogMessage(
