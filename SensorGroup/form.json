@@ -23,6 +23,7 @@
         },
 
         { "type": "Label", "caption": "3. GROUP MANAGEMENT (Stateless)" },
+        { "type": "Label", "caption": "Warning: Do not use identical names. Renaming groups may break references in other configuration sections." },
         { "type": "ExpansionPanel", "name": "DynamicGroupContainer", "caption": "Step 3a: Create and Edit Groups", "items": [] },
         { "type": "ExpansionPanel", "name": "DynamicBedroomContainer", "caption": "Step 3b: Bedroom Behavioral Settings", "items": [] },
         { "type": "ExpansionPanel", "name": "DynamicGroupMemberContainer", "caption": "Step B: Assign Classes to Groups", "items": [] },
