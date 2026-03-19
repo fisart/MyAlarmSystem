@@ -2280,7 +2280,12 @@ class SensorGroup extends IPSModule
         $groupDispatch   = $conf['GroupDispatch'] ?? [];
         $groupMembers    = $conf['GroupMembers'] ?? [];
         $sensorList      = $conf['SensorList'] ?? [];
+        $depth = isset($_GET['depth']) ? strtolower((string)$_GET['depth']) : 'sensors';
+        if (!in_array($depth, ['groups', 'classes', 'sensors'], true)) {
+            $depth = 'sensors';
+        }
 
+        $showBedrooms = isset($_GET['showBedrooms']) ? ((string)$_GET['showBedrooms'] === '1') : true;
         // --- OPTIONAL TARGET FILTER (API ONLY) ---
         if (isset($_GET['api']) && isset($_GET['targetFilter'])) {
             $filterStr = (string)$_GET['targetFilter'];
@@ -2402,28 +2407,28 @@ class SensorGroup extends IPSModule
         }
 
         // E. Draw Bedroom Active Switches
-        foreach ($bedroomList as $b) {
-            $gName = $b['GroupName'];
-            $gid = "G_" . md5($gName);
-            $vid = (int)($b['ActiveVariableID'] ?? 0);
-            $sid = "BS_" . $vid;
+        if ($showBedrooms && $depth === 'sensors') {
+            foreach ($bedroomList as $b) {
+                $gName = $b['GroupName'];
+                $gid = "G_" . md5($gName);
+                $vid = (int)($b['ActiveVariableID'] ?? 0);
+                $sid = "BS_" . $vid;
 
-            $val = ($vid > 0 && IPS_VariableExists($vid)) ? GetValue($vid) : false;
-            $style = $val ? "red" : "green";
-            $name = ($vid > 0 && IPS_VariableExists($vid)) ? IPS_GetName($vid) : "MISSING";
+                $val = ($vid > 0 && IPS_VariableExists($vid)) ? GetValue($vid) : false;
+                $style = $val ? "red" : "green";
+                $name = ($vid > 0 && IPS_VariableExists($vid)) ? IPS_GetName($vid) : "MISSING";
 
-            // Mermaid Label: Name (ID) <br/> [Bedroom Switch]
-            $label = "$name ($vid)<br/>[Bedroom Switch]";
-            $graph .= $sid . "[\"" . $label . "\"]:::" . $style . " --> " . $gid . "\n";
+                $label = "$name ($vid)<br/>[Bedroom Switch]";
+                $graph .= $sid . "[\"" . $label . "\"]:::" . $style . " --> " . $gid . "\n";
 
-            $linkIdx = $this->linkCounter++;
-            if ($val) $graph .= "linkStyle $linkIdx stroke:#ff8a80,stroke-width:2px;\n";
+                $linkIdx = $this->linkCounter++;
+                if ($val) $graph .= "linkStyle $linkIdx stroke:#ff8a80,stroke-width:2px;\n";
+            }
         }
 
         // B3. Draw Bedroom Group -> Global Target Connections
         $bedTargetID = (int)($conf['BedroomTarget'] ?? 0);
-        if ($bedTargetID > 0) {
-            // Only draw if the target is currently visible (passed the filter)
+        if ($showBedrooms && $bedTargetID > 0) {
             $targetIsVisible = false;
             foreach ($dispatchTargets as $dt) {
                 if ((int)$dt['InstanceID'] === $bedTargetID) {
@@ -2450,62 +2455,62 @@ class SensorGroup extends IPSModule
         }
 
         // C. Draw Classes
-        foreach ($conf['GroupMembers'] as $m) {
-            $gName = $m['GroupName'];
-            $cID = $m['ClassID'];
-            $gid = "G_" . md5($gName);
-            $cidNode = "C_" . substr(md5($cID), 0, 8);
+        if ($depth === 'classes' || $depth === 'sensors') {
+            foreach ($conf['GroupMembers'] as $m) {
+                $gName = $m['GroupName'];
+                $cID = $m['ClassID'];
+                $gid = "G_" . md5($gName);
+                $cidNode = "C_" . substr(md5($cID), 0, 8);
 
-            if (!isset($classMap[$cID])) continue;
+                if (!isset($classMap[$cID])) continue;
 
-            $cDef = $classMap[$cID];
+                $cDef = $classMap[$cID];
 
-            $lMode = (int)($cDef['LogicMode'] ?? 0);
-            if ($lMode === 1) {
-                $cLogic = "AND";
-            } elseif ($lMode === 2) {
-                $cLogic = "COUNT:" . ($cDef['Threshold'] ?? 1);
-            } else {
-                $cLogic = "OR";
+                $lMode = (int)($cDef['LogicMode'] ?? 0);
+                if ($lMode === 1) {
+                    $cLogic = "AND";
+                } elseif ($lMode === 2) {
+                    $cLogic = "COUNT:" . ($cDef['Threshold'] ?? 1);
+                } else {
+                    $cLogic = "OR";
+                }
+
+                $cLabel = $cDef['ClassName'] . "<br/>[$cLogic | " . $cDef['TimeWindow'] . "s]";
+
+                $isClassActive = in_array($cID, $engineActiveClasses);
+                $cStyle = $isClassActive ? "red" : "grey";
+
+                $graph .= $cidNode . "[\"" . $cLabel . "\"]:::" . $cStyle . " --> " . $gid . "\n";
+
+                $linkIdx = $this->linkCounter++;
+                if ($isClassActive) $graph .= "linkStyle $linkIdx stroke:#ff8a80,stroke-width:2px;\n";
             }
-
-            $cLabel = $cDef['ClassName'] . "<br/>[$cLogic | " . $cDef['TimeWindow'] . "s]";
-
-            // Ask the engine if this class is active
-            $isClassActive = in_array($cID, $engineActiveClasses);
-            $cStyle = $isClassActive ? "red" : "grey";
-
-            $graph .= $cidNode . "[\"" . $cLabel . "\"]:::" . $cStyle . " --> " . $gid . "\n";
-
-            $linkIdx = $this->linkCounter++;
-            if ($isClassActive) $graph .= "linkStyle $linkIdx stroke:#ff8a80,stroke-width:2px;\n";
         }
 
         // D. Sensors -> Classes
-        foreach ($conf['SensorList'] as $s) {
-            $cID = $s['ClassID'];
-            $cidNode = "C_" . substr(md5($cID), 0, 8);
-            $vid = $s['VariableID'];
-            $sid = "S_" . $vid;
+        if ($depth === 'sensors') {
+            foreach ($conf['SensorList'] as $s) {
+                $cID = $s['ClassID'];
+                $cidNode = "C_" . substr(md5($cID), 0, 8);
+                $vid = $s['VariableID'];
+                $sid = "S_" . $vid;
 
-            // Ask the engine if this sensor triggered
-            $isActive = in_array($vid, $engineActiveSensors);
-            $style = $isActive ? "red" : "green";
+                $isActive = in_array($vid, $engineActiveSensors);
+                $style = $isActive ? "red" : "green";
 
-            $opMap = ['=', '!=', '>', '<', '>=', '<='];
-            $rule = $opMap[$s['Operator']] . " " . $s['ComparisonValue'];
-            $name = IPS_VariableExists($vid) ? IPS_GetName($vid) : "MISSING";
+                $opMap = ['=', '!=', '>', '<', '>=', '<='];
+                $rule = $opMap[$s['Operator']] . " " . $s['ComparisonValue'];
+                $name = IPS_VariableExists($vid) ? IPS_GetName($vid) : "MISSING";
 
-            // Extract location data (fallback to 'Unknown' if missing)
-            $pName = $s['ParentName'] ?? 'Unknown';
-            $gpName = $s['GrandParentName'] ?? 'Unknown';
+                $pName = $s['ParentName'] ?? 'Unknown';
+                $gpName = $s['GrandParentName'] ?? 'Unknown';
 
-            // FIX: Format: Sensor Name (Variable ID), then[Grandparent / Parent], then the Logic Rule
-            $label = "$name ($vid)<br/>[$gpName / $pName]<br/>$rule";
-            $graph .= $sid . "[\"" . $label . "\"]:::" . $style . " --> " . $cidNode . "\n";
+                $label = "$name ($vid)<br/>[$gpName / $pName]<br/>$rule";
+                $graph .= $sid . "[\"" . $label . "\"]:::" . $style . " --> " . $cidNode . "\n";
 
-            $linkIdx = $this->linkCounter++;
-            if ($isActive) $graph .= "linkStyle $linkIdx stroke:#ff8a80,stroke-width:2px;\n";
+                $linkIdx = $this->linkCounter++;
+                if ($isActive) $graph .= "linkStyle $linkIdx stroke:#ff8a80,stroke-width:2px;\n";
+            }
         }
 
         // 3. API Mode (AJAX Request)
@@ -2571,7 +2576,15 @@ class SensorGroup extends IPSModule
                             if (boxes.length === 0) return "NONE";
                             return Array.from(boxes).map(b => b.value).join(",");
                             };
+window.getDepthFilter = function () {
+    const el = document.getElementById("depth-filter");
+    return el ? el.value : "sensors";
+};
 
+window.getBedroomFilter = function () {
+    const el = document.getElementById("bedroom-filter");
+    return (el && el.checked) ? "1" : "0";
+};
                             window.forceRefresh = function () {
                             lastGraphString = "";
                             fetchAndUpdateGraph();
@@ -2587,7 +2600,11 @@ class SensorGroup extends IPSModule
 
                                 try{
                                     // IMPORTANT: keep this on the same hook URL; only add query params
-                                    const url = location.pathname + "?api=1&t=" + Date.now() + "&targetFilter=" + encodeURIComponent(window.getFilterString());
+                                   const url = location.pathname
+    + "?api=1&t=" + Date.now()
+    + "&targetFilter=" + encodeURIComponent(window.getFilterString())
+    + "&depth=" + encodeURIComponent(window.getDepthFilter())
+    + "&showBedrooms=" + encodeURIComponent(window.getBedroomFilter());
                                     const response = await fetch(url);
                                     const graphString = await response.text();
 
@@ -2675,10 +2692,19 @@ class SensorGroup extends IPSModule
                                 <small>Instance ID: ' . $this->InstanceID . '</small>
                             <br>
                             <div class="filter-bar">
-                            <a href="#" onclick="setAllTargets(true); return false;" style="color:#9ecbff; margin-right:12px;">All</a>
-                            <a href="#" onclick="setAllTargets(false); return false;" style="color:#9ecbff; margin-right:18px;">None</a>
-                            ' . $checkboxesHTML . '
-                            </div>
+<a href="#" onclick="setAllTargets(true); return false;" style="color:#9ecbff; margin-right:12px;">All</a>
+<a href="#" onclick="setAllTargets(false); return false;" style="color:#9ecbff; margin-right:18px;">None</a>
+' . $checkboxesHTML . '
+<span style="margin-left:18px;">Depth:</span>
+<select id="depth-filter" onchange="forceRefresh()" style="margin-left:8px;">
+    <option value="groups">Groups</option>
+    <option value="classes">Classes</option>
+    <option value="sensors" selected>Sensors</option>
+</select>
+<label style="margin-left:18px; cursor:pointer;">
+    <input type="checkbox" id="bedroom-filter" checked onchange="forceRefresh()"> Bedrooms
+</label>
+</div>
                             </div>
                             <div class="container">
                                 <div id="mermaid-container">Initializing Live View...</div>
