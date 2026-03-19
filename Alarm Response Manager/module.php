@@ -1172,51 +1172,51 @@ class AlarmResponseManager extends IPSModule
         return $result;
     }
 
-    protected function ProcessHookData()
-    {
-        // 1. Authentication (Secrets / Vault)
-        $vaultID = $this->ReadPropertyInteger('VaultInstanceID');
-        if ($vaultID > 0 && @IPS_InstanceExists($vaultID)) {
-            if (function_exists('SEC_IsPortalAuthenticated')) {
-                if (!SEC_IsPortalAuthenticated($vaultID)) {
-                    $currentUrl = $_SERVER['REQUEST_URI'] ?? '';
-                    $currentUrl = strtok($currentUrl, '?');
-                    $loginUrl = '/hook/secrets_' . $vaultID . '?portal=1&return=' . urlencode($currentUrl);
-                    header('Location: ' . $loginUrl);
-                    exit;
-                }
+protected function ProcessHookData()
+{
+    // 1. Authentication (Secrets / Vault)
+    $vaultID = $this->ReadPropertyInteger('VaultInstanceID');
+    if ($vaultID > 0 && @IPS_InstanceExists($vaultID)) {
+        if (function_exists('SEC_IsPortalAuthenticated')) {
+            if (!SEC_IsPortalAuthenticated($vaultID)) {
+                $currentUrl = $_SERVER['REQUEST_URI'] ?? '';
+                $currentUrl = strtok($currentUrl, '?');
+                $loginUrl = '/hook/secrets_' . $vaultID . '?portal=1&return=' . urlencode($currentUrl);
+                header('Location: ' . $loginUrl);
+                exit;
             }
         }
+    }
 
-        $groups = $this->ExtractImportedGroupsFromConfig();
+    $groups = $this->ExtractImportedGroupsFromConfig();
 
-        // 2. Graph filter save API
-        if (isset($_GET['filter_api'])) {
-            $selected = [];
-            $raw = file_get_contents('php://input');
-            $data = json_decode((string) $raw, true);
-            if (is_array($data) && isset($data['visible_groups']) && is_array($data['visible_groups'])) {
-                $selected = $data['visible_groups'];
-            }
-
-            $this->SaveVisibleGraphGroupKeys($selected, $groups);
-
-            header('Content-Type: application/json; charset=utf-8');
-            echo json_encode(['ok' => true]);
-            return;
+    // 2. Graph filter save API
+    if (isset($_GET['filter_api'])) {
+        $selected = [];
+        $raw = file_get_contents('php://input');
+        $data = json_decode((string) $raw, true);
+        if (is_array($data) && isset($data['visible_groups']) && is_array($data['visible_groups'])) {
+            $selected = $data['visible_groups'];
         }
 
-        // 3. Screen API mode
-        if (isset($_GET['screen_api'])) {
-            header('Content-Type: text/html; charset=utf-8');
-            echo $this->GetOutputScreenHtml();
-            return;
-        }
+        $this->SaveVisibleGraphGroupKeys($selected, $groups);
 
-        // 4. Screen page mode
-        if (isset($_GET['screen'])) {
-            header('Content-Type: text/html; charset=utf-8');
-            echo '<!DOCTYPE html>
+        header('Content-Type: application/json; charset=utf-8');
+        echo json_encode(['ok' => true]);
+        return;
+    }
+
+    // 3. Screen API mode
+    if (isset($_GET['screen_api'])) {
+        header('Content-Type: text/html; charset=utf-8');
+        echo $this->GetOutputScreenHtml();
+        return;
+    }
+
+    // 4. Screen page mode
+    if (isset($_GET['screen'])) {
+        header('Content-Type: text/html; charset=utf-8');
+        echo '<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8">
@@ -1252,22 +1252,22 @@ setInterval(refreshScreen, 2000);
 <div id="screen-container">' . $this->GetOutputScreenHtml() . '</div>
 </body>
 </html>';
-            return;
-        }
+        return;
+    }
 
-        // 5. Mermaid graph API
-        if (isset($_GET['api'])) {
-            header('Content-Type: text/plain; charset=utf-8');
-            echo $this->BuildMappingGraph();
-            return;
-        }
+    // 5. Mermaid graph API
+    if (isset($_GET['api'])) {
+        header('Content-Type: text/plain; charset=utf-8');
+        echo $this->BuildMappingGraph();
+        return;
+    }
 
-        // 6. Full Mermaid page
-        header('Content-Type: text/html; charset=utf-8');
+    // 6. Full Mermaid page
+    header('Content-Type: text/html; charset=utf-8');
 
-        $filterBarHtml = $this->BuildGroupFilterBarHtml($groups);
+    $filterBarHtml = $this->BuildGroupFilterBarHtml($groups);
 
-        echo '<!DOCTYPE html>
+    echo '<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8">
@@ -1314,11 +1314,26 @@ async function saveGroupFilter() {
     });
 }
 
+function getDepthFilter() {
+    const el = document.getElementById("depth-filter");
+    return el ? el.value : "full";
+}
+
+function getShowConditionsFilter() {
+    const el = document.getElementById("show-conditions");
+    return el && el.checked ? "1" : "0";
+}
+
 async function fetchAndUpdateGraph() {
     if (isRendering) return;
 
     try {
-        const response = await fetch("?api=1&t=" + Date.now(), { credentials: "same-origin" });
+        const response = await fetch(
+            "?api=1&t=" + Date.now()
+            + "&depth=" + encodeURIComponent(getDepthFilter())
+            + "&showConditions=" + encodeURIComponent(getShowConditionsFilter()),
+            { credentials: "same-origin" }
+        );
         const graphString = await response.text();
 
         if (!graphString.trim().startsWith("graph ")) return;
@@ -1401,6 +1416,22 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     }
 
+    const depthFilter = document.getElementById("depth-filter");
+    if (depthFilter) {
+        depthFilter.addEventListener("change", async () => {
+            lastGraphString = "";
+            await fetchAndUpdateGraph();
+        });
+    }
+
+    const showConditions = document.getElementById("show-conditions");
+    if (showConditions) {
+        showConditions.addEventListener("change", async () => {
+            lastGraphString = "";
+            await fetchAndUpdateGraph();
+        });
+    }
+
     fetchAndUpdateGraph();
     setInterval(fetchAndUpdateGraph, 2000);
 });
@@ -1413,6 +1444,296 @@ document.addEventListener("DOMContentLoaded", () => {
     <small>Instance ID: ' . $this->InstanceID . '</small>
 </div>
 ' . $filterBarHtml . '
+<div style="margin-bottom:12px;padding:10px 12px;border:1px solid #333;border-radius:8px;background:#252526;display:flex;gap:18px;align-items:center;flex-wrap:wrap;">
+    <label style="white-space:nowrap;">
+        Depth:
+        <select id="depth-filter" style="margin-left:8px;">
+            <option value="groups">Groups</option>
+            <option value="outputs">Outputs</option>
+            <option value="full" selected>Full</option>
+        </select>
+    </label>
+
+    <label style="white-space:nowrap;">
+        <input type="checkbox" id="show-conditions" checked> Show conditions
+    </label>
+</div>
+<div class="container">
+    <div id="mermaid-container">Initializing Live View...</div>
+</div>
+</body>
+</html>';
+}
+
+        $groups = $this->ExtractImportedGroupsFromConfig();
+
+        // 2. Graph filter save API
+        if (isset($_GET['filter_api'])) {
+            $selected = [];
+            $raw = file_get_contents('php://input');
+            $data = json_decode((string) $raw, true);
+            if (is_array($data) && isset($data['visible_groups']) && is_array($data['visible_groups'])) {
+                $selected = $data['visible_groups'];
+            }
+
+            $this->SaveVisibleGraphGroupKeys($selected, $groups);
+
+            header('Content-Type: application/json; charset=utf-8');
+            echo json_encode(['ok' => true]);
+            return;
+        }
+
+        // 3. Screen API mode
+        if (isset($_GET['screen_api'])) {
+            header('Content-Type: text/html; charset=utf-8');
+            echo $this->GetOutputScreenHtml();
+            return;
+        }
+
+        // 4. Screen page mode
+        if (isset($_GET['screen'])) {
+            header('Content-Type: text/html; charset=utf-8');
+            echo '<!DOCTYPE html>
+        <html>
+        <head>
+        <meta charset="utf-8">
+        <title>Module 3 Output Screen</title>
+        <style>
+        body{
+            background-color:#1e1e1e;color:#cfcfcf;font-family:"Segoe UI",sans-serif;
+            margin:0;padding:20px;box-sizing:border-box;
+        }
+        .header{margin-bottom:16px;border-bottom:1px solid #333;padding-bottom:10px;}
+        .header h2{margin:0;color:#4CAF50;}
+        #screen-container{margin-top:16px;}
+        </style>
+        <script>
+        async function refreshScreen() {
+            try {
+                const response = await fetch("?screen_api=1&t=" + Date.now(), { credentials: "same-origin" });
+                const html = await response.text();
+                document.getElementById("screen-container").innerHTML = html;
+            } catch (err) {
+                console.error("Screen refresh failed", err);
+            }
+        }
+        refreshScreen();
+        setInterval(refreshScreen, 2000);
+        </script>
+        </head>
+        <body>
+        <div class="header">
+            <h2>' . htmlspecialchars($this->GetModule1TargetDisplayName(), ENT_QUOTES, 'UTF-8') . ' (Output Screen)</h2>
+            <small>Instance ID: ' . $this->InstanceID . '</small>
+        </div>
+        <div id="screen-container">' . $this->GetOutputScreenHtml() . '</div>
+        </body>
+        </html>';
+                    return;
+                }
+
+                // 5. Mermaid graph API
+                if (isset($_GET['api'])) {
+                    header('Content-Type: text/plain; charset=utf-8');
+                    echo $this->BuildMappingGraph();
+                    return;
+                }
+
+                // 6. Full Mermaid page
+                header('Content-Type: text/html; charset=utf-8');
+
+                $filterBarHtml = $this->BuildGroupFilterBarHtml($groups);
+
+                echo '<!DOCTYPE html>
+        <html>
+        <head>
+        <meta charset="utf-8">
+        <title>Module 3 Mapping</title>
+        <style>
+        body{
+            background-color:#1e1e1e;color:#cfcfcf;font-family:"Segoe UI",sans-serif;
+            margin:0;padding:20px;height:100vh;box-sizing:border-box;
+            overflow:hidden;display:flex;flex-direction:column;
+        }
+        .header{flex-shrink:0;text-align:center;margin-bottom:12px;border-bottom:1px solid #333;padding-bottom:10px;}
+        .header h2{margin:0;color:#4CAF50;}
+        .container{
+            flex-grow:1;background:#252526;border-radius:8px;width:100%;
+            border:1px solid #444;overflow:hidden;position:relative;
+        }
+        #mermaid-container { position:absolute; inset:0; overflow:hidden; }
+        #mermaid-container svg { width:100% !important; height:100% !important; max-width:none !important; display:block; }
+        </style>
+
+        <script src="https://unpkg.com/svg-pan-zoom@3.6.1/dist/svg-pan-zoom.min.js"></script>
+
+        <script type="module">
+        import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs";
+
+        mermaid.initialize({
+            startOnLoad:false,
+            theme:"dark",
+            flowchart:{ curve:"basis", nodeSpacing:60, rankSpacing:120 }
+        });
+
+        let isRendering = false;
+        let lastGraphString = "";
+        let pzInstance = null;
+
+        async function saveGroupFilter() {
+            const selected = Array.from(document.querySelectorAll(".group-toggle:checked")).map(cb => cb.value);
+
+            await fetch("?filter_api=1&t=" + Date.now(), {
+                method: "POST",
+                credentials: "same-origin",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ visible_groups: selected })
+            });
+        }
+
+        function getDepthFilter() {
+            const el = document.getElementById("depth-filter");
+            return el ? el.value : "full";
+        }
+
+        function getShowConditionsFilter() {
+            const el = document.getElementById("show-conditions");
+            return el && el.checked ? "1" : "0";
+        }
+
+        async function fetchAndUpdateGraph() {
+            if (isRendering) return;
+
+            try {
+                const response = await fetch(
+            "?api=1&t=" + Date.now()
+            + "&depth=" + encodeURIComponent(getDepthFilter())
+            + "&showConditions=" + encodeURIComponent(getShowConditionsFilter()),
+            { credentials: "same-origin" }
+        );
+                const graphString = await response.text();
+
+        if (!graphString.trim().startsWith("graph ")) return;
+
+        if (graphString !== lastGraphString) {
+            isRendering = true;
+
+            const container = document.getElementById("mermaid-container");
+            const pzContainer = document.querySelector(".container");
+            const oldZoom = pzInstance ? pzInstance.getZoom() : null;
+            const oldPan  = pzInstance ? pzInstance.getPan()  : null;
+
+            if (pzInstance) pzInstance.destroy();
+
+            const renderId = "graph_" + Date.now();
+            const { svg } = await mermaid.render(renderId, graphString);
+            container.innerHTML = svg;
+
+            const svgEl = container.querySelector("svg");
+            if (!svgEl) {
+                throw new Error("Mermaid render returned no SVG");
+            }
+
+            svgEl.removeAttribute("width");
+            svgEl.removeAttribute("height");
+            svgEl.style.width = "100%";
+            svgEl.style.height = "100%";
+            svgEl.style.maxWidth = "none";
+
+            pzInstance = svgPanZoom(svgEl, {
+                zoomEnabled: true,
+                controlIconsEnabled: true,
+                fit: (oldZoom === null),
+                center: (oldPan === null),
+                minZoom: 0.2,
+                maxZoom: 10,
+                eventsListenerElement: pzContainer
+            });
+
+            if (oldZoom !== null) {
+                pzInstance.zoom(oldZoom);
+                pzInstance.pan(oldPan);
+            }
+
+            lastGraphString = graphString;
+        }
+    } catch (err) {
+        console.error("Rendering failed", err);
+    } finally {
+        isRendering = false;
+    }
+}
+
+async function applyFilterAndRefresh() {
+    await saveGroupFilter();
+    lastGraphString = "";
+    await fetchAndUpdateGraph();
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+    document.querySelectorAll(".group-toggle").forEach(cb => {
+        cb.addEventListener("change", applyFilterAndRefresh);
+    });
+
+    const depthFilter = document.getElementById("depth-filter");
+if (depthFilter) {
+    depthFilter.addEventListener("change", async () => {
+        lastGraphString = "";
+        await fetchAndUpdateGraph();
+    });
+}
+
+const showConditions = document.getElementById("show-conditions");
+if (showConditions) {
+    showConditions.addEventListener("change", async () => {
+        lastGraphString = "";
+        await fetchAndUpdateGraph();
+    });
+}
+    const allLink = document.getElementById("show-all-groups");
+    if (allLink) {
+        allLink.addEventListener("click", async (ev) => {
+            ev.preventDefault();
+            document.querySelectorAll(".group-toggle").forEach(cb => cb.checked = true);
+            await applyFilterAndRefresh();
+        });
+    }
+
+    const noneLink = document.getElementById("show-no-groups");
+    if (noneLink) {
+        noneLink.addEventListener("click", async (ev) => {
+            ev.preventDefault();
+            document.querySelectorAll(".group-toggle").forEach(cb => cb.checked = false);
+            await applyFilterAndRefresh();
+        });
+    }
+
+    fetchAndUpdateGraph();
+    setInterval(fetchAndUpdateGraph, 2000);
+});
+</script>
+</head>
+
+<body>
+<div class="header">
+    <h2>' . htmlspecialchars($this->GetModule1TargetDisplayName(), ENT_QUOTES, 'UTF-8') . ' (Live)</h2>
+    <small>Instance ID: ' . $this->InstanceID . '</small>
+</div>
+' . $filterBarHtml . '
+<div style="margin-bottom:12px;padding:10px 12px;border:1px solid #333;border-radius:8px;background:#252526;display:flex;gap:18px;align-items:center;flex-wrap:wrap;">
+    <label style="white-space:nowrap;">
+        Depth:
+        <select id="depth-filter" style="margin-left:8px;">
+            <option value="groups">Groups</option>
+            <option value="outputs">Outputs</option>
+            <option value="full" selected>Full</option>
+        </select>
+    </label>
+
+    <label style="white-space:nowrap;">
+        <input type="checkbox" id="show-conditions" checked> Show conditions
+    </label>
+</div>
 <div class="container">
     <div id="mermaid-container">Initializing Live View...</div>
 </div>
@@ -3027,131 +3348,126 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
 
-    private function BuildMappingGraph(): string
-    {
-        $allGroups = $this->ExtractImportedGroupsFromConfig();
-        $visibleGroupKeys = array_fill_keys($this->GetVisibleGraphGroupKeys($allGroups), true);
+private function BuildMappingGraph(): string
+{
+    $depth = $this->GetGraphDepth();
+    $showConditions = $this->GetShowConditions();
+    $allGroups = $this->ExtractImportedGroupsFromConfig();
+    $visibleGroupKeys = array_fill_keys($this->GetVisibleGraphGroupKeys($allGroups), true);
 
-        $rules = $this->GetEffectiveGroupStateRules();
-        $assignments = $this->GetEffectiveRuleOutputAssignments();
-        $outputs = $this->readListProperty('OutputResources');
+    $rules = $this->GetEffectiveGroupStateRules();
+    $assignments = $this->GetEffectiveRuleOutputAssignments();
+    $outputs = $this->readListProperty('OutputResources');
 
-        $groups = array_values(array_filter($allGroups, function (array $group) use ($visibleGroupKeys): bool {
-            $groupKey = trim((string) ($group['GroupKey'] ?? ''));
-            return $groupKey !== '' && isset($visibleGroupKeys[$groupKey]);
-        }));
+    $groups = array_values(array_filter($allGroups, function (array $group) use ($visibleGroupKeys): bool {
+        $groupKey = trim((string) ($group['GroupKey'] ?? ''));
+        return $groupKey !== '' && isset($visibleGroupKeys[$groupKey]);
+    }));
 
-        $rules = array_values(array_filter($rules, function (array $rule) use ($visibleGroupKeys): bool {
-            $groupKey = trim((string) ($rule['GroupKey'] ?? ''));
-            return $groupKey !== '' && isset($visibleGroupKeys[$groupKey]);
-        }));
+    $rules = array_values(array_filter($rules, function (array $rule) use ($visibleGroupKeys): bool {
+        $groupKey = trim((string) ($rule['GroupKey'] ?? ''));
+        return $groupKey !== '' && isset($visibleGroupKeys[$groupKey]);
+    }));
 
-        $visibleRuleIDs = [];
-        foreach ($rules as $rule) {
-            $ruleID = trim((string) ($rule['RuleID'] ?? ''));
-            if ($ruleID !== '') {
-                $visibleRuleIDs[$ruleID] = true;
+    $visibleRuleIDs = [];
+    foreach ($rules as $rule) {
+        $ruleID = trim((string) ($rule['RuleID'] ?? ''));
+        if ($ruleID !== '') {
+            $visibleRuleIDs[$ruleID] = true;
+        }
+    }
+
+    $assignments = array_values(array_filter($assignments, function (array $assignment) use ($visibleRuleIDs): bool {
+        $ruleID = trim((string) ($assignment['RuleID'] ?? ''));
+        return $ruleID !== '' && isset($visibleRuleIDs[$ruleID]);
+    }));
+
+    usort($groups, static function (array $a, array $b): int {
+        return strnatcasecmp((string) ($a['GroupLabel'] ?? ''), (string) ($b['GroupLabel'] ?? ''));
+    });
+
+    usort($rules, static function (array $a, array $b): int {
+        $ak = (string) ($a['GroupKey'] ?? '') . '|' . (string) ($a['HouseState'] ?? '');
+        $bk = (string) ($b['GroupKey'] ?? '') . '|' . (string) ($b['HouseState'] ?? '');
+        return strnatcasecmp($ak, $bk);
+    });
+
+    usort($assignments, static function (array $a, array $b): int {
+        $ak = (string) ($a['RuleID'] ?? '') . '|' . (string) ($a['OutputID'] ?? '');
+        $bk = (string) ($b['RuleID'] ?? '') . '|' . (string) ($b['OutputID'] ?? '');
+        return strnatcasecmp($ak, $bk);
+    });
+
+    usort($outputs, static function (array $a, array $b): int {
+        return strnatcasecmp((string) ($a['Name'] ?? ''), (string) ($b['Name'] ?? ''));
+    });
+
+    $groupLabels = $this->buildGroupLabels($allGroups, $rules);
+    $typeLabels = $this->buildTypeLabels($this->GetBuiltInOutputTypes(), $outputs);
+
+    $outputsByID = [];
+    foreach ($outputs as $row) {
+        $outputID = trim((string) ($row['OutputID'] ?? ''));
+        if ($outputID !== '') {
+            $outputsByID[$outputID] = $row;
+        }
+    }
+
+    $activeGroups = [];
+    $lastActiveGroups = json_decode($this->ReadAttributeString('LastActiveGroups'), true);
+    if (is_array($lastActiveGroups)) {
+        foreach ($lastActiveGroups as $groupLabelRaw) {
+            $groupLabel = trim((string) $groupLabelRaw);
+            if ($groupLabel === '') {
+                continue;
+            }
+            $groupKey = $this->MakeGroupKey($groupLabel);
+            if (isset($visibleGroupKeys[$groupKey])) {
+                $activeGroups[$groupKey] = true;
             }
         }
+    }
 
-        $assignments = array_values(array_filter($assignments, function (array $assignment) use ($visibleRuleIDs): bool {
-            $ruleID = trim((string) ($assignment['RuleID'] ?? ''));
-            return $ruleID !== '' && isset($visibleRuleIDs[$ruleID]);
-        }));
-
-        usort($groups, static function (array $a, array $b): int {
-            return strnatcasecmp((string) ($a['GroupLabel'] ?? ''), (string) ($b['GroupLabel'] ?? ''));
-        });
-
-        usort($rules, static function (array $a, array $b): int {
-            $ak = (string) ($a['GroupKey'] ?? '') . '|' . (string) ($a['HouseState'] ?? '');
-            $bk = (string) ($b['GroupKey'] ?? '') . '|' . (string) ($b['HouseState'] ?? '');
-            return strnatcasecmp($ak, $bk);
-        });
-
-        usort($assignments, static function (array $a, array $b): int {
-            $ak = (string) ($a['RuleID'] ?? '') . '|' . (string) ($a['OutputID'] ?? '');
-            $bk = (string) ($b['RuleID'] ?? '') . '|' . (string) ($b['OutputID'] ?? '');
-            return strnatcasecmp($ak, $bk);
-        });
-
-        usort($outputs, static function (array $a, array $b): int {
-            return strnatcasecmp((string) ($a['Name'] ?? ''), (string) ($b['Name'] ?? ''));
-        });
-
-        $groupLabels = $this->buildGroupLabels($allGroups, $rules);
-        $typeLabels = $this->buildTypeLabels($this->GetBuiltInOutputTypes(), $outputs);
-
-        $rulesByID = [];
-        foreach ($rules as $row) {
-            $ruleID = trim((string) ($row['RuleID'] ?? ''));
-            if ($ruleID !== '') {
-                $rulesByID[$ruleID] = $row;
+    $activeRuleIDs = [];
+    $lastActiveRuleIDs = json_decode($this->ReadAttributeString('LastActiveRuleIDs'), true);
+    if (is_array($lastActiveRuleIDs)) {
+        foreach ($lastActiveRuleIDs as $ruleIDRaw) {
+            $ruleID = trim((string) $ruleIDRaw);
+            if ($ruleID !== '' && isset($visibleRuleIDs[$ruleID])) {
+                $activeRuleIDs[$ruleID] = true;
             }
         }
+    }
 
-        $outputsByID = [];
-        foreach ($outputs as $row) {
-            $outputID = trim((string) ($row['OutputID'] ?? ''));
-            if ($outputID !== '') {
-                $outputsByID[$outputID] = $row;
+    $visibleOutputIDs = [];
+    foreach ($assignments as $assignment) {
+        $outputID = trim((string) ($assignment['OutputID'] ?? ''));
+        if ($outputID !== '') {
+            $visibleOutputIDs[$outputID] = true;
+        }
+    }
+
+    $activeOutputIDs = [];
+    $lastActiveOutputIDs = json_decode($this->ReadAttributeString('LastActiveOutputIDs'), true);
+    if (is_array($lastActiveOutputIDs)) {
+        foreach ($lastActiveOutputIDs as $outputIDRaw) {
+            $outputID = trim((string) $outputIDRaw);
+            if ($outputID !== '' && isset($visibleOutputIDs[$outputID])) {
+                $activeOutputIDs[$outputID] = true;
             }
         }
+    }
 
-        $activeGroups = [];
-        $lastActiveGroups = json_decode($this->ReadAttributeString('LastActiveGroups'), true);
-        if (is_array($lastActiveGroups)) {
-            foreach ($lastActiveGroups as $groupLabelRaw) {
-                $groupLabel = trim((string) $groupLabelRaw);
-                if ($groupLabel === '') {
-                    continue;
-                }
-                $groupKey = $this->MakeGroupKey($groupLabel);
-                if (isset($visibleGroupKeys[$groupKey])) {
-                    $activeGroups[$groupKey] = true;
-                }
-            }
-        }
+    $lines = [];
+    $lines[] = 'graph LR';
+    $lines[] = 'classDef green fill:#2e7d32,stroke:#a5d6a7,stroke-width:2px,color:#fff;';
+    $lines[] = 'classDef red fill:#c62828,stroke:#ff8a80,stroke-width:2px,color:#fff;';
+    $lines[] = 'classDef grey fill:#37474f,stroke:#546e7a,stroke-width:1px,color:#eee;';
+    $lines[] = 'classDef info fill:#1565c0,stroke:#90caf9,stroke-width:2px,color:#fff;';
 
-        $activeRuleIDs = [];
-        $lastActiveRuleIDs = json_decode($this->ReadAttributeString('LastActiveRuleIDs'), true);
-        if (is_array($lastActiveRuleIDs)) {
-            foreach ($lastActiveRuleIDs as $ruleIDRaw) {
-                $ruleID = trim((string) $ruleIDRaw);
-                if ($ruleID !== '' && isset($visibleRuleIDs[$ruleID])) {
-                    $activeRuleIDs[$ruleID] = true;
-                }
-            }
-        }
-
-        $visibleOutputIDs = [];
-        foreach ($assignments as $assignment) {
-            $outputID = trim((string) ($assignment['OutputID'] ?? ''));
-            if ($outputID !== '') {
-                $visibleOutputIDs[$outputID] = true;
-            }
-        }
-
-        $activeOutputIDs = [];
-        $lastActiveOutputIDs = json_decode($this->ReadAttributeString('LastActiveOutputIDs'), true);
-        if (is_array($lastActiveOutputIDs)) {
-            foreach ($lastActiveOutputIDs as $outputIDRaw) {
-                $outputID = trim((string) $outputIDRaw);
-                if ($outputID !== '' && isset($visibleOutputIDs[$outputID])) {
-                    $activeOutputIDs[$outputID] = true;
-                }
-            }
-        }
-
-        $lines = [];
-        $lines[] = 'graph LR';
-        $lines[] = 'classDef green fill:#2e7d32,stroke:#a5d6a7,stroke-width:2px,color:#fff;';
-        $lines[] = 'classDef red fill:#c62828,stroke:#ff8a80,stroke-width:2px,color:#fff;';
-        $lines[] = 'classDef grey fill:#37474f,stroke:#546e7a,stroke-width:1px,color:#eee;';
-        $lines[] = 'classDef info fill:#1565c0,stroke:#90caf9,stroke-width:2px,color:#fff;';
-
+    $houseStateNode = 'HS_' . substr(md5((string) $this->InstanceID), 0, 10);
+    if ($depth === 'full') {
         $cachedHouse = $this->GetCachedHouseStateSnapshot();
-        $houseStateNode = 'HS_' . substr(md5((string) $this->InstanceID), 0, 10);
         if ($cachedHouse !== null) {
             $houseStateID = (string) ((int) ($cachedHouse['system_state_id'] ?? 0));
             $houseStateName = trim((string) ($cachedHouse['system_state_name'] ?? ''));
@@ -3169,75 +3485,79 @@ document.addEventListener("DOMContentLoaded", () => {
             $lines[] = $houseStateNode . '["' . $this->MermaidEscape("House State\nNo cached snapshot") . '"]';
             $lines[] = 'class ' . $houseStateNode . ' grey;';
         }
+    }
 
-        if (count($groups) === 0) {
-            $noteNode = 'N_' . substr(md5('no_groups_' . (string) $this->InstanceID), 0, 10);
-            $lines[] = $noteNode . '["' . $this->MermaidEscape('No groups selected') . '"]';
-            $lines[] = 'class ' . $noteNode . ' grey;';
-            return implode("\n", $lines) . "\n";
+    if (count($groups) === 0) {
+        $noteNode = 'N_' . substr(md5('no_groups_' . (string) $this->InstanceID), 0, 10);
+        $lines[] = $noteNode . '["' . $this->MermaidEscape('No groups selected') . '"]';
+        $lines[] = 'class ' . $noteNode . ' grey;';
+        return implode("\n", $lines) . "\n";
+    }
+
+    $linkCounter = 0;
+
+    foreach ($groups as $group) {
+        $groupKey = trim((string) ($group['GroupKey'] ?? ''));
+        if ($groupKey === '') {
+            continue;
         }
 
-        $linkCounter = 0;
+        $groupNode = 'G_' . substr(md5($groupKey), 0, 10);
+        $groupLabel = $groupLabels[$groupKey] ?? $groupKey;
 
-        foreach ($groups as $group) {
-            $groupKey = trim((string) ($group['GroupKey'] ?? ''));
-            if ($groupKey === '') {
-                continue;
-            }
+        $lines[] = $groupNode . '["' . $this->MermaidEscape($groupLabel) . '"]';
+        $lines[] = 'class ' . $groupNode . ' ' . (isset($activeGroups[$groupKey]) ? 'red' : 'green') . ';';
+    }
 
-            $groupNode = 'G_' . substr(md5($groupKey), 0, 10);
-            $groupLabel = $groupLabels[$groupKey] ?? $groupKey;
-
-            $lines[] = $groupNode . '["' . $this->MermaidEscape($groupLabel) . '"]';
-            $lines[] = 'class ' . $groupNode . ' ' . (isset($activeGroups[$groupKey]) ? 'red' : 'green') . ';';
+    foreach ($rules as $rule) {
+        $ruleID = trim((string) ($rule['RuleID'] ?? ''));
+        $groupKey = trim((string) ($rule['GroupKey'] ?? ''));
+        if ($ruleID === '' || $groupKey === '') {
+            continue;
         }
 
-        foreach ($rules as $rule) {
-            $ruleID = trim((string) ($rule['RuleID'] ?? ''));
-            $groupKey = trim((string) ($rule['GroupKey'] ?? ''));
-            if ($ruleID === '' || $groupKey === '') {
-                continue;
-            }
+        $groupNode = 'G_' . substr(md5($groupKey), 0, 10);
+        $ruleNode = 'R_' . substr(md5($ruleID), 0, 10);
+        $ruleActive = isset($activeRuleIDs[$ruleID]);
 
-            $groupNode = 'G_' . substr(md5($groupKey), 0, 10);
-            $ruleNode = 'R_' . substr(md5($ruleID), 0, 10);
-            $ruleActive = isset($activeRuleIDs[$ruleID]);
+        $ruleLabel = $this->buildRuleLabel($rule, $groupLabels);
+        $severity = trim((string) ($rule['Severity'] ?? ''));
+        $conditionText = ($showConditions && $depth !== 'groups')
+            ? $this->buildRuleConditionText($rule, $groupLabels, $visibleGroupKeys)
+            : '';
 
-            $ruleLabel = $this->buildRuleLabel($rule, $groupLabels);
-            $severity = trim((string) ($rule['Severity'] ?? ''));
-            $conditionText = $this->buildRuleConditionText($rule, $groupLabels, $visibleGroupKeys);
+        $parts = [];
+        $parts[] = $ruleLabel !== '' ? $ruleLabel : $ruleID;
+        if ($severity !== '') {
+            $parts[] = 'Severity: ' . $severity;
+        }
+        if ($conditionText !== '') {
+            $parts[] = $conditionText;
+        }
 
-            $parts = [];
-            $parts[] = $ruleLabel !== '' ? $ruleLabel : $ruleID;
-            if ($severity !== '') {
-                $parts[] = 'Severity: ' . $severity;
-            }
-            if ($conditionText !== '') {
-                $parts[] = $conditionText;
-            }
+        $lines[] = $ruleNode . '["' . $this->MermaidEscape(implode("\n", $parts)) . '"]';
+        $lines[] = $groupNode . ' --> ' . $ruleNode;
+        $lines[] = 'class ' . $ruleNode . ' ' . ($ruleActive ? 'red' : 'green') . ';';
+        $lines[] = 'linkStyle ' . $linkCounter . ' stroke:' . ($ruleActive ? '#ff8a80' : '#a5d6a7') . ',stroke-width:2px;';
+        $linkCounter++;
 
-            $lines[] = $ruleNode . '["' . $this->MermaidEscape(implode("\n", $parts)) . '"]';
-            $lines[] = $groupNode . ' --> ' . $ruleNode;
-            $lines[] = 'class ' . $ruleNode . ' ' . ($ruleActive ? 'red' : 'green') . ';';
-            $lines[] = 'linkStyle ' . $linkCounter . ' stroke:' . ($ruleActive ? '#ff8a80' : '#a5d6a7') . ',stroke-width:2px;';
+        $conditionGroupKey = trim((string) ($rule['ConditionGroupKey'] ?? ''));
+        $conditionMode = trim((string) ($rule['ConditionMode'] ?? ''));
+
+        if ($depth !== 'groups' && $showConditions && $conditionGroupKey !== '' && $conditionMode !== '' && isset($visibleGroupKeys[$conditionGroupKey])) {
+            $conditionNode = 'G_' . substr(md5($conditionGroupKey), 0, 10);
+            $conditionLabel = ($conditionMode === 'active') ? 'requires active' : 'requires inactive';
+            $conditionSatisfied = $this->isRuleConditionCurrentlySatisfied($rule);
+
+            $lines[] = $conditionNode . ' -. "' . $this->MermaidEscape($conditionLabel) . '" .-> ' . $ruleNode;
+            $lines[] = 'linkStyle ' . $linkCounter
+                . ' stroke:' . ($conditionSatisfied ? '#ff8a80' : '#90caf9')
+                . ',stroke-width:2px,stroke-dasharray: 6 4;';
             $linkCounter++;
-
-            $conditionGroupKey = trim((string) ($rule['ConditionGroupKey'] ?? ''));
-            $conditionMode = trim((string) ($rule['ConditionMode'] ?? ''));
-
-            if ($conditionGroupKey !== '' && $conditionMode !== '' && isset($visibleGroupKeys[$conditionGroupKey])) {
-                $conditionNode = 'G_' . substr(md5($conditionGroupKey), 0, 10);
-                $conditionLabel = ($conditionMode === 'active') ? 'requires active' : 'requires inactive';
-                $conditionSatisfied = $this->isRuleConditionCurrentlySatisfied($rule);
-
-                $lines[] = $conditionNode . ' -. "' . $this->MermaidEscape($conditionLabel) . '" .-> ' . $ruleNode;
-                $lines[] = 'linkStyle ' . $linkCounter
-                    . ' stroke:' . ($conditionSatisfied ? '#ff8a80' : '#90caf9')
-                    . ',stroke-width:2px,stroke-dasharray: 6 4;';
-                $linkCounter++;
-            }
         }
+    }
 
+    if ($depth !== 'groups') {
         foreach ($assignments as $assignment) {
             $assignmentID = trim((string) ($assignment['AssignmentID'] ?? ''));
             $ruleID = trim((string) ($assignment['RuleID'] ?? ''));
@@ -3302,11 +3622,27 @@ document.addEventListener("DOMContentLoaded", () => {
             $lines[] = 'linkStyle ' . $linkCounter . ' stroke:' . ($assignmentActive ? '#ff8a80' : '#a5d6a7') . ',stroke-width:2px;';
             $linkCounter++;
         }
-
-        return implode("\n", $lines) . "\n";
     }
 
+    return implode("\n", $lines) . "\n";
+}
 
+private function GetGraphDepth(): string
+{
+    $depth = strtolower(trim((string) ($_GET['depth'] ?? 'full')));
+    $allowed = ['groups', 'outputs', 'full'];
+
+    if (!in_array($depth, $allowed, true)) {
+        return 'full';
+    }
+
+    return $depth;
+}
+
+private function GetShowConditions(): bool
+{
+    return ((string) ($_GET['showConditions'] ?? '1')) === '1';
+}
     private function isRuleConditionCurrentlySatisfied(array $rule): bool
     {
         $conditionGroupKey = trim((string) ($rule['ConditionGroupKey'] ?? ''));
