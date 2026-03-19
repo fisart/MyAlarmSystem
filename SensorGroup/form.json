@@ -1,5 +1,6 @@
 {
     "elements": [
+        { "type": "Label", "caption": "Warning: Class names and group names must not be identical. Renaming groups may break references in other configuration sections." },
         { "type": "Label", "caption": "1. CLASS DEFINITIONS (Zones & Logic)" },
         {
             "type": "List", "name": "ClassList", "caption": "Classes", "rowCount": 5, "add": true, "delete": true,
@@ -23,7 +24,6 @@
         },
 
         { "type": "Label", "caption": "3. GROUP MANAGEMENT (Stateless)" },
-        { "type": "Label", "caption": "Warning: Do not use identical names. Renaming groups may break references in other configuration sections." },
         { "type": "ExpansionPanel", "name": "DynamicGroupContainer", "caption": "Step 3a: Create and Edit Groups", "items": [] },
         { "type": "ExpansionPanel", "name": "DynamicBedroomContainer", "caption": "Step 3b: Bedroom Behavioral Settings", "items": [] },
         { "type": "ExpansionPanel", "name": "DynamicGroupMemberContainer", "caption": "Step B: Assign Classes to Groups", "items": [] },
