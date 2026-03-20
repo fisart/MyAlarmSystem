@@ -39,7 +39,8 @@ class SensorGroup extends IPSModule
 
         $this->RegisterPropertyString('DispatchTargets', '[]');   // list of Module2 targets
 
-
+        $this->RegisterPropertyString('TargetThrottleList', '[]'); // per-target throttle config
+        $this->RegisterAttributeString('TargetThrottleState', '{}'); // runtime timestamps per target
         $this->RegisterAttributeString('DispatchTargetsBuffer', '[]');
         $this->RegisterAttributeString('LastTargetProjectionState', '{}');
         $this->RegisterAttributeString('LastSensorValueMap', '{}');
@@ -284,7 +285,37 @@ class SensorGroup extends IPSModule
                 KL_MESSAGE
             );
         }
+        // Throttle config cleanup: keep only existing targets
+        $targetThrottleList = json_decode((string)$this->ReadPropertyString('TargetThrottleList'), true);
+        if (!is_array($targetThrottleList)) {
+            $targetThrottleList = [];
+        }
 
+        $cleanThrottleList = [];
+        foreach ($targetThrottleList as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $iid = (int)($row['InstanceID'] ?? 0);
+            if ($iid <= 0 || !isset($validTargetIDs[$iid])) {
+                continue;
+            }
+
+            $max = (int)($row['MaxMessages'] ?? 0);
+            $win = (int)($row['WindowSeconds'] ?? 0);
+            if ($max <= 0 || $win <= 0) {
+                continue;
+            }
+
+            $cleanThrottleList[] = [
+                'InstanceID'    => $iid,
+                'MaxMessages'   => $max,
+                'WindowSeconds' => $win
+            ];
+        }
+
+        IPS_SetProperty($this->InstanceID, 'TargetThrottleList', json_encode(array_values($cleanThrottleList)));
         foreach (array_keys($groupIDMap) as $mappedGroupName) {
             if (!in_array($mappedGroupName, $validGroupNames, true)) {
                 unset($groupIDMap[$mappedGroupName]);
@@ -436,6 +467,89 @@ class SensorGroup extends IPSModule
         // 5. RELOAD FORM
         $this->ReloadForm();
         $this->CheckLogic();
+    }
+
+
+    private function ReadTargetThrottleConfig(): array
+    {
+        $raw = (string)$this->ReadPropertyString('TargetThrottleList');
+        $tmp = json_decode($raw, true);
+        if (!is_array($tmp)) {
+            return [];
+        }
+
+        $result = [];
+        foreach ($tmp as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $iid = (int)($row['InstanceID'] ?? 0);
+            $max = (int)($row['MaxMessages'] ?? 0);
+            $win = (int)($row['WindowSeconds'] ?? 0);
+
+            if ($iid <= 0 || $max <= 0 || $win <= 0) {
+                continue;
+            }
+
+            $result[$iid] = [
+                'InstanceID'    => $iid,
+                'MaxMessages'   => $max,
+                'WindowSeconds' => $win
+            ];
+        }
+
+        return $result;
+    }
+
+
+    private function CanSendToTargetNow(int $instanceID): bool
+    {
+        $config = $this->ReadTargetThrottleConfig();
+
+        // No throttle configured for this target -> always allow
+        if (!isset($config[$instanceID])) {
+            return true;
+        }
+
+        $maxMessages   = (int)$config[$instanceID]['MaxMessages'];
+        $windowSeconds = (int)$config[$instanceID]['WindowSeconds'];
+
+        if ($maxMessages <= 0 || $windowSeconds <= 0) {
+            return true;
+        }
+
+        $rawState = (string)$this->ReadAttributeString('TargetThrottleState');
+        $state = json_decode($rawState, true);
+        if (!is_array($state)) {
+            $state = [];
+        }
+
+        $now = microtime(true);
+        $key = (string)$instanceID;
+
+        $timestamps = $state[$key] ?? [];
+        if (!is_array($timestamps)) {
+            $timestamps = [];
+        }
+
+        // Keep only timestamps inside window
+        $timestamps = array_values(array_filter($timestamps, function ($ts) use ($now, $windowSeconds) {
+            return is_numeric($ts) && (($now - (float)$ts) < $windowSeconds);
+        }));
+
+        if (count($timestamps) >= $maxMessages) {
+            // persist cleaned state even on reject
+            $state[$key] = $timestamps;
+            $this->WriteAttributeString('TargetThrottleState', json_encode($state));
+            return false;
+        }
+
+        $timestamps[] = $now;
+        $state[$key] = $timestamps;
+        $this->WriteAttributeString('TargetThrottleState', json_encode($state));
+
+        return true;
     }
 
     private function ReadConfigPropertyList(string $propName): array
@@ -1864,7 +1978,6 @@ class SensorGroup extends IPSModule
                 'active_groups' => $activeGroups,
                 'is_maintenance' => $this->ReadPropertyBoolean('MaintenanceMode'),
                 'trigger_details' => $finalTriggerDetails,
-                'active_sensor_details' => $globalActiveSensorDetails,
                 'active_sensor_details' => array_values($activeSensorDetailsMap)
             ];
             $this->SetValue('EventData', json_encode($payload));
@@ -1895,7 +2008,6 @@ class SensorGroup extends IPSModule
                 'active_groups' => [],
                 'is_maintenance' => $this->ReadPropertyBoolean('MaintenanceMode'),
                 'trigger_details' => null,
-                'active_sensor_details' => [],
                 'active_sensor_details' => []
             ];
             $this->SetValue('EventData', json_encode($payload));
@@ -2035,6 +2147,16 @@ class SensorGroup extends IPSModule
                         " target_sensors=" . count($payloadForTarget['target_active_sensor_details']),
                     KL_MESSAGE
                 );
+            }
+
+            if (!$this->CanSendToTargetNow($iid)) {
+                if ($this->ReadPropertyBoolean('DebugMode')) {
+                    $this->LogMessage(
+                        "DEBUG [Throttle]: Skipping dispatch to InstanceID={$iid} because target rate limit is active",
+                        KL_WARNING
+                    );
+                }
+                continue;
             }
 
             try {
@@ -3156,6 +3278,26 @@ window.getBedroomFilter = function () {
                     }
                     unset($col);
                 }
+            }
+            // NEW: TargetThrottleList list: inject dropdown options + values
+            if (isset($e['name']) && $e['name'] === 'TargetThrottleList') {
+                $targetThrottleList = json_decode($this->ReadPropertyString('TargetThrottleList'), true);
+                if (!is_array($targetThrottleList)) {
+                    $targetThrottleList = [];
+                }
+
+                $e['values'] = $targetThrottleList;
+
+                if (isset($e['columns']) && is_array($e['columns'])) {
+                    foreach ($e['columns'] as &$col) {
+                        if (($col['name'] ?? '') === 'InstanceID' && isset($col['edit']) && is_array($col['edit'])) {
+                            $col['edit']['options'] = $targetOptions;
+                        }
+                    }
+                    unset($col);
+                }
+
+                continue;
             }
         }
         unset($e);

@@ -1,143 +1,480 @@
 {
-    "elements": [
-        { "type": "Label", "caption": "Warning: Class names and group names must not be identical. Renaming groups may break references in other configuration sections." },
-        { "type": "Label", "caption": "1. CLASS DEFINITIONS (Zones & Logic)" },
-        {
-            "type": "List", "name": "ClassList", "caption": "Classes", "rowCount": 5, "add": true, "delete": true,
-            "columns": [
-                { "caption": "ID", "name": "ClassID", "width": "0px", "add": "", "visible": false },
-                { "caption": "Class Name", "name": "ClassName", "width": "200px", "add": "NewClass", "edit": { "type": "ValidationTextBox" } },
-                { 
-                    "caption": "Label Mode", "name": "LabelMode", "width": "200px", "add": 0, 
-                    "edit": { "type": "Select", "options": [ { "caption": "Sensor Name", "value": 0 }, { "caption": "Parent (Location)", "value": 1 }, { "caption": "Status Text", "value": 2 } ] } 
-                },
-                { "caption": "Logic", "name": "LogicMode", "width": "200px", "add": 0, "edit": { "type": "Select", "options": [ { "caption": "OR (Instant)", "value": 0 }, { "caption": "AND (All)", "value": 1 }, { "caption": "COUNT", "value": 2 } ] } },
-                { "caption": "Threshold", "name": "Threshold", "width": "100px", "add": 1, "edit": { "type": "NumberSpinner", "minimum": 1 } },
-                { "caption": "Window", "name": "TimeWindow", "width": "100px", "add": 10, "edit": { "type": "NumberSpinner", "minimum": 1 } }
-            ]
-        },
-        { "type": "Label", "caption": "2. SENSOR INPUTS (Grouped by Class)" },
-        { "type": "ExpansionPanel", "name": "DynamicSensorContainer", "caption": "Manage sensors within their classes", "items": [] },
-        { "type": "ExpansionPanel", "caption": "Sabotage / Tamper", "items": [
-                { "type": "List", "name": "TamperList", "caption": "Tamper Sensors", "add": true, "delete": true, "columns": [ { "caption": "Variable", "name": "VariableID", "width": "200px", "add": 0, "edit": { "type": "SelectVariable" } }, { "caption": "Invert", "name": "Invert", "width": "100px", "add": false, "edit": { "type": "CheckBox" } } ] }
-            ]
-        },
-
-        { "type": "Label", "caption": "3. GROUP MANAGEMENT (Stateless)" },
-        { "type": "ExpansionPanel", "name": "DynamicGroupContainer", "caption": "Step 3a: Create and Edit Groups", "items": [] },
-        { "type": "ExpansionPanel", "name": "DynamicBedroomContainer", "caption": "Step 3b: Bedroom Behavioral Settings", "items": [] },
-        { "type": "ExpansionPanel", "name": "DynamicGroupMemberContainer", "caption": "Step B: Assign Classes to Groups", "items": [] },
-
-        { "type": "Label", "caption": "4. DISPATCH TARGETS (Module 2 Routing)" },
-{
-    "type": "List",
-    "name": "DispatchTargets",
-    "caption": "Module 2 Instances",
-    "rowCount": 5,
-    "add": true,
-    "delete": true,
-    "onEdit": "IPS_RequestAction($id, 'UpdateDispatchTargets', json_encode($DispatchTargets));",
-    "columns": [
-        { "caption": "Name", "name": "Name", "width": "220px", "add": "New Target", "edit": { "type": "ValidationTextBox" } },
-        { "caption": "Instance", "name": "InstanceID", "width": "220px", "add": 0, "edit": { "type": "SelectInstance" } }
-    ],
-  "values": []
-},
-      {
-  "type": "List",
-  "name": "GroupDispatch",
-  "caption": "Step 3c: Route Groups to Module 2 Targets",
-  "rowCount": 5,
-  "add": true,
-  "delete": true,
-  "onEdit": "IPS_RequestAction($id, 'UpdateGroupDispatch', json_encode($GroupDispatch));",
-  "columns": [
+  "elements": [
     {
-      "caption": "Group",
-      "name": "GroupName",
-      "width": "220px",
-      "add": "",
-      "edit": { "type": "Select", "options": [] }
+      "type": "Label",
+      "caption": "Warning: Class names and group names must not be identical. Renaming groups may break references in other configuration sections."
     },
     {
-      "caption": "Target",
-      "name": "InstanceID",
-      "width": "320px",
-      "add": 0,
-      "edit": { "type": "Select", "options": [] }
+      "type": "Label",
+      "caption": "1. CLASS DEFINITIONS (Zones & Logic)"
+    },
+    {
+      "type": "List",
+      "name": "ClassList",
+      "caption": "Classes",
+      "rowCount": 5,
+      "add": true,
+      "delete": true,
+      "columns": [
+        {
+          "caption": "ID",
+          "name": "ClassID",
+          "width": "0px",
+          "add": "",
+          "visible": false
+        },
+        {
+          "caption": "Class Name",
+          "name": "ClassName",
+          "width": "200px",
+          "add": "NewClass",
+          "edit": {
+            "type": "ValidationTextBox"
+          }
+        },
+        {
+          "caption": "Label Mode",
+          "name": "LabelMode",
+          "width": "200px",
+          "add": 0,
+          "edit": {
+            "type": "Select",
+            "options": [
+              {
+                "caption": "Sensor Name",
+                "value": 0
+              },
+              {
+                "caption": "Parent (Location)",
+                "value": 1
+              },
+              {
+                "caption": "Status Text",
+                "value": 2
+              }
+            ]
+          }
+        },
+        {
+          "caption": "Logic",
+          "name": "LogicMode",
+          "width": "200px",
+          "add": 0,
+          "edit": {
+            "type": "Select",
+            "options": [
+              {
+                "caption": "OR (Instant)",
+                "value": 0
+              },
+              {
+                "caption": "AND (All)",
+                "value": 1
+              },
+              {
+                "caption": "COUNT",
+                "value": 2
+              }
+            ]
+          }
+        },
+        {
+          "caption": "Threshold",
+          "name": "Threshold",
+          "width": "100px",
+          "add": 1,
+          "edit": {
+            "type": "NumberSpinner",
+            "minimum": 1
+          }
+        },
+        {
+          "caption": "Window",
+          "name": "TimeWindow",
+          "width": "100px",
+          "add": 10,
+          "edit": {
+            "type": "NumberSpinner",
+            "minimum": 1
+          }
+        }
+      ]
+    },
+    {
+      "type": "Label",
+      "caption": "2. SENSOR INPUTS (Grouped by Class)"
+    },
+    {
+      "type": "ExpansionPanel",
+      "name": "DynamicSensorContainer",
+      "caption": "Manage sensors within their classes",
+      "items": []
+    },
+    {
+      "type": "ExpansionPanel",
+      "caption": "Sabotage / Tamper",
+      "items": [
+        {
+          "type": "List",
+          "name": "TamperList",
+          "caption": "Tamper Sensors",
+          "add": true,
+          "delete": true,
+          "columns": [
+            {
+              "caption": "Variable",
+              "name": "VariableID",
+              "width": "200px",
+              "add": 0,
+              "edit": {
+                "type": "SelectVariable"
+              }
+            },
+            {
+              "caption": "Invert",
+              "name": "Invert",
+              "width": "100px",
+              "add": false,
+              "edit": {
+                "type": "CheckBox"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "Label",
+      "caption": "3. GROUP MANAGEMENT (Stateless)"
+    },
+    {
+      "type": "ExpansionPanel",
+      "name": "DynamicGroupContainer",
+      "caption": "Step 3a: Create and Edit Groups",
+      "items": []
+    },
+    {
+      "type": "ExpansionPanel",
+      "name": "DynamicBedroomContainer",
+      "caption": "Step 3b: Bedroom Behavioral Settings",
+      "items": []
+    },
+    {
+      "type": "ExpansionPanel",
+      "name": "DynamicGroupMemberContainer",
+      "caption": "Step B: Assign Classes to Groups",
+      "items": []
+    },
+    {
+      "type": "Label",
+      "caption": "4. DISPATCH TARGETS (Module 2 Routing)"
+    },
+    {
+      "type": "List",
+      "name": "DispatchTargets",
+      "caption": "Module 2 Instances",
+      "rowCount": 5,
+      "add": true,
+      "delete": true,
+      "onEdit": "IPS_RequestAction($id, 'UpdateDispatchTargets', json_encode($DispatchTargets));",
+      "columns": [
+        {
+          "caption": "Name",
+          "name": "Name",
+          "width": "220px",
+          "add": "New Target",
+          "edit": {
+            "type": "ValidationTextBox"
+          }
+        },
+        {
+          "caption": "Instance",
+          "name": "InstanceID",
+          "width": "220px",
+          "add": 0,
+          "edit": {
+            "type": "SelectInstance"
+          }
+        }
+      ],
+      "values": []
+    },
+    {
+      "type": "List",
+      "name": "GroupDispatch",
+      "caption": "Step 3c: Route Groups to Module 2 Targets",
+      "rowCount": 5,
+      "add": true,
+      "delete": true,
+      "onEdit": "IPS_RequestAction($id, 'UpdateGroupDispatch', json_encode($GroupDispatch));",
+      "columns": [
+        {
+          "caption": "Group",
+          "name": "GroupName",
+          "width": "220px",
+          "add": "",
+          "edit": {
+            "type": "Select",
+            "options": []
+          }
+        },
+        {
+          "caption": "Target",
+          "name": "InstanceID",
+          "width": "320px",
+          "add": 0,
+          "edit": {
+            "type": "Select",
+            "options": []
+          }
+        }
+      ],
+      "values": []
+    },
+    {
+      "type": "List",
+      "name": "TargetThrottleList",
+      "caption": "Per-Target Message Throttling",
+      "rowCount": 5,
+      "add": true,
+      "delete": true,
+      "columns": [
+        {
+          "caption": "Target",
+          "name": "InstanceID",
+          "width": "320px",
+          "add": 0,
+          "edit": {
+            "type": "Select",
+            "options": [
+              {
+                "caption": "- Select target -",
+                "value": 0
+              }
+            ]
+          }
+        },
+        {
+          "caption": "Max Messages",
+          "name": "MaxMessages",
+          "width": "120px",
+          "add": 5,
+          "edit": {
+            "type": "NumberSpinner",
+            "minimum": 1
+          }
+        },
+        {
+          "caption": "Window Seconds",
+          "name": "WindowSeconds",
+          "width": "120px",
+          "add": 10,
+          "edit": {
+            "type": "NumberSpinner",
+            "minimum": 1
+          }
+        }
+      ],
+      "values": []
+    },
+    {
+      "type": "Select",
+      "name": "BedroomTarget",
+      "caption": "Global Bedroom Target Server",
+      "options": []
+    },
+    {
+      "type": "SelectInstance",
+      "name": "VaultInstanceID",
+      "caption": "Security Vault (Webhook Protection)"
+    },
+    {
+      "type": "CheckBox",
+      "name": "MaintenanceMode",
+      "caption": "Maintenance Mode"
+    },
+    {
+      "type": "CheckBox",
+      "name": "DebugMode",
+      "caption": "Debug Logging"
+    },
+    {
+      "type": "List",
+      "name": "BedroomList",
+      "visible": false,
+      "rowCount": 0,
+      "add": false,
+      "delete": false,
+      "columns": [
+        {
+          "caption": "GroupName",
+          "name": "GroupName",
+          "width": "150px"
+        },
+        {
+          "caption": "ActiveVariableID",
+          "name": "ActiveVariableID",
+          "width": "120px"
+        },
+        {
+          "caption": "BedroomDoorClassID",
+          "name": "BedroomDoorClassID",
+          "width": "150px"
+        }
+      ]
     }
   ],
-  "values": []
-},
-{ "type": "Select", "name": "BedroomTarget", "caption": "Global Bedroom Target Server", "options": [] },
-        { "type": "SelectInstance", "name": "VaultInstanceID", "caption": "Security Vault (Webhook Protection)" },
-        { "type": "CheckBox", "name": "MaintenanceMode", "caption": "Maintenance Mode" },
-        { "type": "CheckBox", "name": "DebugMode", "caption": "Debug Logging" },
-       {
-  "type": "List",
-  "name": "BedroomList",
-  "visible": false,
-  "rowCount": 0,
-  "add": false,
-  "delete": false,
-  "columns": [
-    { "caption": "GroupName", "name": "GroupName", "width": "150px" },
-    { "caption": "ActiveVariableID", "name": "ActiveVariableID", "width": "120px" },
-    { "caption": "BedroomDoorClassID", "name": "BedroomDoorClassID", "width": "150px" }
-  ]
-}
-    ],
-    "actions": [
+  "actions": [
+    {
+      "type": "Button",
+      "caption": "COMMIT ALL CHANGES TO DISK",
+      "onClick": "MYALARM_SaveConfiguration($id);"
+    },
+    {
+      "type": "ExpansionPanel",
+      "caption": "BULK IMPORT WIZARD",
+      "items": [
         {
-            "type": "Button",
-            "caption": "COMMIT ALL CHANGES TO DISK",
-            "onClick": "MYALARM_SaveConfiguration($id);"
+          "type": "Label",
+          "caption": "Scan for sensors and assign them to a Class defined above."
         },
-        { "type": "ExpansionPanel", "caption": "BULK IMPORT WIZARD", "items": [
-                { "type": "Label", "caption": "Scan for sensors and assign them to a Class defined above." },
-                { "type": "SelectObject", "name": "ImportRootID", "caption": "Search Root" },
-                { "type": "Select", "name": "ImportClass", "caption": "Assign to Class", "options": [] },
-                { "type": "Button", "caption": "SCAN", "onClick": "MYALARM_UI_Scan($id, $ImportRootID);" },
-                { "type": "Label", "caption": "Filter Results:" },
-                { 
-                    "type": "RowLayout",
-                    "items": [
-                        { "type": "ValidationTextBox", "name": "WizardFilterText", "caption": "Search Name..." },
-                        { "type": "Button", "caption": "Filter", "onClick": "IPS_RequestAction($id, 'FilterWizard', $WizardFilterText);" }
-                    ]
-                },
-{
-                    "type": "List", "name": "ImportCandidates", "caption": "Found Variables", "visible": false, "rowCount": 8,
-                    "onEdit": "IPS_RequestAction($id, 'UpdateWizardList', json_encode($ImportCandidates));",
-                    "columns":[
-                        { "caption": "ID", "name": "VariableID", "width": "70px", "edit": { "type": "Label" } },
-                        { "caption": "Name", "name": "Name", "width": "200px", "edit": { "type": "Label" } },
-                        { "caption": "Loc (P)", "name": "ParentName", "width": "150px", "edit": { "type": "Label" } },
-                        { "caption": "Area (GP)", "name": "GrandParentName", "width": "150px", "edit": { "type": "Label" } },
-                        { "caption": "Import", "name": "Selected", "width": "60px", "edit": { "type": "CheckBox" } }
-                    ],
-                    "values":[]
-                },
-                {
-                    "type": "RowLayout",
-                    "items": [
-                        { "type": "Button", "caption": "Select All", "onClick": "MYALARM_UI_SelectAll($id);" },
-                        { "type": "Button", "caption": "Select None", "onClick": "MYALARM_UI_SelectNone($id);" },
-                        { "type": "Button", "caption": "ADD SELECTED", "onClick": "MYALARM_UI_Import($id, $ImportClass);" }
-                    ]
-                }
-            ]
+        {
+          "type": "SelectObject",
+          "name": "ImportRootID",
+          "caption": "Search Root"
         },
-        { "type": "ExpansionPanel", "caption": "CONFIGURATION BACKUP / RESTORE", "items": [
-            { "type": "Label", "caption": "1. Click 'LOAD' to generate JSON. 2. Copy/Paste to file. 3. To Restore: Paste JSON and click 'RESTORE'." },
-            { "type": "ValidationTextBox", "name": "BackupData", "caption": "JSON Data" },
+        {
+          "type": "Select",
+          "name": "ImportClass",
+          "caption": "Assign to Class",
+          "options": []
+        },
+        {
+          "type": "Button",
+          "caption": "SCAN",
+          "onClick": "MYALARM_UI_Scan($id, $ImportRootID);"
+        },
+        {
+          "type": "Label",
+          "caption": "Filter Results:"
+        },
+        {
+          "type": "RowLayout",
+          "items": [
             {
-                "type": "RowLayout",
-                "items": [
-                    { "type": "Button", "caption": "LOAD CURRENT CONFIG", "onClick": "MYALARM_UI_LoadBackup($id);" },
-                    { "type": "Button", "caption": "RESTORE FROM JSON", "onClick": "MYALARM_UI_RestoreBackup($id, $BackupData);" }
-                ]
+              "type": "ValidationTextBox",
+              "name": "WizardFilterText",
+              "caption": "Search Name..."
+            },
+            {
+              "type": "Button",
+              "caption": "Filter",
+              "onClick": "IPS_RequestAction($id, 'FilterWizard', $WizardFilterText);"
             }
-        ]}
-    ]
+          ]
+        },
+        {
+          "type": "List",
+          "name": "ImportCandidates",
+          "caption": "Found Variables",
+          "visible": false,
+          "rowCount": 8,
+          "onEdit": "IPS_RequestAction($id, 'UpdateWizardList', json_encode($ImportCandidates));",
+          "columns": [
+            {
+              "caption": "ID",
+              "name": "VariableID",
+              "width": "70px",
+              "edit": {
+                "type": "Label"
+              }
+            },
+            {
+              "caption": "Name",
+              "name": "Name",
+              "width": "200px",
+              "edit": {
+                "type": "Label"
+              }
+            },
+            {
+              "caption": "Loc (P)",
+              "name": "ParentName",
+              "width": "150px",
+              "edit": {
+                "type": "Label"
+              }
+            },
+            {
+              "caption": "Area (GP)",
+              "name": "GrandParentName",
+              "width": "150px",
+              "edit": {
+                "type": "Label"
+              }
+            },
+            {
+              "caption": "Import",
+              "name": "Selected",
+              "width": "60px",
+              "edit": {
+                "type": "CheckBox"
+              }
+            }
+          ],
+          "values": []
+        },
+        {
+          "type": "RowLayout",
+          "items": [
+            {
+              "type": "Button",
+              "caption": "Select All",
+              "onClick": "MYALARM_UI_SelectAll($id);"
+            },
+            {
+              "type": "Button",
+              "caption": "Select None",
+              "onClick": "MYALARM_UI_SelectNone($id);"
+            },
+            {
+              "type": "Button",
+              "caption": "ADD SELECTED",
+              "onClick": "MYALARM_UI_Import($id, $ImportClass);"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "ExpansionPanel",
+      "caption": "CONFIGURATION BACKUP / RESTORE",
+      "items": [
+        {
+          "type": "Label",
+          "caption": "1. Click 'LOAD' to generate JSON. 2. Copy/Paste to file. 3. To Restore: Paste JSON and click 'RESTORE'."
+        },
+        {
+          "type": "ValidationTextBox",
+          "name": "BackupData",
+          "caption": "JSON Data"
+        },
+        {
+          "type": "RowLayout",
+          "items": [
+            {
+              "type": "Button",
+              "caption": "LOAD CURRENT CONFIG",
+              "onClick": "MYALARM_UI_LoadBackup($id);"
+            },
+            {
+              "type": "Button",
+              "caption": "RESTORE FROM JSON",
+              "onClick": "MYALARM_UI_RestoreBackup($id, $BackupData);"
+            }
+          ]
+        }
+      ]
+    }
+  ]
 }
