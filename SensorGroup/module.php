@@ -2408,6 +2408,11 @@ class SensorGroup extends IPSModule
         }
 
         $showBedrooms = isset($_GET['showBedrooms']) ? ((string)$_GET['showBedrooms'] === '1') : true;
+
+        $stateFilter = isset($_GET['stateFilter']) ? strtolower((string)$_GET['stateFilter']) : 'both';
+        if (!in_array($stateFilter, ['both', 'active', 'passive'], true)) {
+            $stateFilter = 'both';
+        }
         // --- OPTIONAL TARGET FILTER (API ONLY) ---
         if (isset($_GET['api']) && isset($_GET['targetFilter'])) {
             $filterStr = (string)$_GET['targetFilter'];
@@ -2485,11 +2490,41 @@ class SensorGroup extends IPSModule
         // PULL LIVE STATE FROM THE RULE ENGINE
         $engineActiveClasses = json_decode($this->ReadAttributeString('ActiveClassesBuffer'), true) ?: [];
         $engineActiveSensors = json_decode($this->ReadAttributeString('ActiveSensorsBuffer'), true) ?: [];
+        $showByState = function (bool $isActive) use ($stateFilter): bool {
+            if ($stateFilter === 'active') {
+                return $isActive;
+            }
+            if ($stateFilter === 'passive') {
+                return !$isActive;
+            }
+            return true;
+        };
 
+        $targetHasActiveGroup = [];
+        foreach ($groupDispatch as $d) {
+            $gName = (string)($d['GroupName'] ?? '');
+            $iid   = (int)($d['InstanceID'] ?? 0);
+            if ($gName === '' || $iid <= 0) {
+                continue;
+            }
+
+            $ident = "Status_" . $this->SanitizeIdent($gName);
+            $isGroupActive = (@$this->GetIDForIdent($ident) && GetValue($this->GetIDForIdent($ident)));
+            if ($isGroupActive) {
+                $targetHasActiveGroup[$iid] = true;
+            }
+        }
         // A. Dispatch Targets
         foreach ($conf['DispatchTargets'] as $t) {
-            $tid = "T_" . $t['InstanceID'];
-            $label = $t['Name'] . "<br/>[" . $t['InstanceID'] . "]";
+            $iid = (int)($t['InstanceID'] ?? 0);
+            $isTargetActive = isset($targetHasActiveGroup[$iid]);
+
+            if (!$showByState($isTargetActive)) {
+                continue;
+            }
+
+            $tid = "T_" . $iid;
+            $label = $t['Name'] . "<br/>[" . $iid . "]";
             $graph .= $tid . "[\"" . $label . "\"]:::target\n";
         }
 
@@ -2506,7 +2541,7 @@ class SensorGroup extends IPSModule
             $ident = "Status_" . $this->SanitizeIdent($gName);
             $isActive = (@$this->GetIDForIdent($ident) && GetValue($this->GetIDForIdent($ident)));
             $style = $isActive ? "red" : "green";
-
+            if (!$showByState($isActive)) continue;
             $gLogic = ((int)($g['GroupLogic'] ?? 0) == 1) ? "AND" : "OR";
             $label = "$gName<br/>[$gLogic]";
 
@@ -2515,17 +2550,30 @@ class SensorGroup extends IPSModule
 
         // B2. Draw Group -> Target Connections
         foreach ($groupDispatch as $d) {
-            $gName = $d['GroupName'];
-            $tid = "T_" . $d['InstanceID'];
-            $gid = "G_" . md5($gName);
-
-            $graph .= $gid . " --> " . $tid . "\n";
+            $gName = (string)($d['GroupName'] ?? '');
+            $iid   = (int)($d['InstanceID'] ?? 0);
 
             $ident = "Status_" . $this->SanitizeIdent($gName);
             $isActive = (@$this->GetIDForIdent($ident) && GetValue($this->GetIDForIdent($ident)));
 
+            if (!$showByState($isActive)) {
+                continue;
+            }
+
+            $isTargetActive = isset($targetHasActiveGroup[$iid]);
+            if (!$showByState($isTargetActive)) {
+                continue;
+            }
+
+            $tid = "T_" . $iid;
+            $gid = "G_" . md5($gName);
+
+            $graph .= $gid . " --> " . $tid . "\n";
+
             $linkIdx = $this->linkCounter++;
-            if ($isActive) $graph .= "linkStyle $linkIdx stroke:#ff8a80,stroke-width:2px;\n";
+            if ($isActive) {
+                $graph .= "linkStyle $linkIdx stroke:#ff8a80,stroke-width:2px;\n";
+            }
         }
 
         // E. Draw Bedroom Active Switches
@@ -2539,7 +2587,7 @@ class SensorGroup extends IPSModule
                 $val = ($vid > 0 && IPS_VariableExists($vid)) ? GetValue($vid) : false;
                 $style = $val ? "red" : "green";
                 $name = ($vid > 0 && IPS_VariableExists($vid)) ? IPS_GetName($vid) : "MISSING";
-
+                if (!$showByState((bool)$val)) continue;
                 $label = "$name ($vid)<br/>[Bedroom Switch]";
                 $graph .= $sid . "[\"" . $label . "\"]:::" . $style . " --> " . $gid . "\n";
 
@@ -2565,13 +2613,24 @@ class SensorGroup extends IPSModule
                     $gName = $b['GroupName'];
                     $gid = "G_" . md5($gName);
 
-                    $graph .= $gid . " --> " . $tid . "\n";
-
                     $ident = "Status_" . $this->SanitizeIdent($gName);
                     $isActive = (@$this->GetIDForIdent($ident) && GetValue($this->GetIDForIdent($ident)));
 
+                    if (!$showByState($isActive)) {
+                        continue;
+                    }
+
+                    $isTargetActive = isset($targetHasActiveGroup[$bedTargetID]);
+                    if (!$showByState($isTargetActive)) {
+                        continue;
+                    }
+
+                    $graph .= $gid . " --> " . $tid . "\n";
+
                     $linkIdx = $this->linkCounter++;
-                    if ($isActive) $graph .= "linkStyle $linkIdx stroke:#ff8a80,stroke-width:2px;\n";
+                    if ($isActive) {
+                        $graph .= "linkStyle $linkIdx stroke:#ff8a80,stroke-width:2px;\n";
+                    }
                 }
             }
         }
@@ -2601,7 +2660,7 @@ class SensorGroup extends IPSModule
 
                 $isClassActive = in_array($cID, $engineActiveClasses);
                 $cStyle = $isClassActive ? "red" : "grey";
-
+                if (!$showByState($isClassActive)) continue;
                 $graph .= $cidNode . "[\"" . $cLabel . "\"]:::" . $cStyle . " --> " . $gid . "\n";
 
                 $linkIdx = $this->linkCounter++;
@@ -2619,7 +2678,7 @@ class SensorGroup extends IPSModule
 
                 $isActive = in_array($vid, $engineActiveSensors);
                 $style = $isActive ? "red" : "green";
-
+                if (!$showByState($isActive)) continue;
                 $opMap = ['=', '!=', '>', '<', '>=', '<='];
                 $rule = $opMap[$s['Operator']] . " " . $s['ComparisonValue'];
                 $name = IPS_VariableExists($vid) ? IPS_GetName($vid) : "MISSING";
@@ -2698,15 +2757,19 @@ class SensorGroup extends IPSModule
                             if (boxes.length === 0) return "NONE";
                             return Array.from(boxes).map(b => b.value).join(",");
                             };
-window.getDepthFilter = function () {
-    const el = document.getElementById("depth-filter");
-    return el ? el.value : "sensors";
-};
+                            window.getDepthFilter = function () {
+                                const el = document.getElementById("depth-filter");
+                                return el ? el.value : "sensors";
+                            };
 
-window.getBedroomFilter = function () {
-    const el = document.getElementById("bedroom-filter");
-    return (el && el.checked) ? "1" : "0";
-};
+                            window.getBedroomFilter = function () {
+                                const el = document.getElementById("bedroom-filter");
+                                return (el && el.checked) ? "1" : "0";
+                            };
+                            window.getStateFilter = function () {
+                                const el = document.getElementById("state-filter");
+                                return el ? el.value : "both";
+                            };
                             window.forceRefresh = function () {
                             lastGraphString = "";
                             fetchAndUpdateGraph();
@@ -2722,11 +2785,12 @@ window.getBedroomFilter = function () {
 
                                 try{
                                     // IMPORTANT: keep this on the same hook URL; only add query params
-                                   const url = location.pathname
-    + "?api=1&t=" + Date.now()
-    + "&targetFilter=" + encodeURIComponent(window.getFilterString())
-    + "&depth=" + encodeURIComponent(window.getDepthFilter())
-    + "&showBedrooms=" + encodeURIComponent(window.getBedroomFilter());
+                                    const url = location.pathname
+                                    + "?api=1&t=" + Date.now()
+                                    + "&targetFilter=" + encodeURIComponent(window.getFilterString())
+                                    + "&depth=" + encodeURIComponent(window.getDepthFilter())
+                                    + "&showBedrooms=" + encodeURIComponent(window.getBedroomFilter())
+                                    + "&stateFilter=" + encodeURIComponent(window.getStateFilter());
                                     const response = await fetch(url);
                                     const graphString = await response.text();
 
@@ -2814,19 +2878,27 @@ window.getBedroomFilter = function () {
                                 <small>Instance ID: ' . $this->InstanceID . '</small>
                             <br>
                             <div class="filter-bar">
-<a href="#" onclick="setAllTargets(true); return false;" style="color:#9ecbff; margin-right:12px;">All</a>
-<a href="#" onclick="setAllTargets(false); return false;" style="color:#9ecbff; margin-right:18px;">None</a>
-' . $checkboxesHTML . '
-<span style="margin-left:18px;">Depth:</span>
-<select id="depth-filter" onchange="forceRefresh()" style="margin-left:8px;">
-    <option value="groups">Groups</option>
-    <option value="classes">Classes</option>
-    <option value="sensors" selected>Sensors</option>
-</select>
-<label style="margin-left:18px; cursor:pointer;">
-    <input type="checkbox" id="bedroom-filter" checked onchange="forceRefresh()"> Bedrooms
-</label>
-</div>
+                            <a href="#" onclick="setAllTargets(true); return false;" style="color:#9ecbff; margin-right:12px;">All</a>
+                            <a href="#" onclick="setAllTargets(false); return false;" style="color:#9ecbff; margin-right:18px;">None</a>
+                            ' . $checkboxesHTML . '
+                            <span style="margin-left:18px;">Depth:</span>
+                            <select id="depth-filter" onchange="forceRefresh()" style="margin-left:8px;">
+                                <option value="groups">Groups</option>
+                                <option value="classes">Classes</option>
+                                <option value="sensors" selected>Sensors</option>
+                            </select>
+
+                            <span style="margin-left:18px;">State:</span>
+                            <select id="state-filter" onchange="forceRefresh()" style="margin-left:8px;">
+                                <option value="both" selected>Both</option>
+                                <option value="active">Only Active</option>
+                                <option value="passive">Only Passive</option>
+                            </select>
+
+                            <label style="margin-left:18px; cursor:pointer;">
+                                <input type="checkbox" id="bedroom-filter" checked onchange="forceRefresh()"> Bedrooms
+                            </label>
+                            </div>
                             </div>
                             <div class="container">
                                 <div id="mermaid-container">Initializing Live View...</div>
