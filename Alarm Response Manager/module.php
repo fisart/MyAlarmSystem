@@ -1172,6 +1172,17 @@ class AlarmResponseManager extends IPSModule
         return $result;
     }
 
+    private function GetGraphStateFilter(): string
+    {
+        $stateFilter = strtolower(trim((string) ($_GET['stateFilter'] ?? 'both')));
+
+        if (!in_array($stateFilter, ['both', 'active', 'passive'], true)) {
+            $stateFilter = 'both';
+        }
+
+        return $stateFilter;
+    }
+
     protected function ProcessHookData()
     {
         // 1. Authentication (Secrets / Vault)
