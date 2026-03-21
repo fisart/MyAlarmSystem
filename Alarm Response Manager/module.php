@@ -1217,41 +1217,41 @@ class AlarmResponseManager extends IPSModule
         if (isset($_GET['screen'])) {
             header('Content-Type: text/html; charset=utf-8');
             echo '<!DOCTYPE html>
-        <html>
-        <head>
-        <meta charset="utf-8">
-        <title>Module 3 Output Screen</title>
-        <style>
-        body{
-            background-color:#1e1e1e;color:#cfcfcf;font-family:"Segoe UI",sans-serif;
-            margin:0;padding:20px;box-sizing:border-box;
-        }
-        .header{margin-bottom:16px;border-bottom:1px solid #333;padding-bottom:10px;}
-        .header h2{margin:0;color:#4CAF50;}
-        #screen-container{margin-top:16px;}
-        </style>
-        <script>
-        async function refreshScreen() {
-            try {
-                const response = await fetch("?screen_api=1&t=" + Date.now(), { credentials: "same-origin" });
-                const html = await response.text();
-                document.getElementById("screen-container").innerHTML = html;
-            } catch (err) {
-                console.error("Screen refresh failed", err);
-            }
-        }
-        refreshScreen();
-        setInterval(refreshScreen, 2000);
-        </script>
-        </head>
-        <body>
-        <div class="header">
-            <h2>' . htmlspecialchars($this->GetModule1TargetDisplayName(), ENT_QUOTES, 'UTF-8') . ' (Output Screen)</h2>
-            <small>Instance ID: ' . $this->InstanceID . '</small>
-        </div>
-        <div id="screen-container">' . $this->GetOutputScreenHtml() . '</div>
-        </body>
-        </html>';
+<html>
+<head>
+<meta charset="utf-8">
+<title>Module 3 Output Screen</title>
+<style>
+body{
+    background-color:#1e1e1e;color:#cfcfcf;font-family:"Segoe UI",sans-serif;
+    margin:0;padding:20px;box-sizing:border-box;
+}
+.header{margin-bottom:16px;border-bottom:1px solid #333;padding-bottom:10px;}
+.header h2{margin:0;color:#4CAF50;}
+#screen-container{margin-top:16px;}
+</style>
+<script>
+async function refreshScreen() {
+    try {
+        const response = await fetch("?screen_api=1&t=" + Date.now(), { credentials: "same-origin" });
+        const html = await response.text();
+        document.getElementById("screen-container").innerHTML = html;
+    } catch (err) {
+        console.error("Screen refresh failed", err);
+    }
+}
+refreshScreen();
+setInterval(refreshScreen, 2000);
+</script>
+</head>
+<body>
+<div class="header">
+    <h2>' . htmlspecialchars($this->GetModule1TargetDisplayName(), ENT_QUOTES, 'UTF-8') . ' (Output Screen)</h2>
+    <small>Instance ID: ' . $this->InstanceID . '</small>
+</div>
+<div id="screen-container">' . $this->GetOutputScreenHtml() . '</div>
+</body>
+</html>';
             return;
         }
 
@@ -1268,201 +1268,224 @@ class AlarmResponseManager extends IPSModule
         $filterBarHtml = $this->BuildGroupFilterBarHtml($groups);
 
         echo '<!DOCTYPE html>
-        <html>
-        <head>
-        <meta charset="utf-8">
-        <title>Module 3 Mapping</title>
-        <style>
-        body{
-            background-color:#1e1e1e;color:#cfcfcf;font-family:"Segoe UI",sans-serif;
-            margin:0;padding:20px;height:100vh;box-sizing:border-box;
-            overflow:hidden;display:flex;flex-direction:column;
-        }
-        .header{flex-shrink:0;text-align:center;margin-bottom:12px;border-bottom:1px solid #333;padding-bottom:10px;}
-        .header h2{margin:0;color:#4CAF50;}
-        .container{
-            flex-grow:1;background:#252526;border-radius:8px;width:100%;
-            border:1px solid #444;overflow:hidden;position:relative;
-        }
-        #mermaid-container { position:absolute; inset:0; overflow:hidden; }
-        #mermaid-container svg { width:100% !important; height:100% !important; max-width:none !important; display:block; }
-        </style>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Module 3 Mapping</title>
+<style>
+body{
+    background-color:#1e1e1e;color:#cfcfcf;font-family:"Segoe UI",sans-serif;
+    margin:0;padding:20px;height:100vh;box-sizing:border-box;
+    overflow:hidden;display:flex;flex-direction:column;
+}
+.header{flex-shrink:0;text-align:center;margin-bottom:12px;border-bottom:1px solid #333;padding-bottom:10px;}
+.header h2{margin:0;color:#4CAF50;}
+.container{
+    flex-grow:1;background:#252526;border-radius:8px;width:100%;
+    border:1px solid #444;overflow:hidden;position:relative;
+}
+#mermaid-container { position:absolute; inset:0; overflow:hidden; }
+#mermaid-container svg { width:100% !important; height:100% !important; max-width:none !important; display:block; }
+</style>
 
-        <script src="https://unpkg.com/svg-pan-zoom@3.6.1/dist/svg-pan-zoom.min.js"></script>
+<script src="https://unpkg.com/svg-pan-zoom@3.6.1/dist/svg-pan-zoom.min.js"></script>
 
-        <script type="module">
-        import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs";
+<script type="module">
+import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs";
 
-        mermaid.initialize({
-            startOnLoad:false,
-            theme:"dark",
-            flowchart:{ curve:"basis", nodeSpacing:60, rankSpacing:120 }
-        });
+mermaid.initialize({
+    startOnLoad:false,
+    theme:"dark",
+    flowchart:{ curve:"basis", nodeSpacing:60, rankSpacing:120 }
+});
 
-        let isRendering = false;
-        let lastGraphString = "";
-        let pzInstance = null;
+let isRendering = false;
+let lastGraphString = "";
+let pzInstance = null;
 
-        async function saveGroupFilter() {
-            const selected = Array.from(document.querySelectorAll(".group-toggle:checked")).map(cb => cb.value);
+async function saveGroupFilter() {
+    const selected = Array.from(document.querySelectorAll(".group-toggle:checked")).map(cb => cb.value);
 
-            await fetch("?filter_api=1&t=" + Date.now(), {
-                method: "POST",
-                credentials: "same-origin",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ visible_groups: selected })
-            });
-        }
+    await fetch("?filter_api=1&t=" + Date.now(), {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ visible_groups: selected })
+    });
+}
 
-        function getDepthFilter() {
-            const el = document.getElementById("depth-filter");
-            return el ? el.value : "full";
-        }
+function getDepthFilter() {
+    const el = document.getElementById("depth-filter");
+    return el ? el.value : "full";
+}
 
-        function getShowConditionsFilter() {
-            const el = document.getElementById("show-conditions");
-            return el && el.checked ? "1" : "0";
-        }
+function getShowConditionsFilter() {
+    const el = document.getElementById("show-conditions");
+    return el && el.checked ? "1" : "0";
+}
 
-        async function fetchAndUpdateGraph() {
-            if (isRendering) return;
+function getStateFilter() {
+    const el = document.getElementById("state-filter");
+    return el ? el.value : "both";
+}
 
-            try {
-                const response = await fetch(
-                    "?api=1&t=" + Date.now()
-                    + "&depth=" + encodeURIComponent(getDepthFilter())
-                    + "&showConditions=" + encodeURIComponent(getShowConditionsFilter()),
-                    { credentials: "same-origin" }
-                );
-                const graphString = await response.text();
+async function fetchAndUpdateGraph() {
+    if (isRendering) return;
 
-                if (!graphString.trim().startsWith("graph ")) return;
+    try {
+        const response = await fetch(
+            "?api=1&t=" + Date.now()
+            + "&depth=" + encodeURIComponent(getDepthFilter())
+            + "&showConditions=" + encodeURIComponent(getShowConditionsFilter())
+            + "&stateFilter=" + encodeURIComponent(getStateFilter()),
+            { credentials: "same-origin" }
+        );
+        const graphString = await response.text();
 
-                if (graphString !== lastGraphString) {
-                    isRendering = true;
+        if (!graphString.trim().startsWith("graph ")) return;
 
-                    const container = document.getElementById("mermaid-container");
-                    const pzContainer = document.querySelector(".container");
-                    const oldZoom = pzInstance ? pzInstance.getZoom() : null;
-                    const oldPan  = pzInstance ? pzInstance.getPan()  : null;
+        if (graphString !== lastGraphString) {
+            isRendering = true;
 
-                    if (pzInstance) pzInstance.destroy();
+            const container = document.getElementById("mermaid-container");
+            const pzContainer = document.querySelector(".container");
+            const oldZoom = pzInstance ? pzInstance.getZoom() : null;
+            const oldPan  = pzInstance ? pzInstance.getPan()  : null;
 
-                    const renderId = "graph_" + Date.now();
-                    const { svg } = await mermaid.render(renderId, graphString);
-                    container.innerHTML = svg;
+            if (pzInstance) pzInstance.destroy();
 
-                    const svgEl = container.querySelector("svg");
-                    if (!svgEl) {
-                        throw new Error("Mermaid render returned no SVG");
-                    }
+            const renderId = "graph_" + Date.now();
+            const { svg } = await mermaid.render(renderId, graphString);
+            container.innerHTML = svg;
 
-                    svgEl.removeAttribute("width");
-                    svgEl.removeAttribute("height");
-                    svgEl.style.width = "100%";
-                    svgEl.style.height = "100%";
-                    svgEl.style.maxWidth = "none";
-
-                    pzInstance = svgPanZoom(svgEl, {
-                        zoomEnabled: true,
-                        controlIconsEnabled: true,
-                        fit: (oldZoom === null),
-                        center: (oldPan === null),
-                        minZoom: 0.2,
-                        maxZoom: 10,
-                        eventsListenerElement: pzContainer
-                    });
-
-                    if (oldZoom !== null) {
-                        pzInstance.zoom(oldZoom);
-                        pzInstance.pan(oldPan);
-                    }
-
-                    lastGraphString = graphString;
-                }
-            } catch (err) {
-                console.error("Rendering failed", err);
-            } finally {
-                isRendering = false;
+            const svgEl = container.querySelector("svg");
+            if (!svgEl) {
+                throw new Error("Mermaid render returned no SVG");
             }
-        }
 
-        async function applyFilterAndRefresh() {
-            await saveGroupFilter();
+            svgEl.removeAttribute("width");
+            svgEl.removeAttribute("height");
+            svgEl.style.width = "100%";
+            svgEl.style.height = "100%";
+            svgEl.style.maxWidth = "none";
+
+            pzInstance = svgPanZoom(svgEl, {
+                zoomEnabled: true,
+                controlIconsEnabled: true,
+                fit: (oldZoom === null),
+                center: (oldPan === null),
+                minZoom: 0.2,
+                maxZoom: 10,
+                eventsListenerElement: pzContainer
+            });
+
+            if (oldZoom !== null) {
+                pzInstance.zoom(oldZoom);
+                pzInstance.pan(oldPan);
+            }
+
+            lastGraphString = graphString;
+        }
+    } catch (err) {
+        console.error("Rendering failed", err);
+    } finally {
+        isRendering = false;
+    }
+}
+
+async function applyFilterAndRefresh() {
+    await saveGroupFilter();
+    lastGraphString = "";
+    await fetchAndUpdateGraph();
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+    document.querySelectorAll(".group-toggle").forEach(cb => {
+        cb.addEventListener("change", applyFilterAndRefresh);
+    });
+
+    const allLink = document.getElementById("show-all-groups");
+    if (allLink) {
+        allLink.addEventListener("click", async (ev) => {
+            ev.preventDefault();
+            document.querySelectorAll(".group-toggle").forEach(cb => cb.checked = true);
+            await applyFilterAndRefresh();
+        });
+    }
+
+    const noneLink = document.getElementById("show-no-groups");
+    if (noneLink) {
+        noneLink.addEventListener("click", async (ev) => {
+            ev.preventDefault();
+            document.querySelectorAll(".group-toggle").forEach(cb => cb.checked = false);
+            await applyFilterAndRefresh();
+        });
+    }
+
+    const depthFilter = document.getElementById("depth-filter");
+    if (depthFilter) {
+        depthFilter.addEventListener("change", async () => {
             lastGraphString = "";
             await fetchAndUpdateGraph();
-        }
-
-        document.addEventListener("DOMContentLoaded", () => {
-            document.querySelectorAll(".group-toggle").forEach(cb => {
-                cb.addEventListener("change", applyFilterAndRefresh);
-            });
-
-            const allLink = document.getElementById("show-all-groups");
-            if (allLink) {
-                allLink.addEventListener("click", async (ev) => {
-                    ev.preventDefault();
-                    document.querySelectorAll(".group-toggle").forEach(cb => cb.checked = true);
-                    await applyFilterAndRefresh();
-                });
-            }
-
-            const noneLink = document.getElementById("show-no-groups");
-            if (noneLink) {
-                noneLink.addEventListener("click", async (ev) => {
-                    ev.preventDefault();
-                    document.querySelectorAll(".group-toggle").forEach(cb => cb.checked = false);
-                    await applyFilterAndRefresh();
-                });
-            }
-
-            const depthFilter = document.getElementById("depth-filter");
-            if (depthFilter) {
-                depthFilter.addEventListener("change", async () => {
-                    lastGraphString = "";
-                    await fetchAndUpdateGraph();
-                });
-            }
-
-            const showConditions = document.getElementById("show-conditions");
-            if (showConditions) {
-                showConditions.addEventListener("change", async () => {
-                    lastGraphString = "";
-                    await fetchAndUpdateGraph();
-                });
-            }
-
-            fetchAndUpdateGraph();
-            setInterval(fetchAndUpdateGraph, 2000);
         });
-        </script>
-        </head>
+    }
 
-        <body>
-        <div class="header">
-            <h2>' . htmlspecialchars($this->GetModule1TargetDisplayName(), ENT_QUOTES, 'UTF-8') . ' (Live)</h2>
-            <small>Instance ID: ' . $this->InstanceID . '</small>
-        </div>
-        ' . $filterBarHtml . '
-        <div style="margin-bottom:12px;padding:10px 12px;border:1px solid #333;border-radius:8px;background:#252526;display:flex;gap:18px;align-items:center;flex-wrap:wrap;">
-            <label style="white-space:nowrap;">
-                Depth:
-                <select id="depth-filter" style="margin-left:8px;">
-                    <option value="groups">Groups</option>
-                    <option value="outputs">Outputs</option>
-                    <option value="full" selected>Full</option>
-                </select>
-            </label>
+    const showConditions = document.getElementById("show-conditions");
+    if (showConditions) {
+        showConditions.addEventListener("change", async () => {
+            lastGraphString = "";
+            await fetchAndUpdateGraph();
+        });
+    }
 
-            <label style="white-space:nowrap;">
-                <input type="checkbox" id="show-conditions" checked> Show conditions
-            </label>
-        </div>
-        <div class="container">
-            <div id="mermaid-container">Initializing Live View...</div>
-        </div>
-        </body>
-        </html>';
+    const stateFilter = document.getElementById("state-filter");
+    if (stateFilter) {
+        stateFilter.addEventListener("change", async () => {
+            lastGraphString = "";
+            await fetchAndUpdateGraph();
+        });
+    }
+
+    fetchAndUpdateGraph();
+    setInterval(fetchAndUpdateGraph, 2000);
+});
+</script>
+</head>
+
+<body>
+<div class="header">
+    <h2>' . htmlspecialchars($this->GetModule1TargetDisplayName(), ENT_QUOTES, 'UTF-8') . ' (Live)</h2>
+    <small>Instance ID: ' . $this->InstanceID . '</small>
+</div>
+' . $filterBarHtml . '
+<div style="margin-bottom:12px;padding:10px 12px;border:1px solid #333;border-radius:8px;background:#252526;display:flex;gap:18px;align-items:center;flex-wrap:wrap;">
+    <label style="white-space:nowrap;">
+        Depth:
+        <select id="depth-filter" style="margin-left:8px;">
+            <option value="groups">Groups</option>
+            <option value="outputs">Outputs</option>
+            <option value="full" selected>Full</option>
+        </select>
+    </label>
+
+    <label style="white-space:nowrap;">
+        State:
+        <select id="state-filter" style="margin-left:8px;">
+            <option value="both" selected>Both</option>
+            <option value="active">Only Active</option>
+            <option value="passive">Only Passive</option>
+        </select>
+    </label>
+
+    <label style="white-space:nowrap;">
+        <input type="checkbox" id="show-conditions" checked> Show conditions
+    </label>
+</div>
+<div class="container">
+    <div id="mermaid-container">Initializing Live View...</div>
+</div>
+</body>
+</html>';
     }
 
     private function GetOutputScreenHtml(): string
@@ -3076,6 +3099,18 @@ class AlarmResponseManager extends IPSModule
     {
         $depth = $this->GetGraphDepth();
         $showConditions = $this->GetShowConditions();
+        $stateFilter = $this->GetGraphStateFilter();
+
+        $matchesStateFilter = static function (bool $isActive) use ($stateFilter): bool {
+            if ($stateFilter === 'active') {
+                return $isActive;
+            }
+            if ($stateFilter === 'passive') {
+                return !$isActive;
+            }
+            return true;
+        };
+
         $allGroups = $this->ExtractImportedGroupsFromConfig();
         $visibleGroupKeys = array_fill_keys($this->GetVisibleGraphGroupKeys($allGroups), true);
 
@@ -3091,19 +3126,6 @@ class AlarmResponseManager extends IPSModule
         $rules = array_values(array_filter($rules, function (array $rule) use ($visibleGroupKeys): bool {
             $groupKey = trim((string) ($rule['GroupKey'] ?? ''));
             return $groupKey !== '' && isset($visibleGroupKeys[$groupKey]);
-        }));
-
-        $visibleRuleIDs = [];
-        foreach ($rules as $rule) {
-            $ruleID = trim((string) ($rule['RuleID'] ?? ''));
-            if ($ruleID !== '') {
-                $visibleRuleIDs[$ruleID] = true;
-            }
-        }
-
-        $assignments = array_values(array_filter($assignments, function (array $assignment) use ($visibleRuleIDs): bool {
-            $ruleID = trim((string) ($assignment['RuleID'] ?? ''));
-            return $ruleID !== '' && isset($visibleRuleIDs[$ruleID]);
         }));
 
         usort($groups, static function (array $a, array $b): int {
@@ -3129,14 +3151,6 @@ class AlarmResponseManager extends IPSModule
         $groupLabels = $this->buildGroupLabels($allGroups, $rules);
         $typeLabels = $this->buildTypeLabels($this->GetBuiltInOutputTypes(), $outputs);
 
-        $outputsByID = [];
-        foreach ($outputs as $row) {
-            $outputID = trim((string) ($row['OutputID'] ?? ''));
-            if ($outputID !== '') {
-                $outputsByID[$outputID] = $row;
-            }
-        }
-
         $activeGroups = [];
         $lastActiveGroups = json_decode($this->ReadAttributeString('LastActiveGroups'), true);
         if (is_array($lastActiveGroups)) {
@@ -3152,33 +3166,92 @@ class AlarmResponseManager extends IPSModule
             }
         }
 
+        $visibleRules = [];
         $activeRuleIDs = [];
         $lastActiveRuleIDs = json_decode($this->ReadAttributeString('LastActiveRuleIDs'), true);
         if (is_array($lastActiveRuleIDs)) {
             foreach ($lastActiveRuleIDs as $ruleIDRaw) {
                 $ruleID = trim((string) $ruleIDRaw);
-                if ($ruleID !== '' && isset($visibleRuleIDs[$ruleID])) {
+                if ($ruleID !== '') {
                     $activeRuleIDs[$ruleID] = true;
                 }
             }
         }
 
-        $visibleOutputIDs = [];
-        foreach ($assignments as $assignment) {
-            $outputID = trim((string) ($assignment['OutputID'] ?? ''));
-            if ($outputID !== '') {
-                $visibleOutputIDs[$outputID] = true;
-            }
-        }
-
+        $visibleOutputs = [];
         $activeOutputIDs = [];
         $lastActiveOutputIDs = json_decode($this->ReadAttributeString('LastActiveOutputIDs'), true);
         if (is_array($lastActiveOutputIDs)) {
             foreach ($lastActiveOutputIDs as $outputIDRaw) {
                 $outputID = trim((string) $outputIDRaw);
-                if ($outputID !== '' && isset($visibleOutputIDs[$outputID])) {
+                if ($outputID !== '') {
                     $activeOutputIDs[$outputID] = true;
                 }
+            }
+        }
+
+        $groupVisibleMap = [];
+        foreach ($groups as $group) {
+            $groupKey = trim((string) ($group['GroupKey'] ?? ''));
+            if ($groupKey === '') {
+                continue;
+            }
+            $isActive = isset($activeGroups[$groupKey]);
+            if ($matchesStateFilter($isActive)) {
+                $groupVisibleMap[$groupKey] = true;
+            }
+        }
+
+        $ruleVisibleMap = [];
+        foreach ($rules as $rule) {
+            $ruleID = trim((string) ($rule['RuleID'] ?? ''));
+            $groupKey = trim((string) ($rule['GroupKey'] ?? ''));
+            if ($ruleID === '' || $groupKey === '') {
+                continue;
+            }
+            if (!isset($groupVisibleMap[$groupKey])) {
+                continue;
+            }
+            $isActive = isset($activeRuleIDs[$ruleID]);
+            if ($matchesStateFilter($isActive)) {
+                $ruleVisibleMap[$ruleID] = true;
+                $visibleRules[] = $rule;
+            }
+        }
+
+        $outputsByID = [];
+        foreach ($outputs as $row) {
+            $outputID = trim((string) ($row['OutputID'] ?? ''));
+            if ($outputID !== '') {
+                $outputsByID[$outputID] = $row;
+            }
+        }
+
+        $visibleAssignments = [];
+        $assignmentVisibleMap = [];
+        foreach ($assignments as $assignment) {
+            $assignmentID = trim((string) ($assignment['AssignmentID'] ?? ''));
+            $ruleID = trim((string) ($assignment['RuleID'] ?? ''));
+            $outputID = trim((string) ($assignment['OutputID'] ?? ''));
+
+            if ($assignmentID === '' || $ruleID === '' || $outputID === '') {
+                continue;
+            }
+            if (!isset($ruleVisibleMap[$ruleID])) {
+                continue;
+            }
+
+            $assignmentActive = isset($activeRuleIDs[$ruleID]) && isset($activeOutputIDs[$outputID]);
+            if ($matchesStateFilter($assignmentActive)) {
+                $assignmentVisibleMap[$assignmentID] = true;
+                $visibleAssignments[] = $assignment;
+            }
+        }
+
+        foreach ($outputsByID as $outputID => $output) {
+            $isActive = isset($activeOutputIDs[$outputID]);
+            if ($matchesStateFilter($isActive)) {
+                $visibleOutputs[$outputID] = true;
             }
         }
 
@@ -3211,9 +3284,9 @@ class AlarmResponseManager extends IPSModule
             }
         }
 
-        if (count($groups) === 0) {
+        if (count($groupVisibleMap) === 0) {
             $noteNode = 'N_' . substr(md5('no_groups_' . (string) $this->InstanceID), 0, 10);
-            $lines[] = $noteNode . '["' . $this->MermaidEscape('No groups selected') . '"]';
+            $lines[] = $noteNode . '["' . $this->MermaidEscape('No groups selected for current state filter') . '"]';
             $lines[] = 'class ' . $noteNode . ' grey;';
             return implode("\n", $lines) . "\n";
         }
@@ -3222,7 +3295,7 @@ class AlarmResponseManager extends IPSModule
 
         foreach ($groups as $group) {
             $groupKey = trim((string) ($group['GroupKey'] ?? ''));
-            if ($groupKey === '') {
+            if ($groupKey === '' || !isset($groupVisibleMap[$groupKey])) {
                 continue;
             }
 
@@ -3233,10 +3306,10 @@ class AlarmResponseManager extends IPSModule
             $lines[] = 'class ' . $groupNode . ' ' . (isset($activeGroups[$groupKey]) ? 'red' : 'green') . ';';
         }
 
-        foreach ($rules as $rule) {
+        foreach ($visibleRules as $rule) {
             $ruleID = trim((string) ($rule['RuleID'] ?? ''));
             $groupKey = trim((string) ($rule['GroupKey'] ?? ''));
-            if ($ruleID === '' || $groupKey === '') {
+            if ($ruleID === '' || $groupKey === '' || !isset($groupVisibleMap[$groupKey])) {
                 continue;
             }
 
@@ -3268,7 +3341,13 @@ class AlarmResponseManager extends IPSModule
             $conditionGroupKey = trim((string) ($rule['ConditionGroupKey'] ?? ''));
             $conditionMode = trim((string) ($rule['ConditionMode'] ?? ''));
 
-            if ($depth !== 'groups' && $showConditions && $conditionGroupKey !== '' && $conditionMode !== '' && isset($visibleGroupKeys[$conditionGroupKey])) {
+            if (
+                $depth !== 'groups'
+                && $showConditions
+                && $conditionGroupKey !== ''
+                && $conditionMode !== ''
+                && isset($groupVisibleMap[$conditionGroupKey])
+            ) {
                 $conditionNode = 'G_' . substr(md5($conditionGroupKey), 0, 10);
                 $conditionLabel = ($conditionMode === 'active') ? 'requires active' : 'requires inactive';
                 $conditionSatisfied = $this->isRuleConditionCurrentlySatisfied($rule);
@@ -3282,25 +3361,27 @@ class AlarmResponseManager extends IPSModule
         }
 
         if ($depth !== 'groups') {
-            foreach ($assignments as $assignment) {
+            foreach ($visibleAssignments as $assignment) {
                 $assignmentID = trim((string) ($assignment['AssignmentID'] ?? ''));
                 $ruleID = trim((string) ($assignment['RuleID'] ?? ''));
                 $outputID = trim((string) ($assignment['OutputID'] ?? ''));
 
-                if ($assignmentID === '' || $ruleID === '') {
+                if ($assignmentID === '' || $ruleID === '' || $outputID === '') {
+                    continue;
+                }
+                if (!isset($ruleVisibleMap[$ruleID])) {
                     continue;
                 }
 
                 $assignmentNode = 'A_' . substr(md5($assignmentID), 0, 10);
                 $ruleNode = 'R_' . substr(md5($ruleID), 0, 10);
-
-                $assignmentActive = isset($activeRuleIDs[$ruleID]) && $outputID !== '' && isset($activeOutputIDs[$outputID]);
+                $assignmentActive = isset($activeRuleIDs[$ruleID]) && isset($activeOutputIDs[$outputID]);
 
                 $assignmentLabel = 'Output Action';
-                if ($outputID !== '' && isset($outputsByID[$outputID])) {
+                if (isset($outputsByID[$outputID])) {
                     $assignmentOutputName = trim((string) ($outputsByID[$outputID]['Name'] ?? ''));
                     $assignmentLabel .= "\n" . ($assignmentOutputName !== '' ? $assignmentOutputName : $outputID);
-                } elseif ($outputID !== '') {
+                } else {
                     $assignmentLabel .= "\n" . $outputID;
                 }
 
@@ -3310,7 +3391,7 @@ class AlarmResponseManager extends IPSModule
                 $lines[] = 'linkStyle ' . $linkCounter . ' stroke:' . ($assignmentActive ? '#ff8a80' : '#a5d6a7') . ',stroke-width:2px;';
                 $linkCounter++;
 
-                if ($outputID === '') {
+                if (!isset($visibleOutputs[$outputID])) {
                     continue;
                 }
 
@@ -3330,6 +3411,7 @@ class AlarmResponseManager extends IPSModule
                 $typeLabel = $typeLabels[$typeID] ?? '[missing type]';
                 $targetObjectID = (int) ($output['TargetObjectID'] ?? 0);
                 $outputName = trim((string) ($output['Name'] ?? ''));
+                $outputNodeActive = isset($activeOutputIDs[$outputID]);
 
                 $parts = [];
                 $parts[] = $outputName !== '' ? $outputName : $outputID;
@@ -3337,8 +3419,6 @@ class AlarmResponseManager extends IPSModule
                 if ($targetObjectID > 0) {
                     $parts[] = 'ObjID: ' . $targetObjectID;
                 }
-
-                $outputNodeActive = isset($activeOutputIDs[$outputID]);
 
                 $lines[] = $outputNode . '["' . $this->MermaidEscape(implode("\n", $parts)) . '"]';
                 $lines[] = $assignmentNode . ' --> ' . $outputNode;
