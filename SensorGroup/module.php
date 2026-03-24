@@ -45,7 +45,7 @@ class SensorGroup extends IPSModule
         $this->RegisterAttributeString('LastTargetProjectionState', '{}');
         $this->RegisterAttributeString('LastSensorValueMap', '{}');
         $this->RegisterAttributeString('SensorPulseUntilMap', '{}');
-
+        $this->RegisterTimer('PulseExpireTimer', 0, 'MYALARM_CheckPulseExpiry($_IPS[\'TARGET\']);');
         $this->RegisterAttributeString('LastMainStatus', '0');
         IPS_SetHidden($this->GetIDForIdent('EventData'), true);
     }
@@ -466,9 +466,64 @@ class SensorGroup extends IPSModule
         }
         // 5. RELOAD FORM
         $this->ReloadForm();
+        $this->UpdatePulseExpireTimer();
         $this->CheckLogic();
     }
 
+    public function CheckPulseExpiry()
+    {
+        if ($this->ReadPropertyBoolean('DebugMode')) {
+            $this->LogMessage('PULSEDEBUG: PulseExpireTimer fired -> CheckLogic(0)', KL_MESSAGE);
+        }
+
+        $this->CheckLogic(0);
+    }
+
+    private function UpdatePulseExpireTimer()
+    {
+        $pulseUntilMap = $this->ReadSensorPulseUntilMap();
+        $now = time();
+
+        if (!is_array($pulseUntilMap) || count($pulseUntilMap) === 0) {
+            $this->SetTimerInterval('PulseExpireTimer', 0);
+
+            if ($this->ReadPropertyBoolean('DebugMode')) {
+                $this->LogMessage('PULSEDEBUG: PulseExpireTimer disabled (no active pulses)', KL_MESSAGE);
+            }
+            return;
+        }
+
+        $nextExpiry = 0;
+        foreach ($pulseUntilMap as $key => $ts) {
+            $ts = (int)$ts;
+            if ($ts <= 0) {
+                continue;
+            }
+            if ($nextExpiry === 0 || $ts < $nextExpiry) {
+                $nextExpiry = $ts;
+            }
+        }
+
+        if ($nextExpiry <= 0) {
+            $this->SetTimerInterval('PulseExpireTimer', 0);
+
+            if ($this->ReadPropertyBoolean('DebugMode')) {
+                $this->LogMessage('PULSEDEBUG: PulseExpireTimer disabled (no valid expiry)', KL_MESSAGE);
+            }
+            return;
+        }
+
+        $delayMs = max(1, ($nextExpiry - $now) * 1000);
+
+        $this->SetTimerInterval('PulseExpireTimer', $delayMs);
+
+        if ($this->ReadPropertyBoolean('DebugMode')) {
+            $this->LogMessage(
+                'PULSEDEBUG: PulseExpireTimer armed nextExpiry=' . $nextExpiry . ' now=' . $now . ' delayMs=' . $delayMs,
+                KL_MESSAGE
+            );
+        }
+    }
 
     private function ReadTargetThrottleConfig(): array
     {
@@ -798,6 +853,14 @@ class SensorGroup extends IPSModule
             // =========================
             // GROUP DEFINITIONS
             // =========================
+            case 'CheckPulseExpiry': {
+                    if ($this->ReadPropertyBoolean('DebugMode')) {
+                        $this->LogMessage("PULSEDEBUG: RequestAction CheckPulseExpiry fired", KL_MESSAGE);
+                    }
+
+                    $this->CheckLogic(0);
+                    break;
+                }
             case 'UpdateGroupDispatch': {
                     $incoming = json_decode($Value, true);
                     if (!is_array($incoming)) {
@@ -2361,10 +2424,11 @@ class SensorGroup extends IPSModule
         if ($changed) {
             $pulseUntilMap[$key] = $now + $pulseSeconds;
             $this->WriteSensorPulseUntilMap($pulseUntilMap);
+            $this->UpdatePulseExpireTimer();
 
-            if ($id === 25458 && $this->ReadPropertyBoolean('DebugMode')) {
+            if ($this->ReadPropertyBoolean('DebugMode')) {
                 $this->LogMessage(
-                    "PULSEDEBUG25458: pulse started | now={$now} | pulseUntil=" . $pulseUntilMap[$key],
+                    "DEBUG: CHANGE sensor triggered VariableID={$id} type={$typeName} pulseUntil=" . $pulseUntilMap[$key],
                     KL_MESSAGE
                 );
             }
@@ -2389,6 +2453,7 @@ class SensorGroup extends IPSModule
         if ($pulseUntil > 0) {
             unset($pulseUntilMap[$key]);
             $this->WriteSensorPulseUntilMap($pulseUntilMap);
+            $this->UpdatePulseExpireTimer();
         }
 
         return false;
