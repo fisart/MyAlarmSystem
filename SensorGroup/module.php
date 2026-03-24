@@ -2141,11 +2141,32 @@ class SensorGroup extends IPSModule
             $oldProjection = $lastTargetProjectionState[(string)$iid] ?? null;
             $projectionChanged = (json_encode($projection) !== json_encode($oldProjection));
 
-            if (!$projectionChanged) {
+            // NEW: detect pulse-triggered event
+            $isPulseTrigger = false;
+            if (isset($finalTriggerDetails['variable_id'])) {
+                $triggerVid = (int)$finalTriggerDetails['variable_id'];
+
+                // Check if this sensor is in CHANGE mode
+                foreach ($sensorList as $s) {
+                    if ((int)($s['VariableID'] ?? 0) === $triggerVid) {
+                        if ((int)($s['TriggerMode'] ?? 0) === 1) {
+                            $isPulseTrigger = true;
+                        }
+                        break;
+                    }
+                }
+            }
+
+            // NEW LOGIC: allow dispatch if pulse-triggered
+            if (!$projectionChanged && !$isPulseTrigger) {
                 if ($this->ReadPropertyBoolean('DebugMode')) {
-                    $this->LogMessage("DEBUG [Dispatch EXEC]: Skipping InstanceID=$iid (target projection unchanged)", KL_MESSAGE);
+                    $this->LogMessage("DEBUG [Dispatch EXEC]: Skipping InstanceID=$iid (unchanged, no pulse)", KL_MESSAGE);
                 }
                 continue;
+            }
+
+            if ($this->ReadPropertyBoolean('DebugMode') && $isPulseTrigger && !$projectionChanged) {
+                $this->LogMessage("DEBUG [Dispatch EXEC]: FORCED SEND due to pulse VariableID={$triggerVid}", KL_MESSAGE);
             }
 
             if ($this->ReadPropertyBoolean('DebugMode')) {
