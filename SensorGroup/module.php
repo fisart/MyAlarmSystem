@@ -1618,7 +1618,9 @@ class SensorGroup extends IPSModule
                 " maint=" . (int)$this->ReadPropertyBoolean('MaintenanceMode'),
             KL_MESSAGE
         );
-
+        if ($this->ReadPropertyBoolean('DebugMode') && $TriggeringID > 0) {
+            $this->LogMessage("DEBUG: CheckLogic called for TriggeringID={$TriggeringID}", KL_MESSAGE);
+        }
         $classStates = json_decode($this->ReadAttributeString('ClassStateAttribute'), true);
         if (!is_array($classStates)) $classStates = [];
 
@@ -1665,6 +1667,19 @@ class SensorGroup extends IPSModule
                 $lastTriggerDetails = null;
 
                 foreach ($classSensors as $s) {
+                    if (
+                        $this->ReadPropertyBoolean('DebugMode') &&
+                        $TriggeringID > 0 &&
+                        (int)($s['VariableID'] ?? 0) === (int)$TriggeringID
+                    ) {
+                        $this->LogMessage(
+                            "DEBUG: Trigger sensor row found in class loop VariableID=" . (int)$s['VariableID'] .
+                                " ClassID=" . (string)($s['ClassID'] ?? '') .
+                                " TriggerMode=" . (int)($s['TriggerMode'] ?? 0) .
+                                " PulseSeconds=" . (int)($s['PulseSeconds'] ?? 0),
+                            KL_MESSAGE
+                        );
+                    }
                     $match = $this->CheckSensorRule($s);
 
                     // FIX: Capture the Specific Trigger Event (Even if Match is FALSE/OFF)
@@ -1707,6 +1722,9 @@ class SensorGroup extends IPSModule
                     if ($match) {
                         $vid = (int)($s['VariableID'] ?? 0);
                         $engineActiveSensors[] = $vid; // Capture the sensor ID for the dashboard
+                        if ($this->ReadPropertyBoolean('DebugMode') && $vid === (int)$TriggeringID) {
+                            $this->LogMessage("DEBUG: Trigger sensor added to engineActiveSensors VariableID={$vid}", KL_MESSAGE);
+                        }
                         $activeCount++;
 
                         $parentID = IPS_GetParent($vid);
@@ -2261,7 +2279,17 @@ class SensorGroup extends IPSModule
 
         $key = (string)$id;
         $lastEntry = $lastValueMap[$key] ?? null;
-
+        if ($this->ReadPropertyBoolean('DebugMode')) {
+            $this->LogMessage(
+                "DEBUG: CSR ENTER VariableID={$id}" .
+                    " TriggerMode={$triggerMode}" .
+                    " PulseSeconds={$pulseSeconds}" .
+                    " CurrentValue=" . json_encode($val) .
+                    " LastEntry=" . json_encode($lastEntry) .
+                    " PulseUntil=" . json_encode($pulseUntilMap[$key] ?? null),
+                KL_MESSAGE
+            );
+        }
         // First observation: initialize cache only, no trigger
         if (!is_array($lastEntry) || !array_key_exists('type', $lastEntry) || !array_key_exists('value', $lastEntry)) {
             $lastValueMap[$key] = [
@@ -2281,7 +2309,17 @@ class SensorGroup extends IPSModule
         $oldType = (string)$lastEntry['type'];
         $oldValue = $lastEntry['value'];
         $changed = ($oldType !== $typeName) || $this->ValuesAreDifferent($oldType, $oldValue, $val);
-
+        if ($this->ReadPropertyBoolean('DebugMode')) {
+            $this->LogMessage(
+                "DEBUG: CSR CHANGE CHECK VariableID={$id}" .
+                    " OldType={$oldType}" .
+                    " NewType={$typeName}" .
+                    " OldValue=" . json_encode($oldValue) .
+                    " NewValue=" . json_encode($val) .
+                    " Changed=" . (int)$changed,
+                KL_MESSAGE
+            );
+        }
         // Always refresh cached last value/type
         $lastValueMap[$key] = [
             'type'  => $typeName,
@@ -2304,6 +2342,15 @@ class SensorGroup extends IPSModule
         }
 
         $pulseUntil = isset($pulseUntilMap[$key]) ? (int)$pulseUntilMap[$key] : 0;
+        if ($this->ReadPropertyBoolean('DebugMode')) {
+            $this->LogMessage(
+                "DEBUG: CSR PULSE WINDOW VariableID={$id}" .
+                    " Now={$now}" .
+                    " PulseUntil={$pulseUntil}" .
+                    " Active=" . (int)($pulseUntil > $now),
+                KL_MESSAGE
+            );
+        }
         if ($pulseUntil > $now) {
             return true;
         }
