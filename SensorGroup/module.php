@@ -472,9 +472,37 @@ class SensorGroup extends IPSModule
 
     public function CheckPulseExpiry()
     {
-        $this->CheckLogic(0);
-    }
+        $pulseUntilMap = $this->ReadSensorPulseUntilMap();
+        $now = time();
+        $changed = false;
+        $hadActivePulse = false;
 
+        if (!is_array($pulseUntilMap)) {
+            $pulseUntilMap = [];
+        }
+
+        foreach ($pulseUntilMap as $key => $ts) {
+            $ts = (int)$ts;
+
+            if ($ts <= 0 || $ts <= $now) {
+                unset($pulseUntilMap[$key]);
+                $changed = true;
+                continue;
+            }
+
+            $hadActivePulse = true;
+        }
+
+        if ($changed) {
+            $this->WriteSensorPulseUntilMap($pulseUntilMap);
+        }
+
+        $this->UpdatePulseExpireTimer();
+
+        if ($changed || $hadActivePulse) {
+            $this->CheckLogic(0);
+        }
+    }
     private function UpdatePulseExpireTimer()
     {
         $pulseUntilMap = $this->ReadSensorPulseUntilMap();
@@ -498,12 +526,16 @@ class SensorGroup extends IPSModule
 
         if ($nextExpiry <= 0) {
             $this->SetTimerInterval('PulseExpireTimer', 0);
-
             return;
         }
 
-        $delayMs = max(1, ($nextExpiry - $now) * 1000);
+        $remaining = $nextExpiry - $now;
+        if ($remaining <= 0) {
+            $this->SetTimerInterval('PulseExpireTimer', 0);
+            return;
+        }
 
+        $delayMs = $remaining * 1000;
         $this->SetTimerInterval('PulseExpireTimer', $delayMs);
     }
 
