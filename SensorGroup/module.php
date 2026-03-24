@@ -1619,7 +1619,7 @@ class SensorGroup extends IPSModule
             KL_MESSAGE
         );
         if ($this->ReadPropertyBoolean('DebugMode') && $TriggeringID > 0) {
-            $this->LogMessage("PULSDEBUG: CheckLogic called for TriggeringID={$TriggeringID}", KL_MESSAGE);
+            $this->LogMessage("PULSEDEBUG: CheckLogic called for TriggeringID={$TriggeringID}", KL_MESSAGE);
         }
         $classStates = json_decode($this->ReadAttributeString('ClassStateAttribute'), true);
         if (!is_array($classStates)) $classStates = [];
@@ -1727,7 +1727,7 @@ class SensorGroup extends IPSModule
                         $vid = (int)($s['VariableID'] ?? 0);
                         $engineActiveSensors[] = $vid; // Capture the sensor ID for the dashboard
                         if ($this->ReadPropertyBoolean('DebugMode') && $vid === (int)$TriggeringID) {
-                            $this->LogMessage("PULSDEBUG: Trigger sensor added to engineActiveSensors VariableID={$vid}", KL_MESSAGE);
+                            $this->LogMessage("PULSEDEBUG: Trigger sensor added to engineActiveSensors VariableID={$vid}", KL_MESSAGE);
                         }
                         $activeCount++;
 
@@ -2294,7 +2294,7 @@ class SensorGroup extends IPSModule
         $lastEntry = $lastValueMap[$key] ?? null;
         if ($this->ReadPropertyBoolean('DebugMode')) {
             $this->LogMessage(
-                "PULSDEBUG: CSR ENTER VariableID={$id}" .
+                "PULSEDEBUG: CSR ENTER VariableID={$id}" .
                     " TriggerMode={$triggerMode}" .
                     " PulseSeconds={$pulseSeconds}" .
                     " CurrentValue=" . json_encode($val) .
@@ -2354,7 +2354,7 @@ class SensorGroup extends IPSModule
         $pulseUntil = isset($pulseUntilMap[$key]) ? (int)$pulseUntilMap[$key] : 0;
         if ($this->ReadPropertyBoolean('DebugMode')) {
             $this->LogMessage(
-                "PULSDEBUG: CSR PULSE WINDOW VariableID={$id}" .
+                "PULSEDEBUG: CSR PULSE WINDOW VariableID={$id}" .
                     " Now={$now}" .
                     " PulseUntil={$pulseUntil}" .
                     " Active=" . (int)($pulseUntil > $now),
