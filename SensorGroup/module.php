@@ -2479,6 +2479,16 @@ class SensorGroup extends IPSModule
         if ($vaultID > 0 && @IPS_InstanceExists($vaultID)) {
             if (function_exists('SEC_IsPortalAuthenticated')) {
                 if (!SEC_IsPortalAuthenticated($vaultID)) {
+                    // IMPORTANT FIX:
+                    // For API/AJAX requests, never return/login-redirect with HTML page content,
+                    // because the frontend expects Mermaid graph text.
+                    if (isset($_GET['api'])) {
+                        http_response_code(401);
+                        header("Content-Type: text/plain; charset=utf-8");
+                        echo "AUTH_REQUIRED";
+                        return;
+                    }
+
                     $currentUrl = $_SERVER['REQUEST_URI'] ?? '';
                     $currentUrl = strtok($currentUrl, '?');
                     $loginUrl = "/hook/secrets_" . $vaultID . "?portal=1&return=" . urlencode($currentUrl);
@@ -2531,7 +2541,7 @@ class SensorGroup extends IPSModule
             }));
 
             if (count($dispatchTargets) === 0) {
-                header("Content-Type: text/plain");
+                header("Content-Type: text/plain; charset=utf-8");
                 echo "graph RL\nEMPTY[\"No Targets Selected\"]:::grey\n";
                 return;
             }
@@ -2900,7 +2910,7 @@ class SensorGroup extends IPSModule
 
         // 3. API Mode
         if (isset($_GET['api'])) {
-            header("Content-Type: text/plain");
+            header("Content-Type: text/plain; charset=utf-8");
             echo $graph;
             return;
         }
@@ -2914,193 +2924,212 @@ class SensorGroup extends IPSModule
             }
             $name = htmlspecialchars((string) ($t['Name'] ?? ('Target ' . $iid)));
             $checkboxesHTML .= "<label style=\"margin:0 12px; cursor:pointer;\">
-            <input type=\"checkbox\" class=\"target-filter\" value=\"{$iid}\" checked onchange=\"forceRefresh()\"> {$name}
-        </label>";
+        <input type=\"checkbox\" class=\"target-filter\" value=\"{$iid}\" checked onchange=\"forceRefresh()\"> {$name}
+    </label>";
         }
 
         echo '<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8">
-<title>Sensor Flow</title>
-<style>
-    body{
-        background-color:#1e1e1e;color:#cfcfcf;font-family:"Segoe UI",sans-serif;
-        margin:0;padding:20px;height:100vh;box-sizing:border-box;
-        overflow:hidden;display:flex;flex-direction:column;
-    }
-    .header{flex-shrink:0;text-align:center;margin-bottom:12px;border-bottom:1px solid #333;padding-bottom:10px;}
-    .header h2{margin:0;color:#4CAF50;}
-    .filter-bar{ background:#333; padding:10px; border-radius:6px; display:inline-block; margin-top:10px; }
-    .filter-bar input{ transform:scale(1.15); margin-right:6px; }
-    .container{
-        flex-grow:1;background:#252526;border-radius:8px;width:100%;
-        border:1px solid #444;overflow:hidden;position:relative;
-    }
-    #mermaid-container { position:absolute; inset:0; overflow:hidden; }
-    #mermaid-container svg { width:100% !important; height:100% !important; max-width:none !important; display:block; }
-</style>
+    <html>
+    <head>
+    <meta charset="utf-8">
+    <title>Sensor Flow</title>
+    <style>
+        body{
+            background-color:#1e1e1e;color:#cfcfcf;font-family:"Segoe UI",sans-serif;
+            margin:0;padding:20px;height:100vh;box-sizing:border-box;
+            overflow:hidden;display:flex;flex-direction:column;
+        }
+        .header{flex-shrink:0;text-align:center;margin-bottom:12px;border-bottom:1px solid #333;padding-bottom:10px;}
+        .header h2{margin:0;color:#4CAF50;}
+        .filter-bar{ background:#333; padding:10px; border-radius:6px; display:inline-block; margin-top:10px; }
+        .filter-bar input{ transform:scale(1.15); margin-right:6px; }
+        .container{
+            flex-grow:1;background:#252526;border-radius:8px;width:100%;
+            border:1px solid #444;overflow:hidden;position:relative;
+        }
+        #mermaid-container { position:absolute; inset:0; overflow:hidden; }
+        #mermaid-container svg { width:100% !important; height:100% !important; max-width:none !important; display:block; }
+    </style>
 
-<script src="https://unpkg.com/svg-pan-zoom@3.6.1/dist/svg-pan-zoom.min.js"></script>
+    <script src="https://unpkg.com/svg-pan-zoom@3.6.1/dist/svg-pan-zoom.min.js"></script>
 
-<script type="module">
-    import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs";
+    <script type="module">
+        import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs";
 
-    mermaid.initialize({
-        startOnLoad:false,
-        theme:"dark",
-        flowchart:{ curve:"basis", nodeSpacing:60, rankSpacing:120 }
-    });
+        mermaid.initialize({
+            startOnLoad:false,
+            theme:"dark",
+            flowchart:{ curve:"basis", nodeSpacing:60, rankSpacing:120 }
+        });
 
-    let isRendering=false;
-    let lastGraphString="";
-    let pzInstance=null;
+        let isRendering=false;
+        let lastGraphString="";
+        let pzInstance=null;
 
-    window.getFilterString = function () {
-        const boxes = document.querySelectorAll(".target-filter:checked");
-        if (boxes.length === 0) return "NONE";
-        return Array.from(boxes).map(b => b.value).join(",");
-    };
+        window.getFilterString = function () {
+            const boxes = document.querySelectorAll(".target-filter:checked");
+            if (boxes.length === 0) return "NONE";
+            return Array.from(boxes).map(b => b.value).join(",");
+        };
 
-    window.getDepthFilter = function () {
-        const el = document.getElementById("depth-filter");
-        return el ? el.value : "sensors";
-    };
+        window.getDepthFilter = function () {
+            const el = document.getElementById("depth-filter");
+            return el ? el.value : "sensors";
+        };
 
-    window.getStateFilter = function () {
-        const el = document.getElementById("state-filter");
-        return el ? el.value : "both";
-    };
+        window.getStateFilter = function () {
+            const el = document.getElementById("state-filter");
+            return el ? el.value : "both";
+        };
 
-    window.getBedroomFilter = function () {
-        const el = document.getElementById("bedroom-filter");
-        return (el && el.checked) ? "1" : "0";
-    };
+        window.getBedroomFilter = function () {
+            const el = document.getElementById("bedroom-filter");
+            return (el && el.checked) ? "1" : "0";
+        };
 
-    window.forceRefresh = function () {
-        lastGraphString = "";
-        fetchAndUpdateGraph();
-    };
+        window.forceRefresh = function () {
+            lastGraphString = "";
+            fetchAndUpdateGraph();
+        };
 
-    window.setAllTargets = function (checked) {
-        document.querySelectorAll(".target-filter").forEach(b => b.checked = checked);
-        window.forceRefresh();
-    };
+        window.setAllTargets = function (checked) {
+            document.querySelectorAll(".target-filter").forEach(b => b.checked = checked);
+            window.forceRefresh();
+        };
 
-    async function fetchAndUpdateGraph(){
-        if(isRendering) return;
+        async function fetchAndUpdateGraph(){
+            if(isRendering) return;
 
-        try{
-            const url = location.pathname
-                + "?api=1&t=" + Date.now()
-                + "&targetFilter=" + encodeURIComponent(window.getFilterString())
-                + "&depth=" + encodeURIComponent(window.getDepthFilter())
-                + "&state=" + encodeURIComponent(window.getStateFilter())
-                + "&showBedrooms=" + encodeURIComponent(window.getBedroomFilter());
+            try{
+                const url = location.pathname
+                    + "?api=1&t=" + Date.now()
+                    + "&targetFilter=" + encodeURIComponent(window.getFilterString())
+                    + "&depth=" + encodeURIComponent(window.getDepthFilter())
+                    + "&state=" + encodeURIComponent(window.getStateFilter())
+                    + "&showBedrooms=" + encodeURIComponent(window.getBedroomFilter());
 
-            const response = await fetch(url);
-            const graphString = await response.text();
+                const response = await fetch(url, { credentials: "same-origin" });
+                const graphString = await response.text();
 
-            if(graphString !== lastGraphString){
-                isRendering=true;
-                lastGraphString=graphString;
+                // IMPORTANT FIX:
+                // Never pass auth/login HTML into Mermaid.
+                if (
+                    response.status === 401 ||
+                    graphString === "AUTH_REQUIRED" ||
+                    graphString.trim().startsWith("<html") ||
+                    graphString.includes("Vault Auth")
+                ) {
+                    window.location.href = location.pathname;
+                    return;
+                }
 
-                const container = document.getElementById("mermaid-container");
+                // Extra hardening: only render real Mermaid graph text
+                const trimmed = graphString.trim();
+                if (!(trimmed.startsWith("graph ") || trimmed.startsWith("flowchart "))) {
+                    console.error("Unexpected Mermaid payload:", trimmed.substring(0, 300));
+                    return;
+                }
 
-                const oldZoom = pzInstance ? pzInstance.getZoom() : null;
-                const oldPan  = pzInstance ? pzInstance.getPan()  : null;
+                if(graphString !== lastGraphString){
+                    isRendering=true;
+                    lastGraphString=graphString;
 
-                if(pzInstance){ pzInstance.destroy(); pzInstance=null; }
+                    const container = document.getElementById("mermaid-container");
 
-                const renderId = "graph_" + Date.now();
-                const { svg } = await mermaid.render(renderId, graphString);
+                    const oldZoom = pzInstance ? pzInstance.getZoom() : null;
+                    const oldPan  = pzInstance ? pzInstance.getPan()  : null;
 
-                container.innerHTML = svg;
+                    if(pzInstance){ pzInstance.destroy(); pzInstance=null; }
 
-                const svgEl = container.querySelector("svg");
-                if (svgEl) {
-                    if (!svgEl.getAttribute("viewBox")) {
-                        const wRaw = (svgEl.width && svgEl.width.baseVal && svgEl.width.baseVal.value) || svgEl.getAttribute("width") || 1000;
-                        const hRaw = (svgEl.height && svgEl.height.baseVal && svgEl.height.baseVal.value) || svgEl.getAttribute("height") || 1000;
+                    const renderId = "graph_" + Date.now();
+                    const { svg } = await mermaid.render(renderId, graphString);
 
-                        const w = Number(String(wRaw).replace(/[^0-9.]/g, "")) || 1000;
-                        const h = Number(String(hRaw).replace(/[^0-9.]/g, "")) || 1000;
+                    container.innerHTML = svg;
 
-                        svgEl.setAttribute("viewBox", `0 0 ${w} ${h}`);
-                    }
+                    const svgEl = container.querySelector("svg");
+                    if (svgEl) {
+                        if (!svgEl.getAttribute("viewBox")) {
+                            const wRaw = (svgEl.width && svgEl.width.baseVal && svgEl.width.baseVal.value) || svgEl.getAttribute("width") || 1000;
+                            const hRaw = (svgEl.height && svgEl.height.baseVal && svgEl.height.baseVal.value) || svgEl.getAttribute("height") || 1000;
 
-                    svgEl.removeAttribute("width");
-                    svgEl.removeAttribute("height");
-                    svgEl.style.width = "100%";
-                    svgEl.style.height = "100%";
-                    svgEl.style.maxWidth = "none";
+                            const w = Number(String(wRaw).replace(/[^0-9.]/g, "")) || 1000;
+                            const h = Number(String(hRaw).replace(/[^0-9.]/g, "")) || 1000;
 
-                    let isFirstLoad = (oldZoom === null || oldPan === null);
+                            svgEl.setAttribute("viewBox", `0 0 ${w} ${h}`);
+                        }
 
-                    pzInstance = svgPanZoom(svgEl, {
-                        zoomEnabled: true,
-                        controlIconsEnabled: true,
-                        fit: isFirstLoad,
-                        center: isFirstLoad,
-                        minZoom: 0.2,
-                        maxZoom: 10,
-                        eventsListenerElement: container
-                    });
+                        svgEl.removeAttribute("width");
+                        svgEl.removeAttribute("height");
+                        svgEl.style.width = "100%";
+                        svgEl.style.height = "100%";
+                        svgEl.style.maxWidth = "none";
 
-                    pzInstance.resize();
+                        let isFirstLoad = (oldZoom === null || oldPan === null);
 
-                    if (isFirstLoad) {
-                        pzInstance.fit();
-                        pzInstance.center();
-                    } else {
-                        pzInstance.zoom(oldZoom);
-                        pzInstance.pan(oldPan);
+                        pzInstance = svgPanZoom(svgEl, {
+                            zoomEnabled: true,
+                            controlIconsEnabled: true,
+                            fit: isFirstLoad,
+                            center: isFirstLoad,
+                            minZoom: 0.2,
+                            maxZoom: 10,
+                            eventsListenerElement: container
+                        });
+
+                        pzInstance.resize();
+
+                        if (isFirstLoad) {
+                            pzInstance.fit();
+                            pzInstance.center();
+                        } else {
+                            pzInstance.zoom(oldZoom);
+                            pzInstance.pan(oldPan);
+                        }
                     }
                 }
+            }catch(err){
+                console.error("Failed to render graph:", err);
+            }finally{
+                isRendering=false;
             }
-        }catch(err){
-            console.error("Failed to render graph:", err);
-        }finally{
-            isRendering=false;
         }
-    }
 
-    fetchAndUpdateGraph();
-    setInterval(fetchAndUpdateGraph, 2000);
-</script>
-</head>
+        fetchAndUpdateGraph();
+        setInterval(fetchAndUpdateGraph, 2000);
+    </script>
+    </head>
 
-<body>
-<div class="header">
-    <h2>System Hierarchy (Live)</h2>
-    <small>Instance ID: ' . $this->InstanceID . '</small>
-    <br>
-    <div class="filter-bar">
-        <a href="#" onclick="setAllTargets(true); return false;" style="color:#9ecbff; margin-right:12px;">All</a>
-        <a href="#" onclick="setAllTargets(false); return false;" style="color:#9ecbff; margin-right:18px;">None</a>
-        ' . $checkboxesHTML . '
-        <span style="margin-left:18px;">Depth:</span>
-        <select id="depth-filter" onchange="forceRefresh()" style="margin-left:8px;">
-            <option value="groups">Groups</option>
-            <option value="classes">Classes</option>
-            <option value="sensors" selected>Sensors</option>
-        </select>
-        <span style="margin-left:18px;">State:</span>
-        <select id="state-filter" onchange="forceRefresh()" style="margin-left:8px;">
-            <option value="both" selected>Both</option>
-            <option value="active">Active</option>
-            <option value="passive">Passive</option>
-        </select>
-        <label style="margin-left:18px; cursor:pointer;">
-            <input type="checkbox" id="bedroom-filter" checked onchange="forceRefresh()"> Bedrooms
-        </label>
+    <body>
+    <div class="header">
+        <h2>System Hierarchy (Live)</h2>
+        <small>Instance ID: ' . $this->InstanceID . '</small>
+        <br>
+        <div class="filter-bar">
+            <a href="#" onclick="setAllTargets(true); return false;" style="color:#9ecbff; margin-right:12px;">All</a>
+            <a href="#" onclick="setAllTargets(false); return false;" style="color:#9ecbff; margin-right:18px;">None</a>
+            ' . $checkboxesHTML . '
+            <span style="margin-left:18px;">Depth:</span>
+            <select id="depth-filter" onchange="forceRefresh()" style="margin-left:8px;">
+                <option value="groups">Groups</option>
+                <option value="classes">Classes</option>
+                <option value="sensors" selected>Sensors</option>
+            </select>
+            <span style="margin-left:18px;">State:</span>
+            <select id="state-filter" onchange="forceRefresh()" style="margin-left:8px;">
+                <option value="both" selected>Both</option>
+                <option value="active">Active</option>
+                <option value="passive">Passive</option>
+            </select>
+            <label style="margin-left:18px; cursor:pointer;">
+                <input type="checkbox" id="bedroom-filter" checked onchange="forceRefresh()"> Bedrooms
+            </label>
+        </div>
     </div>
-</div>
-<div class="container">
-    <div id="mermaid-container">Initializing Live View...</div>
-</div>
-</body>
-</html>';
+    <div class="container">
+        <div id="mermaid-container">Initializing Live View...</div>
+    </div>
+    </body>
+    </html>';
     }
 
 
