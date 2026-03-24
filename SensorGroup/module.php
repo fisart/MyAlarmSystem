@@ -529,13 +529,7 @@ class SensorGroup extends IPSModule
             return;
         }
 
-        $remaining = $nextExpiry - $now;
-        if ($remaining <= 0) {
-            $this->SetTimerInterval('PulseExpireTimer', 0);
-            return;
-        }
-
-        $delayMs = $remaining * 1000;
+        $delayMs = max(1, ($nextExpiry - $now) * 1000);
         $this->SetTimerInterval('PulseExpireTimer', $delayMs);
     }
 
