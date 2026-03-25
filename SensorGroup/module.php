@@ -2500,7 +2500,7 @@ class SensorGroup extends IPSModule
 
         // 2. Build the Graph Data
         $graph = "graph RL\n";
-
+        $drawnEdges = [];
         $graph .= "classDef red fill:#c62828,stroke:#ff8a80,stroke-width:2px,color:#fff;\n";
         $graph .= "classDef green fill:#2e7d32,stroke:#a5d6a7,stroke-width:2px,color:#fff;\n";
         $graph .= "classDef grey fill:#37474f,stroke:#546e7a,stroke-width:1px,color:#eee;\n";
@@ -2792,7 +2792,7 @@ class SensorGroup extends IPSModule
             }
         }
 
-        // Bedroom Sync -> target
+        // Bedroom group -> target AND Bedroom Sync -> target
         $bedTargetID = (int) ($conf['BedroomTarget'] ?? 0);
         if ($showBedrooms && $bedTargetID > 0) {
             $targetIsVisible = false;
@@ -2805,29 +2805,50 @@ class SensorGroup extends IPSModule
 
             if ($targetIsVisible) {
                 $tid = "T_" . $bedTargetID;
+
                 foreach ($bedroomList as $b) {
                     $gName = (string) ($b['GroupName'] ?? '');
                     $vid   = (int) ($b['ActiveVariableID'] ?? 0);
 
-                    if ($gName === '' || $vid <= 0 || !isset($visibleGroups[$gName])) {
+                    if ($gName === '' || !isset($visibleGroups[$gName])) {
                         continue;
                     }
 
-                    $val = ($vid > 0 && IPS_VariableExists($vid)) ? (bool) GetValue($vid) : false;
+                    // 1. Normal bedroom group -> target
+                    $gid = "G_" . md5($gName);
+                    $edgeKey1 = $gid . '->' . $tid;
+                    if (!isset($drawnEdges[$edgeKey1])) {
+                        $graph .= $gid . " --> " . $tid . "\n";
+                        $drawnEdges[$edgeKey1] = true;
 
-                    if ($stateFilter === 'active' && !$val) {
-                        continue;
+                        $linkIdx = $this->linkCounter++;
+                        if ($visibleGroups[$gName]) {
+                            $graph .= "linkStyle $linkIdx stroke:#ff8a80,stroke-width:2px;\n";
+                        }
                     }
-                    if ($stateFilter === 'passive' && $val) {
-                        continue;
-                    }
 
-                    $syncId = "SYNC_" . md5($gName);
-                    $graph .= $syncId . " --> " . $tid . "\n";
+                    // 2. Bedroom Sync -> target
+                    if ($vid > 0) {
+                        $val = IPS_VariableExists($vid) ? (bool) GetValue($vid) : false;
 
-                    $linkIdx = $this->linkCounter++;
-                    if ($val) {
-                        $graph .= "linkStyle $linkIdx stroke:#ff8a80,stroke-width:2px;\n";
+                        if ($stateFilter === 'active' && !$val) {
+                            continue;
+                        }
+                        if ($stateFilter === 'passive' && $val) {
+                            continue;
+                        }
+
+                        $syncId = "SYNC_" . md5($gName);
+                        $edgeKey2 = $syncId . '->' . $tid;
+                        if (!isset($drawnEdges[$edgeKey2])) {
+                            $graph .= $syncId . " --> " . $tid . "\n";
+                            $drawnEdges[$edgeKey2] = true;
+
+                            $linkIdx = $this->linkCounter++;
+                            if ($val) {
+                                $graph .= "linkStyle $linkIdx stroke:#ff8a80,stroke-width:2px;\n";
+                            }
+                        }
                     }
                 }
             }
