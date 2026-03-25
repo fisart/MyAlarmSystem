@@ -1257,39 +1257,55 @@ class PropertyStateManager extends IPSModule
 
         // Parse Hardware Sensors
         foreach ($mapping as $item) {
-            // Check if SourceKey is an Active Sensor ID OR an Active Group Name
-            $isActive = in_array($item['SourceKey'], $activeSensors) || in_array($item['SourceKey'], $activeGroups);
 
-            switch ($item['LogicalRole']) {
+            $src  = (string)($item['SourceKey'] ?? '');
+            $role = (string)($item['LogicalRole'] ?? '');
+            $pol  = (string)($item['Polarity'] ?? '');
+
+            if ($pol === '') {
+                // Default polarity rules (backward compatible)
+                if ($role === 'Generic Door' || $role === 'Window Contact') {
+                    $pol = 'breach';   // active = open
+                } else {
+                    $pol = 'secure';   // active = true/closed/locked/present
+                }
+            }
+
+            // Raw signal from Module 1
+            $isActive = in_array($src, $activeSensors) || in_array($src, $activeGroups);
+
+            // Normalize into ONE truth
+            // secure  → active means TRUE
+            // breach  → active means FALSE (invert)
+            $isOn = ($pol === 'secure') ? $isActive : !$isActive;
+
+            switch ($role) {
+
                 case 'Front Door Lock':
-                    if ($isActive) $frontLocked = true;
+                    if ($isOn) $frontLocked = true;
                     break;
+
                 case 'Front Door Contact':
-                    if ($isActive) $frontClosed = true;
+                    if ($isOn) $frontClosed = true;
                     break;
+
                 case 'Basement Door Lock':
-                    if ($isActive) $baseLocked = true;
+                    if ($isOn) $baseLocked = true;
                     break;
+
                 case 'Basement Door Contact':
-                    if ($isActive) $baseClosed = true;
+                    if ($isOn) $baseClosed = true;
+                    break;
+
+                case 'Presence':
+                    if ($isOn) $presence = true;
                     break;
 
                 case 'Generic Door':
                 case 'Window Contact':
-                    // Polarity-aware interpretation:
-                    // raw meaning for these roles is currently "breach" (active = open).
-                    // If user sets Polarity="secure", we invert (active means closed).
-                    $polarity = (string)($item['Polarity'] ?? '');
-                    if ($polarity === '') $polarity = 'breach'; // keep old behavior if missing
-
-                    // Determine whether this row indicates "open" (breach) after applying polarity
-                    $isOpen = ($polarity === 'breach') ? $isActive : !$isActive;
-
+                    // For perimeter logic we need OPEN detection
+                    $isOpen = !$isOn;
                     if ($isOpen) $windowsClosed = false;
-                    break;
-
-                case 'Presence':
-                    if ($isActive) $presence = true;
                     break;
             }
         }
