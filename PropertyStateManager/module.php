@@ -845,75 +845,54 @@ class PropertyStateManager extends IPSModule
         $bits = 0;
 
         foreach ($mapping as $item) {
-            $isTripped = in_array($item['SourceKey'], $activeSensors) || in_array($item['SourceKey'], $activeGroups);
+            $src  = (string)($item['SourceKey'] ?? '');
+            $role = (string)($item['LogicalRole'] ?? '');
+            $pol  = (string)($item['Polarity'] ?? '');
 
-            // --- Polarity handling (display only) ---
-            $role     = (string)($item['LogicalRole'] ?? '');
-            $polarity = (string)($item['Polarity'] ?? '');
-
-            // Default polarity by role (keeps existing behavior if Polarity is missing)
-            if ($polarity === '') {
-                if ($role === 'Window Contact' || $role === 'Generic Door') {
-                    $polarity = 'breach'; // current convention: active means open
+            if ($pol === '') {
+                // Same defaults as EvaluateState()
+                if ($role === 'Generic Door' || $role === 'Window Contact') {
+                    $pol = 'breach';   // active = open
                 } else {
-                    $polarity = 'secure'; // locks/contacts/presence: active means secure/true
+                    $pol = 'secure';   // active = true/closed/locked/present
                 }
             }
 
-            // What the RAW signal currently means by role
-            $rawMeans = ($role === 'Window Contact' || $role === 'Generic Door') ? 'breach' : 'secure';
+            // Raw signal from runtime buffers
+            $isActive = in_array($src, $activeSensors) || in_array($src, $activeGroups);
 
-            // If user polarity differs from raw meaning, invert
-            $isOn = ($polarity === $rawMeans) ? $isTripped : !$isTripped;
-            // --- end polarity handling ---
+            // Same normalized truth as EvaluateState()
+            $isOn = ($pol === 'secure') ? $isActive : !$isActive;
 
             switch ($role) {
                 case 'Front Door Lock':
                     if ($isOn) $bits |= (1 << 0);
                     break;
+
                 case 'Front Door Contact':
                     if ($isOn) $bits |= (1 << 1);
                     break;
+
                 case 'Basement Door Lock':
                     if ($isOn) $bits |= (1 << 2);
                     break;
+
                 case 'Presence':
-                    // Presence is not a secure/breach sensor, but polarity default keeps current display
                     if ($isOn) $bits |= (1 << 3);
                     break;
+
                 case 'Basement Door Contact':
                     if ($isOn) $bits |= (1 << 7);
                     break;
+
                 case 'Window Contact':
-                    // Polarity-aware + group-level-aware
-                    $pol = (string)($item['Polarity'] ?? 'breach');
-
-                    // If SourceKey is a group-name, ActiveGroups usually means "breach active" (not "secure").
-                    // For secure polarity we invert for group-level entries.
-                    $src = (string)($item['SourceKey'] ?? '');
-                    $isGroupKey = ($src !== '' && !ctype_digit($src));
-
-                    $bitOn = $isTripped;
-                    if ($isGroupKey && $pol === 'secure') {
-                        $bitOn = !$isTripped;
-                    }
-
-                    if ($bitOn) $bits |= (1 << 8);
+                    // Bit 8 shows "Window Open", so it reflects the open state
+                    if (!$isOn) $bits |= (1 << 8);
                     break;
 
                 case 'Generic Door':
-                    // Polarity-aware + group-level-aware
-                    $pol = (string)($item['Polarity'] ?? 'breach');
-
-                    $src = (string)($item['SourceKey'] ?? '');
-                    $isGroupKey = ($src !== '' && !ctype_digit($src));
-
-                    $bitOn = $isTripped;
-                    if ($isGroupKey && $pol === 'secure') {
-                        $bitOn = !$isTripped;
-                    }
-
-                    if ($bitOn) $bits |= (1 << 9);
+                    // Bit 9 shows "Generic Door Open", so it reflects the open state
+                    if (!$isOn) $bits |= (1 << 9);
                     break;
             }
         }
