@@ -2750,7 +2750,7 @@ class SensorGroup extends IPSModule
             }
         }
 
-        // Bedroom switch nodes
+        // E. Bedroom switch nodes -> Bedroom Sync nodes (not logical group inputs)
         if ($showBedrooms && $depth === 'sensors') {
             foreach ($bedroomList as $b) {
                 $gName = (string) ($b['GroupName'] ?? '');
@@ -2772,14 +2772,18 @@ class SensorGroup extends IPSModule
                     continue;
                 }
 
-                $gid = "G_" . md5($gName);
                 $sid = "BS_" . $vid;
+                $syncId = "SYNC_" . md5($gName);
 
                 $style = $val ? "red" : "green";
                 $name = ($vid > 0 && IPS_VariableExists($vid)) ? IPS_GetName($vid) : "MISSING";
-                $label = $this->EscapeMermaidLabel($name . " (" . $vid . ")<br/>[Bedroom Switch]");
 
-                $graph .= $sid . "[\"" . $label . "\"]:::" . $style . " --> " . $gid . "\n";
+                $switchLabel = $this->EscapeMermaidLabel($name . " (" . $vid . ")<br/>[Bedroom Switch]");
+                $syncLabel   = $this->EscapeMermaidLabel("Bedroom Sync<br/>[" . $gName . "]");
+
+                $graph .= $sid . "[\"" . $switchLabel . "\"]:::" . $style . "\n";
+                $graph .= $syncId . "[\"" . $syncLabel . "\"]:::grey\n";
+                $graph .= $sid . " --> " . $syncId . "\n";
 
                 $linkIdx = $this->linkCounter++;
                 if ($val) {
@@ -2788,7 +2792,7 @@ class SensorGroup extends IPSModule
             }
         }
 
-        // Bedroom -> target
+        // Bedroom Sync -> target
         $bedTargetID = (int) ($conf['BedroomTarget'] ?? 0);
         if ($showBedrooms && $bedTargetID > 0) {
             $targetIsVisible = false;
@@ -2803,21 +2807,31 @@ class SensorGroup extends IPSModule
                 $tid = "T_" . $bedTargetID;
                 foreach ($bedroomList as $b) {
                     $gName = (string) ($b['GroupName'] ?? '');
-                    if ($gName === '' || !isset($visibleGroups[$gName])) {
+                    $vid   = (int) ($b['ActiveVariableID'] ?? 0);
+
+                    if ($gName === '' || $vid <= 0 || !isset($visibleGroups[$gName])) {
                         continue;
                     }
 
-                    $gid = "G_" . md5($gName);
-                    $graph .= $gid . " --> " . $tid . "\n";
+                    $val = ($vid > 0 && IPS_VariableExists($vid)) ? (bool) GetValue($vid) : false;
+
+                    if ($stateFilter === 'active' && !$val) {
+                        continue;
+                    }
+                    if ($stateFilter === 'passive' && $val) {
+                        continue;
+                    }
+
+                    $syncId = "SYNC_" . md5($gName);
+                    $graph .= $syncId . " --> " . $tid . "\n";
 
                     $linkIdx = $this->linkCounter++;
-                    if ($visibleGroups[$gName]) {
+                    if ($val) {
                         $graph .= "linkStyle $linkIdx stroke:#ff8a80,stroke-width:2px;\n";
                     }
                 }
             }
         }
-
         // C. Draw Classes
         if ($depth === 'classes' || $depth === 'sensors') {
             foreach ($groupMembers as $m) {
