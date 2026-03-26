@@ -3136,7 +3136,7 @@ class SensorGroup extends IPSModule
 
     <body>
     <div class="header">
-        <h2>System Hierarchy (Live)</h2>
+        <h2>Sensors and Groups (Live)</h2>
         <small>Instance ID: ' . $this->InstanceID . '</small>
         <br>
         <div class="filter-bar">
