@@ -1,0 +1,49 @@
+{
+    "export_type": "PSM_CONFIG",
+    "schema_version": 1,
+    "module_version": "7.2.0",
+    "exported_at": 1774560104,
+    "SensorGroupInstanceID": 23248,
+    "DispatchTargetID": 13861,
+    "GroupMapping": [
+        {
+            "SourceKey": "Main Entrance",
+            "LogicalRole": "Front Door Lock",
+            "Polarity": "breach"
+        },
+        {
+            "SourceKey": "All generic Doors",
+            "LogicalRole": "Generic Door",
+            "Polarity": "breach"
+        },
+        {
+            "SourceKey": "Occupancy",
+            "LogicalRole": "Presence",
+            "Polarity": "secure"
+        },
+        {
+            "SourceKey": "33706",
+            "LogicalRole": "Front Door Contact",
+            "Polarity": "breach"
+        },
+        {
+            "SourceKey": "32948",
+            "LogicalRole": "Basement Door Lock",
+            "Polarity": "breach"
+        },
+        {
+            "SourceKey": "20710",
+            "LogicalRole": "Basement Door Contact",
+            "Polarity": "breach"
+        }
+    ],
+    "DecisionMap": [],
+    "ArmingDelayDuration": 1,
+    "VaultInstanceID": 37065,
+    "BedroomDoorPolarity": "breach",
+    "StatePushTargets": [
+        {
+            "InstanceID": 59439
+        }
+    ]
+}
