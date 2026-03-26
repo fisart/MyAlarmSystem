@@ -1174,10 +1174,10 @@ class AlarmResponseManager extends IPSModule
 
     private function GetGraphStateFilter(): string
     {
-        $stateFilter = strtolower(trim((string) ($_GET['stateFilter'] ?? 'both')));
+        $stateFilter = strtolower(trim((string) ($_GET['stateFilter'] ?? 'active_eligible')));
 
-        if (!in_array($stateFilter, ['both', 'active', 'passive'], true)) {
-            $stateFilter = 'both';
+        if (!in_array($stateFilter, ['both', 'active', 'passive', 'eligible', 'active_eligible'], true)) {
+            $stateFilter = 'active_eligible';
         }
 
         return $stateFilter;
@@ -1337,7 +1337,7 @@ function getShowConditionsFilter() {
 
 function getStateFilter() {
     const el = document.getElementById("state-filter");
-    return el ? el.value : "both";
+    return el ? el.value : "active_eligible";
 }
 
 async function fetchAndUpdateGraph() {
@@ -1482,8 +1482,10 @@ document.addEventListener("DOMContentLoaded", () => {
     <label style="white-space:nowrap;">
         State:
         <select id="state-filter" style="margin-left:8px;">
-            <option value="both" selected>Both</option>
+            <option value="both">Both</option>
             <option value="active">Only Active</option>
+            <option value="eligible">Only Eligible</option>
+            <option value="active_eligible" selected>Active + Eligible</option>
             <option value="passive">Only Passive</option>
         </select>
     </label>
@@ -3112,14 +3114,24 @@ document.addEventListener("DOMContentLoaded", () => {
         $showConditions = $this->GetShowConditions();
         $stateFilter = $this->GetGraphStateFilter();
 
-        $matchesStateFilter = static function (bool $isActive) use ($stateFilter): bool {
-            if ($stateFilter === 'active') {
-                return $isActive;
+        $matchesStateFilter = static function (bool $isActive, bool $isEligible) use ($stateFilter): bool {
+            switch ($stateFilter) {
+                case 'active':
+                    return $isActive;
+
+                case 'eligible':
+                    return $isEligible && !$isActive;
+
+                case 'active_eligible':
+                    return $isActive || $isEligible;
+
+                case 'passive':
+                    return !$isActive && !$isEligible;
+
+                case 'both':
+                default:
+                    return true;
             }
-            if ($stateFilter === 'passive') {
-                return !$isActive;
-            }
-            return true;
         };
 
         $allGroups = $this->ExtractImportedGroupsFromConfig();
@@ -3183,7 +3195,6 @@ document.addEventListener("DOMContentLoaded", () => {
             }
         }
 
-        $visibleRules = [];
         $activeRuleIDs = [];
         $lastActiveRuleIDs = json_decode($this->ReadAttributeString('LastActiveRuleIDs'), true);
         if (is_array($lastActiveRuleIDs)) {
@@ -3195,7 +3206,6 @@ document.addEventListener("DOMContentLoaded", () => {
             }
         }
 
-        $visibleOutputs = [];
         $activeOutputIDs = [];
         $lastActiveOutputIDs = json_decode($this->ReadAttributeString('LastActiveOutputIDs'), true);
         if (is_array($lastActiveOutputIDs)) {
@@ -3207,18 +3217,93 @@ document.addEventListener("DOMContentLoaded", () => {
             }
         }
 
+        $outputsByID = [];
+        foreach ($outputs as $row) {
+            $outputID = trim((string) ($row['OutputID'] ?? ''));
+            if ($outputID !== '') {
+                $outputsByID[$outputID] = $row;
+            }
+        }
+
+        $eligibleRuleIDs = [];
+        foreach ($rules as $rule) {
+            $ruleID = trim((string) ($rule['RuleID'] ?? ''));
+            $groupKey = trim((string) ($rule['GroupKey'] ?? ''));
+            if ($ruleID === '' || $groupKey === '' || !isset($visibleGroupKeys[$groupKey])) {
+                continue;
+            }
+
+            $ruleState = trim((string) ($rule['HouseState'] ?? ''));
+            if ($currentHouseState === null || $ruleState !== $currentHouseState) {
+                continue;
+            }
+
+            if (!(bool) ($rule['Active'] ?? false)) {
+                continue;
+            }
+
+            $conditionOK = true;
+            $conditionGroupKey = trim((string) ($rule['ConditionGroupKey'] ?? ''));
+            $conditionMode = trim((string) ($rule['ConditionMode'] ?? ''));
+
+            if ($conditionGroupKey !== '' && $conditionMode !== '') {
+                $conditionOK = $this->isRuleConditionCurrentlySatisfied($rule);
+            }
+
+            if (!$conditionOK) {
+                continue;
+            }
+
+            $eligibleRuleIDs[$ruleID] = true;
+        }
+
+        $eligibleAssignmentIDs = [];
+        $eligibleOutputIDs = [];
+        foreach ($assignments as $assignment) {
+            $assignmentID = trim((string) ($assignment['AssignmentID'] ?? ''));
+            $ruleID = trim((string) ($assignment['RuleID'] ?? ''));
+            $outputID = trim((string) ($assignment['OutputID'] ?? ''));
+
+            if ($assignmentID === '' || $ruleID === '' || $outputID === '') {
+                continue;
+            }
+
+            if (!isset($eligibleRuleIDs[$ruleID])) {
+                continue;
+            }
+
+            $eligibleAssignmentIDs[$assignmentID] = true;
+            $eligibleOutputIDs[$outputID] = true;
+        }
+
         $groupVisibleMap = [];
         foreach ($groups as $group) {
             $groupKey = trim((string) ($group['GroupKey'] ?? ''));
             if ($groupKey === '') {
                 continue;
             }
+
             $isActive = isset($activeGroups[$groupKey]);
-            if ($matchesStateFilter($isActive)) {
+            $isEligible = false;
+
+            foreach ($rules as $rule) {
+                if ((string) ($rule['GroupKey'] ?? '') !== $groupKey) {
+                    continue;
+                }
+
+                $ruleID = trim((string) ($rule['RuleID'] ?? ''));
+                if ($ruleID !== '' && isset($eligibleRuleIDs[$ruleID])) {
+                    $isEligible = true;
+                    break;
+                }
+            }
+
+            if ($matchesStateFilter($isActive, $isEligible)) {
                 $groupVisibleMap[$groupKey] = true;
             }
         }
 
+        $visibleRules = [];
         $ruleVisibleMap = [];
         foreach ($rules as $rule) {
             $ruleID = trim((string) ($rule['RuleID'] ?? ''));
@@ -3229,23 +3314,17 @@ document.addEventListener("DOMContentLoaded", () => {
             if (!isset($groupVisibleMap[$groupKey])) {
                 continue;
             }
+
             $isActive = isset($activeRuleIDs[$ruleID]);
-            if ($matchesStateFilter($isActive)) {
+            $isEligible = isset($eligibleRuleIDs[$ruleID]);
+
+            if ($matchesStateFilter($isActive, $isEligible)) {
                 $ruleVisibleMap[$ruleID] = true;
                 $visibleRules[] = $rule;
             }
         }
 
-        $outputsByID = [];
-        foreach ($outputs as $row) {
-            $outputID = trim((string) ($row['OutputID'] ?? ''));
-            if ($outputID !== '') {
-                $outputsByID[$outputID] = $row;
-            }
-        }
-
         $visibleAssignments = [];
-        $assignmentVisibleMap = [];
         foreach ($assignments as $assignment) {
             $assignmentID = trim((string) ($assignment['AssignmentID'] ?? ''));
             $ruleID = trim((string) ($assignment['RuleID'] ?? ''));
@@ -3258,16 +3337,20 @@ document.addEventListener("DOMContentLoaded", () => {
                 continue;
             }
 
-            $assignmentActive = isset($activeRuleIDs[$ruleID]) && isset($activeOutputIDs[$outputID]);
-            if ($matchesStateFilter($assignmentActive)) {
-                $assignmentVisibleMap[$assignmentID] = true;
+            $isActive = isset($activeRuleIDs[$ruleID]) && isset($activeOutputIDs[$outputID]);
+            $isEligible = isset($eligibleAssignmentIDs[$assignmentID]);
+
+            if ($matchesStateFilter($isActive, $isEligible)) {
                 $visibleAssignments[] = $assignment;
             }
         }
 
+        $visibleOutputs = [];
         foreach ($outputsByID as $outputID => $output) {
             $isActive = isset($activeOutputIDs[$outputID]);
-            if ($matchesStateFilter($isActive)) {
+            $isEligible = isset($eligibleOutputIDs[$outputID]);
+
+            if ($matchesStateFilter($isActive, $isEligible)) {
                 $visibleOutputs[$outputID] = true;
             }
         }
@@ -3319,60 +3402,28 @@ document.addEventListener("DOMContentLoaded", () => {
             $groupNode = 'G_' . substr(md5($groupKey), 0, 10);
             $groupLabel = $groupLabels[$groupKey] ?? $groupKey;
 
+            $groupActive = isset($activeGroups[$groupKey]);
+            $groupEligible = false;
+            foreach ($rules as $rule) {
+                if ((string) ($rule['GroupKey'] ?? '') !== $groupKey) {
+                    continue;
+                }
+                $ruleID = trim((string) ($rule['RuleID'] ?? ''));
+                if ($ruleID !== '' && isset($eligibleRuleIDs[$ruleID])) {
+                    $groupEligible = true;
+                    break;
+                }
+            }
+
+            $groupClass = 'green';
+            if ($groupActive) {
+                $groupClass = 'red';
+            } elseif ($groupEligible) {
+                $groupClass = 'blue';
+            }
+
             $lines[] = $groupNode . '["' . $this->MermaidEscape($groupLabel) . '"]';
-            $lines[] = 'class ' . $groupNode . ' ' . (isset($activeGroups[$groupKey]) ? 'red' : 'green') . ';';
-        }
-
-        $eligibleRuleIDs = [];
-        $eligibleOutputIDs = [];
-        $eligibleAssignmentIDs = [];
-
-        foreach ($visibleRules as $rule) {
-            $ruleID = trim((string) ($rule['RuleID'] ?? ''));
-            $groupKey = trim((string) ($rule['GroupKey'] ?? ''));
-            if ($ruleID === '' || $groupKey === '' || !isset($groupVisibleMap[$groupKey])) {
-                continue;
-            }
-
-            $ruleState = trim((string) ($rule['HouseState'] ?? ''));
-            if ($currentHouseState === null || $ruleState !== $currentHouseState) {
-                continue;
-            }
-
-            if (!(bool) ($rule['Active'] ?? false)) {
-                continue;
-            }
-
-            $conditionOK = true;
-            $conditionGroupKey = trim((string) ($rule['ConditionGroupKey'] ?? ''));
-            $conditionMode = trim((string) ($rule['ConditionMode'] ?? ''));
-
-            if ($conditionGroupKey !== '' && $conditionMode !== '') {
-                $conditionOK = $this->isRuleConditionCurrentlySatisfied($rule);
-            }
-
-            if (!$conditionOK) {
-                continue;
-            }
-
-            $eligibleRuleIDs[$ruleID] = true;
-        }
-
-        foreach ($visibleAssignments as $assignment) {
-            $assignmentID = trim((string) ($assignment['AssignmentID'] ?? ''));
-            $ruleID = trim((string) ($assignment['RuleID'] ?? ''));
-            $outputID = trim((string) ($assignment['OutputID'] ?? ''));
-
-            if ($assignmentID === '' || $ruleID === '' || $outputID === '') {
-                continue;
-            }
-
-            if (!isset($eligibleRuleIDs[$ruleID])) {
-                continue;
-            }
-
-            $eligibleAssignmentIDs[$assignmentID] = true;
-            $eligibleOutputIDs[$outputID] = true;
+            $lines[] = 'class ' . $groupNode . ' ' . $groupClass . ';';
         }
 
         foreach ($visibleRules as $rule) {
