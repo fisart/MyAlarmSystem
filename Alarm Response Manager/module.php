@@ -3162,6 +3162,12 @@ document.addEventListener("DOMContentLoaded", () => {
         $groupLabels = $this->buildGroupLabels($allGroups, $rules);
         $typeLabels = $this->buildTypeLabels($this->GetBuiltInOutputTypes(), $outputs);
 
+        $currentHouseState = null;
+        $cachedHouse = $this->GetCachedHouseStateSnapshot();
+        if ($cachedHouse !== null) {
+            $currentHouseState = (string) ((int) ($cachedHouse['system_state_id'] ?? 0));
+        }
+
         $activeGroups = [];
         $lastActiveGroups = json_decode($this->ReadAttributeString('LastActiveGroups'), true);
         if (is_array($lastActiveGroups)) {
@@ -3270,12 +3276,12 @@ document.addEventListener("DOMContentLoaded", () => {
         $lines[] = 'graph LR';
         $lines[] = 'classDef green fill:#2e7d32,stroke:#a5d6a7,stroke-width:2px,color:#fff;';
         $lines[] = 'classDef red fill:#c62828,stroke:#ff8a80,stroke-width:2px,color:#fff;';
+        $lines[] = 'classDef blue fill:#1565c0,stroke:#90caf9,stroke-width:2px,color:#fff;';
         $lines[] = 'classDef grey fill:#37474f,stroke:#546e7a,stroke-width:1px,color:#eee;';
         $lines[] = 'classDef info fill:#1565c0,stroke:#90caf9,stroke-width:2px,color:#fff;';
 
         $houseStateNode = 'HS_' . substr(md5((string) $this->InstanceID), 0, 10);
         if ($depth === 'full') {
-            $cachedHouse = $this->GetCachedHouseStateSnapshot();
             if ($cachedHouse !== null) {
                 $houseStateID = (string) ((int) ($cachedHouse['system_state_id'] ?? 0));
                 $houseStateName = trim((string) ($cachedHouse['system_state_name'] ?? ''));
@@ -3317,6 +3323,58 @@ document.addEventListener("DOMContentLoaded", () => {
             $lines[] = 'class ' . $groupNode . ' ' . (isset($activeGroups[$groupKey]) ? 'red' : 'green') . ';';
         }
 
+        $eligibleRuleIDs = [];
+        $eligibleOutputIDs = [];
+        $eligibleAssignmentIDs = [];
+
+        foreach ($visibleRules as $rule) {
+            $ruleID = trim((string) ($rule['RuleID'] ?? ''));
+            $groupKey = trim((string) ($rule['GroupKey'] ?? ''));
+            if ($ruleID === '' || $groupKey === '' || !isset($groupVisibleMap[$groupKey])) {
+                continue;
+            }
+
+            $ruleState = trim((string) ($rule['HouseState'] ?? ''));
+            if ($currentHouseState === null || $ruleState !== $currentHouseState) {
+                continue;
+            }
+
+            if (!(bool) ($rule['Active'] ?? false)) {
+                continue;
+            }
+
+            $conditionOK = true;
+            $conditionGroupKey = trim((string) ($rule['ConditionGroupKey'] ?? ''));
+            $conditionMode = trim((string) ($rule['ConditionMode'] ?? ''));
+
+            if ($conditionGroupKey !== '' && $conditionMode !== '') {
+                $conditionOK = $this->isRuleConditionCurrentlySatisfied($rule);
+            }
+
+            if (!$conditionOK) {
+                continue;
+            }
+
+            $eligibleRuleIDs[$ruleID] = true;
+        }
+
+        foreach ($visibleAssignments as $assignment) {
+            $assignmentID = trim((string) ($assignment['AssignmentID'] ?? ''));
+            $ruleID = trim((string) ($assignment['RuleID'] ?? ''));
+            $outputID = trim((string) ($assignment['OutputID'] ?? ''));
+
+            if ($assignmentID === '' || $ruleID === '' || $outputID === '') {
+                continue;
+            }
+
+            if (!isset($eligibleRuleIDs[$ruleID])) {
+                continue;
+            }
+
+            $eligibleAssignmentIDs[$assignmentID] = true;
+            $eligibleOutputIDs[$outputID] = true;
+        }
+
         foreach ($visibleRules as $rule) {
             $ruleID = trim((string) ($rule['RuleID'] ?? ''));
             $groupKey = trim((string) ($rule['GroupKey'] ?? ''));
@@ -3327,6 +3385,7 @@ document.addEventListener("DOMContentLoaded", () => {
             $groupNode = 'G_' . substr(md5($groupKey), 0, 10);
             $ruleNode = 'R_' . substr(md5($ruleID), 0, 10);
             $ruleActive = isset($activeRuleIDs[$ruleID]);
+            $ruleEligible = isset($eligibleRuleIDs[$ruleID]);
 
             $ruleLabel = $this->buildRuleLabel($rule, $groupLabels);
             $severity = trim((string) ($rule['Severity'] ?? ''));
@@ -3345,8 +3404,22 @@ document.addEventListener("DOMContentLoaded", () => {
 
             $lines[] = $ruleNode . '["' . $this->MermaidEscape(implode("\n", $parts)) . '"]';
             $lines[] = $groupNode . ' --> ' . $ruleNode;
-            $lines[] = 'class ' . $ruleNode . ' ' . ($ruleActive ? 'red' : 'green') . ';';
-            $lines[] = 'linkStyle ' . $linkCounter . ' stroke:' . ($ruleActive ? '#ff8a80' : '#a5d6a7') . ',stroke-width:2px;';
+
+            $ruleClass = 'green';
+            if ($ruleActive) {
+                $ruleClass = 'red';
+            } elseif ($ruleEligible) {
+                $ruleClass = 'blue';
+            }
+            $lines[] = 'class ' . $ruleNode . ' ' . $ruleClass . ';';
+
+            $ruleStroke = '#a5d6a7';
+            if ($ruleActive) {
+                $ruleStroke = '#ff8a80';
+            } elseif ($ruleEligible) {
+                $ruleStroke = '#90caf9';
+            }
+            $lines[] = 'linkStyle ' . $linkCounter . ' stroke:' . $ruleStroke . ',stroke-width:2px;';
             $linkCounter++;
 
             $conditionGroupKey = trim((string) ($rule['ConditionGroupKey'] ?? ''));
@@ -3387,6 +3460,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 $assignmentNode = 'A_' . substr(md5($assignmentID), 0, 10);
                 $ruleNode = 'R_' . substr(md5($ruleID), 0, 10);
                 $assignmentActive = isset($activeRuleIDs[$ruleID]) && isset($activeOutputIDs[$outputID]);
+                $assignmentEligible = isset($eligibleAssignmentIDs[$assignmentID]);
 
                 $assignmentLabel = 'Output Action';
                 if (isset($outputsByID[$outputID])) {
@@ -3398,8 +3472,22 @@ document.addEventListener("DOMContentLoaded", () => {
 
                 $lines[] = $assignmentNode . '["' . $this->MermaidEscape($assignmentLabel) . '"]';
                 $lines[] = $ruleNode . ' --> ' . $assignmentNode;
-                $lines[] = 'class ' . $assignmentNode . ' ' . ($assignmentActive ? 'red' : 'green') . ';';
-                $lines[] = 'linkStyle ' . $linkCounter . ' stroke:' . ($assignmentActive ? '#ff8a80' : '#a5d6a7') . ',stroke-width:2px;';
+
+                $assignmentClass = 'green';
+                if ($assignmentActive) {
+                    $assignmentClass = 'red';
+                } elseif ($assignmentEligible) {
+                    $assignmentClass = 'blue';
+                }
+                $lines[] = 'class ' . $assignmentNode . ' ' . $assignmentClass . ';';
+
+                $assignmentStroke = '#a5d6a7';
+                if ($assignmentActive) {
+                    $assignmentStroke = '#ff8a80';
+                } elseif ($assignmentEligible) {
+                    $assignmentStroke = '#90caf9';
+                }
+                $lines[] = 'linkStyle ' . $linkCounter . ' stroke:' . $assignmentStroke . ',stroke-width:2px;';
                 $linkCounter++;
 
                 if (!isset($visibleOutputs[$outputID])) {
@@ -3423,6 +3511,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 $targetObjectID = (int) ($output['TargetObjectID'] ?? 0);
                 $outputName = trim((string) ($output['Name'] ?? ''));
                 $outputNodeActive = isset($activeOutputIDs[$outputID]);
+                $outputNodeEligible = isset($eligibleOutputIDs[$outputID]);
 
                 $parts = [];
                 $parts[] = $outputName !== '' ? $outputName : $outputID;
@@ -3433,8 +3522,22 @@ document.addEventListener("DOMContentLoaded", () => {
 
                 $lines[] = $outputNode . '["' . $this->MermaidEscape(implode("\n", $parts)) . '"]';
                 $lines[] = $assignmentNode . ' --> ' . $outputNode;
-                $lines[] = 'class ' . $outputNode . ' ' . ($outputNodeActive ? 'red' : 'green') . ';';
-                $lines[] = 'linkStyle ' . $linkCounter . ' stroke:' . ($assignmentActive ? '#ff8a80' : '#a5d6a7') . ',stroke-width:2px;';
+
+                $outputClass = 'green';
+                if ($outputNodeActive) {
+                    $outputClass = 'red';
+                } elseif ($outputNodeEligible) {
+                    $outputClass = 'blue';
+                }
+                $lines[] = 'class ' . $outputNode . ' ' . $outputClass . ';';
+
+                $outputStroke = '#a5d6a7';
+                if ($outputNodeActive) {
+                    $outputStroke = '#ff8a80';
+                } elseif ($outputNodeEligible) {
+                    $outputStroke = '#90caf9';
+                }
+                $lines[] = 'linkStyle ' . $linkCounter . ' stroke:' . $outputStroke . ',stroke-width:2px;';
                 $linkCounter++;
             }
         }
