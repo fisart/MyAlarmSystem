@@ -737,7 +737,7 @@ class PropertyStateManager extends IPSModule
 
         // HEADER with Sync Button
         echo "<div class='header'>
-                Logic Analysis 
+                Property State 
                 <a href='?sync=1' class='btn-sync'>↻ Sync</a>
               </div>";
 
@@ -746,16 +746,16 @@ class PropertyStateManager extends IPSModule
         echo "<h3>Sensor Status</h3>";
 
         $labels = [
-            "Front Door Lock",        // Bit 0
-            "Front Door Contact",     // Bit 1
-            "Basement Door Lock",     // Bit 2
-            "Presence Detected",      // Bit 3
-            "Delay Timer Active",     // Bit 4
-            "System Currently Armed", // Bit 5
-            "Bedroom Door Open",      // Bit 6
-            "Basement Door Contact",  // Bit 7
-            "Window Open",            // Bit 8
-            "Generic Door Open"       // Bit 9 (NEW)
+            "Front Door Lock",          // Bit 0
+            "Front Door Contact",       // Bit 1
+            "Basement Door Lock",       // Bit 2
+            "Presence",                 // Bit 3
+            "Delay Timer",              // Bit 4
+            "System Status",            // Bit 5
+            "Bedroom Door",             // Bit 6
+            "Basement Door Contact",    // Bit 7
+            "Window",                   // Bit 8
+            "Generic Door"              // Bit 9 (NEW)
         ];
 
         // Grouped Panels (display only; keeps bit_0..bit_9 IDs unchanged)
