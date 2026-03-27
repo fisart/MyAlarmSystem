@@ -1499,7 +1499,7 @@ mermaid.initialize({
 let isRendering = false;
 let lastGraphString = "";
 let pzInstance = null;
-function attachTouchPinchZoom(svgEl, panZoomInstance) {
+function attachTouchPinchZoom(svgEl, gestureEl, panZoomInstance) {
     if (!svgEl || !panZoomInstance) {
         return;
     }
@@ -1527,7 +1527,7 @@ function attachTouchPinchZoom(svgEl, panZoomInstance) {
         return ctm ? pt.matrixTransform(ctm.inverse()) : { x: clientX, y: clientY };
     };
 
-    svgEl.addEventListener("touchstart", (ev) => {
+    gestureEl.addEventListener("touchstart", (ev) => {
         if (ev.touches.length !== 2) {
             pinchState = null;
             return;
@@ -1547,7 +1547,7 @@ function attachTouchPinchZoom(svgEl, panZoomInstance) {
         };
     }, { passive: false });
 
-    svgEl.addEventListener("touchmove", (ev) => {
+    gestureEl.addEventListener("touchmove", (ev) => {
         if (ev.touches.length !== 2 || pinchState === null) {
             return;
         }
@@ -1575,8 +1575,8 @@ function attachTouchPinchZoom(svgEl, panZoomInstance) {
         pinchState = null;
     };
 
-    svgEl.addEventListener("touchend", resetPinch, { passive: true });
-    svgEl.addEventListener("touchcancel", resetPinch, { passive: true });
+    gestureEl.addEventListener("touchend", resetPinch, { passive: true });
+    gestureEl.addEventListener("touchcancel", resetPinch, { passive: true });
 }
 async function saveGroupFilter() {
     const selected = Array.from(document.querySelectorAll(".group-toggle:checked")).map(cb => cb.value);
@@ -1711,7 +1711,7 @@ pzInstance = svgPanZoom(svgEl, {
     eventsListenerElement: pzContainer
 });
 
-attachTouchPinchZoom(svgEl, pzInstance);
+attachTouchPinchZoom(svgEl, pzContainer, pzInstance);
 
             if (oldZoom !== null) {
                 pzInstance.zoom(oldZoom);
