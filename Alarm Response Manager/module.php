@@ -1247,17 +1247,30 @@ class AlarmResponseManager extends IPSModule
             }
         }
 
+        $selectedOutputLabels = [];
         $outputFilterOptionsHtml = '';
         foreach ($outputOptions as $item) {
             $outputID = (string) ($item['OutputID'] ?? '');
             $label    = (string) ($item['Label'] ?? $outputID);
             $selected = isset($selectedOutputIDs[$outputID]) ? ' selected' : '';
 
+            if (isset($selectedOutputIDs[$outputID])) {
+                $selectedOutputLabels[] = $label;
+            }
+
             $outputFilterOptionsHtml .= '<option value="'
                 . htmlspecialchars($outputID, ENT_QUOTES, 'UTF-8')
                 . '"' . $selected . '>'
                 . htmlspecialchars($label, ENT_QUOTES, 'UTF-8')
                 . '</option>';
+        }
+
+        $outputSummaryText = 'All outputs';
+        $selectedCount = count($selectedOutputLabels);
+        if ($selectedCount === 1) {
+            $outputSummaryText = $selectedOutputLabels[0];
+        } elseif ($selectedCount > 1) {
+            $outputSummaryText = $selectedCount . ' selected';
         }
 
         // 2. Graph filter save API
@@ -1356,19 +1369,106 @@ body{
 }
 #mermaid-container { position:absolute; inset:0; overflow:hidden; }
 #mermaid-container svg { width:100% !important; height:100% !important; max-width:none !important; display:block; }
-#output-filter{
-    min-width:280px;
+
+.graph-controls{
+    margin-bottom:12px;
+    padding:10px 12px;
+    border:1px solid #333;
+    border-radius:8px;
+    background:#252526;
+    display:flex;
+    gap:18px;
+    align-items:center;
+    flex-wrap:wrap;
+    position:relative;
+}
+
+.output-picker-wrap{
+    position:relative;
+    display:flex;
+    align-items:center;
+    gap:8px;
+}
+
+.output-picker-button{
+    background:#1e1e1e;
+    color:#cfcfcf;
+    border:1px solid #555;
+    border-radius:4px;
+    padding:6px 10px;
+    cursor:pointer;
+}
+
+.output-picker-button:hover{
+    border-color:#777;
+}
+
+.output-summary{
+    font-size:12px;
+    color:#9aa0a6;
+    max-width:240px;
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+}
+
+.output-popup{
+    position:absolute;
+    top:calc(100% + 8px);
+    left:0;
+    min-width:340px;
     max-width:420px;
-    height:120px;
+    background:#1f1f1f;
+    border:1px solid #555;
+    border-radius:8px;
+    padding:12px;
+    box-shadow:0 8px 24px rgba(0,0,0,0.45);
+    z-index:1000;
+    display:none;
+}
+
+.output-popup.open{
+    display:block;
+}
+
+.output-popup-header{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    margin-bottom:8px;
+    gap:10px;
+}
+
+.output-popup-actions{
+    display:flex;
+    gap:8px;
+    flex-wrap:wrap;
+}
+
+.output-popup-link{
+    color:#90caf9;
+    cursor:pointer;
+    text-decoration:none;
+    font-size:12px;
+}
+
+.output-popup-link:hover{
+    text-decoration:underline;
+}
+
+#output-filter{
+    width:100%;
+    height:220px;
     background:#1e1e1e;
     color:#cfcfcf;
     border:1px solid #555;
     border-radius:4px;
 }
+
 .filter-help{
     font-size:11px;
     color:#9aa0a6;
-    margin-top:4px;
+    margin-top:6px;
 }
 </style>
 
@@ -1420,6 +1520,52 @@ function getOutputFilter() {
     }
 
     return Array.from(el.selectedOptions).map(opt => opt.value).filter(v => v !== "").join(",");
+}
+
+function updateOutputSummary() {
+    const el = document.getElementById("output-filter");
+    const summaryEl = document.getElementById("output-summary");
+
+    if (!el || !summaryEl) {
+        return;
+    }
+
+    const selected = Array.from(el.selectedOptions).map(opt => opt.text).filter(v => v !== "");
+
+    if (selected.length === 0) {
+        summaryEl.textContent = "All outputs";
+    } else if (selected.length === 1) {
+        summaryEl.textContent = selected[0];
+    } else {
+        summaryEl.textContent = selected.length + " selected";
+    }
+}
+
+function openOutputPopup() {
+    const popup = document.getElementById("output-popup");
+    if (popup) {
+        popup.classList.add("open");
+    }
+}
+
+function closeOutputPopup() {
+    const popup = document.getElementById("output-popup");
+    if (popup) {
+        popup.classList.remove("open");
+    }
+}
+
+function setAllOutputsSelected(selected) {
+    const el = document.getElementById("output-filter");
+    if (!el) {
+        return;
+    }
+
+    Array.from(el.options).forEach(opt => {
+        opt.selected = selected;
+    });
+
+    updateOutputSummary();
 }
 
 async function fetchAndUpdateGraph() {
@@ -1543,11 +1689,67 @@ document.addEventListener("DOMContentLoaded", () => {
     const outputFilter = document.getElementById("output-filter");
     if (outputFilter) {
         outputFilter.addEventListener("change", async () => {
+            updateOutputSummary();
             lastGraphString = "";
             await fetchAndUpdateGraph();
         });
     }
 
+    const outputButton = document.getElementById("open-output-popup");
+    if (outputButton) {
+        outputButton.addEventListener("click", (ev) => {
+            ev.preventDefault();
+            ev.stopPropagation();
+            const popup = document.getElementById("output-popup");
+            if (!popup) {
+                return;
+            }
+            popup.classList.toggle("open");
+        });
+    }
+
+    const outputClose = document.getElementById("close-output-popup");
+    if (outputClose) {
+        outputClose.addEventListener("click", (ev) => {
+            ev.preventDefault();
+            closeOutputPopup();
+        });
+    }
+
+    const outputAll = document.getElementById("select-all-outputs");
+    if (outputAll) {
+        outputAll.addEventListener("click", async (ev) => {
+            ev.preventDefault();
+            setAllOutputsSelected(true);
+            lastGraphString = "";
+            await fetchAndUpdateGraph();
+        });
+    }
+
+    const outputNone = document.getElementById("clear-all-outputs");
+    if (outputNone) {
+        outputNone.addEventListener("click", async (ev) => {
+            ev.preventDefault();
+            setAllOutputsSelected(false);
+            lastGraphString = "";
+            await fetchAndUpdateGraph();
+        });
+    }
+
+    document.addEventListener("click", (ev) => {
+        const popup = document.getElementById("output-popup");
+        const wrap = document.querySelector(".output-picker-wrap");
+
+        if (!popup || !wrap) {
+            return;
+        }
+
+        if (!wrap.contains(ev.target)) {
+            popup.classList.remove("open");
+        }
+    });
+
+    updateOutputSummary();
     fetchAndUpdateGraph();
     setInterval(fetchAndUpdateGraph, 2000);
 });
@@ -1560,7 +1762,7 @@ document.addEventListener("DOMContentLoaded", () => {
     <small>Instance ID: ' . $this->InstanceID . '</small>
 </div>
 ' . $filterBarHtml . '
-<div style="margin-bottom:12px;padding:10px 12px;border:1px solid #333;border-radius:8px;background:#252526;display:flex;gap:18px;align-items:flex-start;flex-wrap:wrap;">
+<div class="graph-controls">
     <label style="white-space:nowrap;">
         Depth:
         <select id="depth-filter" style="margin-left:8px;">
@@ -1585,12 +1787,29 @@ document.addEventListener("DOMContentLoaded", () => {
         <input type="checkbox" id="show-conditions" checked> Show conditions
     </label>
 
-    <div style="display:flex;flex-direction:column;min-width:320px;">
-        <label for="output-filter" style="margin-bottom:6px;">Outputs:</label>
-        <select id="output-filter" multiple>
-            ' . $outputFilterOptionsHtml . '
-        </select>
-        <div class="filter-help">No selection = show all outputs. Multi-select filters full upstream paths by output.</div>
+    <div class="output-picker-wrap">
+        <span>Outputs:</span>
+        <button id="open-output-popup" type="button" class="output-picker-button">Select outputs</button>
+        <span id="output-summary" class="output-summary">' . htmlspecialchars($outputSummaryText, ENT_QUOTES, 'UTF-8') . '</span>
+
+        <div id="output-popup" class="output-popup">
+            <div class="output-popup-header">
+                <strong>Output filter</strong>
+                <a href="#" id="close-output-popup" class="output-popup-link">Close</a>
+            </div>
+
+            <div class="output-popup-actions">
+                <a href="#" id="select-all-outputs" class="output-popup-link">All</a>
+                <a href="#" id="clear-all-outputs" class="output-popup-link">None</a>
+            </div>
+
+            <div style="margin-top:10px;">
+                <select id="output-filter" multiple>
+                    ' . $outputFilterOptionsHtml . '
+                </select>
+                <div class="filter-help">No selection = show all outputs. Multi-select filters full upstream paths by output.</div>
+            </div>
+        </div>
     </div>
 </div>
 <div class="container">
