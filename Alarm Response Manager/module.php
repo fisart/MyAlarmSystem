@@ -1201,6 +1201,65 @@ class AlarmResponseManager extends IPSModule
 
         $groups = $this->ExtractImportedGroupsFromConfig();
 
+        // Build output filter options for Mermaid page
+        $outputRows = $this->readListProperty('OutputResources');
+        $outputOptions = [];
+
+        foreach ($outputRows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $outputID = trim((string) ($row['OutputID'] ?? ''));
+            if ($outputID === '') {
+                continue;
+            }
+
+            $outputName = trim((string) ($row['Name'] ?? ''));
+            $typeID     = trim((string) ($row['TypeID'] ?? ''));
+
+            if ($outputName === '') {
+                $outputName = $outputID;
+            }
+
+            if ($typeID !== '') {
+                $outputName .= ' [' . $typeID . ']';
+            }
+
+            $outputOptions[$outputID] = [
+                'OutputID' => $outputID,
+                'Label'    => $outputName
+            ];
+        }
+
+        uasort($outputOptions, static function (array $a, array $b): int {
+            return strnatcasecmp((string) ($a['Label'] ?? ''), (string) ($b['Label'] ?? ''));
+        });
+
+        $selectedOutputIDs = [];
+        $rawOutputFilter = (string) ($_GET['outputFilter'] ?? '');
+        if ($rawOutputFilter !== '') {
+            foreach (explode(',', $rawOutputFilter) as $outputIDRaw) {
+                $outputID = trim((string) $outputIDRaw);
+                if ($outputID !== '') {
+                    $selectedOutputIDs[$outputID] = true;
+                }
+            }
+        }
+
+        $outputFilterOptionsHtml = '';
+        foreach ($outputOptions as $item) {
+            $outputID = (string) ($item['OutputID'] ?? '');
+            $label    = (string) ($item['Label'] ?? $outputID);
+            $selected = isset($selectedOutputIDs[$outputID]) ? ' selected' : '';
+
+            $outputFilterOptionsHtml .= '<option value="'
+                . htmlspecialchars($outputID, ENT_QUOTES, 'UTF-8')
+                . '"' . $selected . '>'
+                . htmlspecialchars($label, ENT_QUOTES, 'UTF-8')
+                . '</option>';
+        }
+
         // 2. Graph filter save API
         if (isset($_GET['filter_api'])) {
             $selected = [];
@@ -1297,6 +1356,20 @@ body{
 }
 #mermaid-container { position:absolute; inset:0; overflow:hidden; }
 #mermaid-container svg { width:100% !important; height:100% !important; max-width:none !important; display:block; }
+#output-filter{
+    min-width:280px;
+    max-width:420px;
+    height:120px;
+    background:#1e1e1e;
+    color:#cfcfcf;
+    border:1px solid #555;
+    border-radius:4px;
+}
+.filter-help{
+    font-size:11px;
+    color:#9aa0a6;
+    margin-top:4px;
+}
 </style>
 
 <script src="https://unpkg.com/svg-pan-zoom@3.6.1/dist/svg-pan-zoom.min.js"></script>
@@ -1340,6 +1413,15 @@ function getStateFilter() {
     return el ? el.value : "active_eligible";
 }
 
+function getOutputFilter() {
+    const el = document.getElementById("output-filter");
+    if (!el) {
+        return "";
+    }
+
+    return Array.from(el.selectedOptions).map(opt => opt.value).filter(v => v !== "").join(",");
+}
+
 async function fetchAndUpdateGraph() {
     if (isRendering) return;
 
@@ -1348,7 +1430,8 @@ async function fetchAndUpdateGraph() {
             "?api=1&t=" + Date.now()
             + "&depth=" + encodeURIComponent(getDepthFilter())
             + "&showConditions=" + encodeURIComponent(getShowConditionsFilter())
-            + "&stateFilter=" + encodeURIComponent(getStateFilter()),
+            + "&stateFilter=" + encodeURIComponent(getStateFilter())
+            + "&outputFilter=" + encodeURIComponent(getOutputFilter()),
             { credentials: "same-origin" }
         );
         const graphString = await response.text();
@@ -1457,6 +1540,14 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     }
 
+    const outputFilter = document.getElementById("output-filter");
+    if (outputFilter) {
+        outputFilter.addEventListener("change", async () => {
+            lastGraphString = "";
+            await fetchAndUpdateGraph();
+        });
+    }
+
     fetchAndUpdateGraph();
     setInterval(fetchAndUpdateGraph, 2000);
 });
@@ -1469,7 +1560,7 @@ document.addEventListener("DOMContentLoaded", () => {
     <small>Instance ID: ' . $this->InstanceID . '</small>
 </div>
 ' . $filterBarHtml . '
-<div style="margin-bottom:12px;padding:10px 12px;border:1px solid #333;border-radius:8px;background:#252526;display:flex;gap:18px;align-items:center;flex-wrap:wrap;">
+<div style="margin-bottom:12px;padding:10px 12px;border:1px solid #333;border-radius:8px;background:#252526;display:flex;gap:18px;align-items:flex-start;flex-wrap:wrap;">
     <label style="white-space:nowrap;">
         Depth:
         <select id="depth-filter" style="margin-left:8px;">
@@ -1493,6 +1584,14 @@ document.addEventListener("DOMContentLoaded", () => {
     <label style="white-space:nowrap;">
         <input type="checkbox" id="show-conditions" checked> Show conditions
     </label>
+
+    <div style="display:flex;flex-direction:column;min-width:320px;">
+        <label for="output-filter" style="margin-bottom:6px;">Outputs:</label>
+        <select id="output-filter" multiple>
+            ' . $outputFilterOptionsHtml . '
+        </select>
+        <div class="filter-help">No selection = show all outputs. Multi-select filters full upstream paths by output.</div>
+    </div>
 </div>
 <div class="container">
     <div id="mermaid-container">Initializing Live View...</div>
@@ -3114,6 +3213,18 @@ document.addEventListener("DOMContentLoaded", () => {
         $showConditions = $this->GetShowConditions();
         $stateFilter = $this->GetGraphStateFilter();
 
+        $selectedOutputIDs = [];
+        $rawOutputFilter = trim((string) ($_GET['outputFilter'] ?? ''));
+        if ($rawOutputFilter !== '') {
+            foreach (explode(',', $rawOutputFilter) as $outputIDRaw) {
+                $outputID = trim((string) $outputIDRaw);
+                if ($outputID !== '') {
+                    $selectedOutputIDs[$outputID] = true;
+                }
+            }
+        }
+        $hasOutputFilter = count($selectedOutputIDs) > 0;
+
         $matchesStateFilter = static function (bool $isActive, bool $isEligible) use ($stateFilter): bool {
             switch ($stateFilter) {
                 case 'active':
@@ -3225,6 +3336,39 @@ document.addEventListener("DOMContentLoaded", () => {
             }
         }
 
+        if ($hasOutputFilter) {
+            $assignments = array_values(array_filter($assignments, function (array $assignment) use ($selectedOutputIDs): bool {
+                $outputID = trim((string) ($assignment['OutputID'] ?? ''));
+                return $outputID !== '' && isset($selectedOutputIDs[$outputID]);
+            }));
+
+            $ruleIDsWithFilteredAssignments = [];
+            foreach ($assignments as $assignment) {
+                $ruleID = trim((string) ($assignment['RuleID'] ?? ''));
+                if ($ruleID !== '') {
+                    $ruleIDsWithFilteredAssignments[$ruleID] = true;
+                }
+            }
+
+            $rules = array_values(array_filter($rules, function (array $rule) use ($ruleIDsWithFilteredAssignments): bool {
+                $ruleID = trim((string) ($rule['RuleID'] ?? ''));
+                return $ruleID !== '' && isset($ruleIDsWithFilteredAssignments[$ruleID]);
+            }));
+
+            $groupKeysWithFilteredRules = [];
+            foreach ($rules as $rule) {
+                $groupKey = trim((string) ($rule['GroupKey'] ?? ''));
+                if ($groupKey !== '') {
+                    $groupKeysWithFilteredRules[$groupKey] = true;
+                }
+            }
+
+            $groups = array_values(array_filter($groups, function (array $group) use ($groupKeysWithFilteredRules): bool {
+                $groupKey = trim((string) ($group['GroupKey'] ?? ''));
+                return $groupKey !== '' && isset($groupKeysWithFilteredRules[$groupKey]);
+            }));
+        }
+
         $eligibleRuleIDs = [];
         foreach ($rules as $rule) {
             $ruleID = trim((string) ($rule['RuleID'] ?? ''));
@@ -3325,6 +3469,7 @@ document.addEventListener("DOMContentLoaded", () => {
         }
 
         $visibleAssignments = [];
+        $visibleAssignmentOutputIDs = [];
         foreach ($assignments as $assignment) {
             $assignmentID = trim((string) ($assignment['AssignmentID'] ?? ''));
             $ruleID = trim((string) ($assignment['RuleID'] ?? ''));
@@ -3342,11 +3487,20 @@ document.addEventListener("DOMContentLoaded", () => {
 
             if ($matchesStateFilter($isActive, $isEligible)) {
                 $visibleAssignments[] = $assignment;
+                $visibleAssignmentOutputIDs[$outputID] = true;
             }
         }
 
         $visibleOutputs = [];
         foreach ($outputsByID as $outputID => $output) {
+            if ($hasOutputFilter && !isset($selectedOutputIDs[$outputID])) {
+                continue;
+            }
+
+            if (!isset($visibleAssignmentOutputIDs[$outputID])) {
+                continue;
+            }
+
             $isActive = isset($activeOutputIDs[$outputID]);
             $isEligible = isset($eligibleOutputIDs[$outputID]);
 
@@ -3386,7 +3540,13 @@ document.addEventListener("DOMContentLoaded", () => {
 
         if (count($groupVisibleMap) === 0) {
             $noteNode = 'N_' . substr(md5('no_groups_' . (string) $this->InstanceID), 0, 10);
-            $lines[] = $noteNode . '["' . $this->MermaidEscape('No groups selected for current state filter') . '"]';
+
+            $noteText = 'No groups selected for current state filter';
+            if ($hasOutputFilter) {
+                $noteText = 'No paths for selected outputs and current state filter';
+            }
+
+            $lines[] = $noteNode . '["' . $this->MermaidEscape($noteText) . '"]';
             $lines[] = 'class ' . $noteNode . ' grey;';
             return implode("\n", $lines) . "\n";
         }
@@ -3612,6 +3772,8 @@ document.addEventListener("DOMContentLoaded", () => {
     {
         return ((string) ($_GET['showConditions'] ?? '1')) === '1';
     }
+
+
     private function isRuleConditionCurrentlySatisfied(array $rule): bool
     {
         $conditionGroupKey = trim((string) ($rule['ConditionGroupKey'] ?? ''));
