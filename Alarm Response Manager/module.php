@@ -1354,6 +1354,7 @@ setInterval(refreshScreen, 2000);
 <html>
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Module 3 Mapping</title>
 <style>
 body{
@@ -1366,10 +1367,22 @@ body{
 .container{
     flex-grow:1;background:#252526;border-radius:8px;width:100%;
     border:1px solid #444;overflow:hidden;position:relative;
+    touch-action:none;
+    overscroll-behavior:contain;
 }
-#mermaid-container { position:absolute; inset:0; overflow:hidden; }
-#mermaid-container svg { width:100% !important; height:100% !important; max-width:none !important; display:block; }
-
+#mermaid-container {
+    position:absolute;
+    inset:0;
+    overflow:hidden;
+    touch-action:none;
+}
+#mermaid-container svg {
+    width:100% !important;
+    height:100% !important;
+    max-width:none !important;
+    display:block;
+    touch-action:none;
+}
 .graph-controls{
     margin-bottom:12px;
     padding:10px 12px;
@@ -1486,7 +1499,85 @@ mermaid.initialize({
 let isRendering = false;
 let lastGraphString = "";
 let pzInstance = null;
+function attachTouchPinchZoom(svgEl, panZoomInstance) {
+    if (!svgEl || !panZoomInstance) {
+        return;
+    }
 
+    let pinchState = null;
+
+    const getTouchDistance = (touchA, touchB) => {
+        const dx = touchA.clientX - touchB.clientX;
+        const dy = touchA.clientY - touchB.clientY;
+        return Math.sqrt(dx * dx + dy * dy);
+    };
+
+    const getTouchMidpoint = (touchA, touchB) => {
+        return {
+            x: (touchA.clientX + touchB.clientX) / 2,
+            y: (touchA.clientY + touchB.clientY) / 2
+        };
+    };
+
+    const toSvgPoint = (clientX, clientY) => {
+        const pt = svgEl.createSVGPoint();
+        pt.x = clientX;
+        pt.y = clientY;
+        const ctm = svgEl.getScreenCTM();
+        return ctm ? pt.matrixTransform(ctm.inverse()) : { x: clientX, y: clientY };
+    };
+
+    svgEl.addEventListener("touchstart", (ev) => {
+        if (ev.touches.length !== 2) {
+            pinchState = null;
+            return;
+        }
+
+        ev.preventDefault();
+
+        const touchA = ev.touches[0];
+        const touchB = ev.touches[1];
+        const midpoint = getTouchMidpoint(touchA, touchB);
+        const svgPoint = toSvgPoint(midpoint.x, midpoint.y);
+
+        pinchState = {
+            distance: getTouchDistance(touchA, touchB),
+            zoom: panZoomInstance.getZoom(),
+            focus: svgPoint
+        };
+    }, { passive: false });
+
+    svgEl.addEventListener("touchmove", (ev) => {
+        if (ev.touches.length !== 2 || pinchState === null) {
+            return;
+        }
+
+        ev.preventDefault();
+
+        const touchA = ev.touches[0];
+        const touchB = ev.touches[1];
+        const newDistance = getTouchDistance(touchA, touchB);
+
+        if (pinchState.distance <= 0) {
+            return;
+        }
+
+        const scale = newDistance / pinchState.distance;
+        const targetZoom = pinchState.zoom * scale;
+
+        panZoomInstance.zoomAtPoint(
+            Math.max(0.2, Math.min(10, targetZoom)),
+            pinchState.focus
+        );
+    }, { passive: false });
+
+    const resetPinch = () => {
+        pinchState = null;
+    };
+
+    svgEl.addEventListener("touchend", resetPinch, { passive: true });
+    svgEl.addEventListener("touchcancel", resetPinch, { passive: true });
+}
 async function saveGroupFilter() {
     const selected = Array.from(document.querySelectorAll(".group-toggle:checked")).map(cb => cb.value);
 
@@ -1603,21 +1694,24 @@ async function fetchAndUpdateGraph() {
                 throw new Error("Mermaid render returned no SVG");
             }
 
-            svgEl.removeAttribute("width");
-            svgEl.removeAttribute("height");
-            svgEl.style.width = "100%";
-            svgEl.style.height = "100%";
-            svgEl.style.maxWidth = "none";
+svgEl.removeAttribute("width");
+svgEl.removeAttribute("height");
+svgEl.style.width = "100%";
+svgEl.style.height = "100%";
+svgEl.style.maxWidth = "none";
+svgEl.style.touchAction = "none";
 
-            pzInstance = svgPanZoom(svgEl, {
-                zoomEnabled: true,
-                controlIconsEnabled: true,
-                fit: (oldZoom === null),
-                center: (oldPan === null),
-                minZoom: 0.2,
-                maxZoom: 10,
-                eventsListenerElement: pzContainer
-            });
+pzInstance = svgPanZoom(svgEl, {
+    zoomEnabled: true,
+    controlIconsEnabled: true,
+    fit: (oldZoom === null),
+    center: (oldPan === null),
+    minZoom: 0.2,
+    maxZoom: 10,
+    eventsListenerElement: pzContainer
+});
+
+attachTouchPinchZoom(svgEl, pzInstance);
 
             if (oldZoom !== null) {
                 pzInstance.zoom(oldZoom);
