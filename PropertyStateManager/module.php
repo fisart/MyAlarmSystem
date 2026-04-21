@@ -347,14 +347,25 @@ class PropertyStateManager extends IPSModule
             }
         }
 
-        // NEW: Handle Manual Sync Request from HTML Button
+        // Handle manual Sync request from HTML button:
+        // 1) request fresh state sync from Module 1
+        // 2) re-evaluate current Module 2 house state
         if (isset($_GET['sync'])) {
             $sensorGroupID = $this->ReadPropertyInteger("SensorGroupInstanceID");
             if ($sensorGroupID > 0 && @IPS_InstanceExists($sensorGroupID)) {
                 if (function_exists('MYALARM_RequestStateSync')) {
-                    @MYALARM_RequestStateSync($sensorGroupID);
+                    try {
+                        @MYALARM_RequestStateSync($sensorGroupID);
+                    } catch (\Throwable $e) {
+                        $this->LogMessage("[PSM-HTML] Sync request failed: " . $e->getMessage(), KL_WARNING);
+                    }
                 }
             }
+
+            // Re-evaluate using current buffers so timer/state can restart immediately
+            $this->LogMessage("[PSM-HTML] Manual sync + reevaluation requested.", KL_MESSAGE);
+            $this->EvaluateState();
+
             // Redirect to clear query parameter
             $cleanUrl = strtok($_SERVER['REQUEST_URI'], '?');
             header("Location: " . $cleanUrl);
