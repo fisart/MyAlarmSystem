@@ -946,6 +946,11 @@ class PropertyStateManager extends IPSModule
                 $this->ImportConfiguration($json);
                 break;
 
+            case 'UI_ReevaluateState':
+                $this->LogMessage("[PSM-UI] Manual reevaluation requested.", KL_MESSAGE);
+                $this->EvaluateState();
+                break;
+
             default:
                 throw new Exception("Invalid Ident: $Ident");
         }

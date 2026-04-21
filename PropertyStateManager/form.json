@@ -154,6 +154,11 @@
     },
     {
       "type": "Button",
+      "caption": "Reevaluate House State",
+      "onClick": "IPS_RequestAction($id, 'UI_ReevaluateState', 1);"
+    },
+    {
+      "type": "Button",
       "caption": "🤖 Export Logic for AI",
       "onClick": "echo PSM_ExportLogicForAI($id);"
     }
