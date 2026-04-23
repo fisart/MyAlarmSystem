@@ -6,20 +6,20 @@ Module 3 is the **domain-specific response engine** of the alarm architecture.
 
 Its job is to:
 
-* receive relevant **group-level alarm events directly from Module 1**
-* obtain the **current authoritative house/system state from Module 2**
-* evaluate the event with its own **state-dependent rule engine**
-* determine the **human-readable alarm meaning**
-* select and execute the appropriate **outputs**
-* apply **local throttling per output type**
+- receive relevant **group-level alarm events directly from Module 1**
+- obtain the **current authoritative house/system state from Module 2**
+- evaluate the event with its own **state-dependent rule engine**
+- determine the **human-readable alarm meaning**
+- select and execute the appropriate **outputs**
+- apply **local throttling per output type**
 
 Module 3 may exist **multiple times**.
 Each instance can be specialized for a dedicated alarm domain or use case, for example:
 
-* intrusion
-* hazard / fire
-* technical alarms
-* warning / advisory scenarios
+- intrusion
+- hazard / fire
+- technical alarms
+- warning / advisory scenarios
 
 Module 3 is **not** the global house-state owner and **not** the raw sensor aggregation owner.
 
@@ -31,29 +31,29 @@ Module 3 is **not** the global house-state owner and **not** the raw sensor aggr
 
 Owns:
 
-* raw sensor truth
-* filtering / aggregation
-* classes / groups
-* generation of standardized group-level alarm events
-* knowledge of which sensors are currently active within a triggered group
+- raw sensor truth
+- filtering / aggregation
+- classes / groups
+- generation of standardized group-level alarm events
+- knowledge of which sensors are currently active within a triggered group
 
 ### Module 2
 
 Owns:
 
-* the authoritative house/system state machine
-* interpretation of the global house state
-* synchronization consistency with Module 1 via message/event tokens
+- the authoritative house/system state machine
+- interpretation of the global house state
+- synchronization consistency with Module 1 via message/event tokens
 
 ### Module 3
 
 Owns:
 
-* domain-specific interpretation of Module 1 events in the context of Module 2 state
-* human-readable incident identification
-* state-based response rules
-* output selection and execution
-* local throttling of its own outputs
+- domain-specific interpretation of Module 1 events in the context of Module 2 state
+- human-readable incident identification
+- state-based response rules
+- output selection and execution
+- local throttling of its own outputs
 
 ---
 
@@ -65,10 +65,10 @@ Module 3 answers the question:
 
 Module 3 is therefore:
 
-* **state-aware**
-* **domain-specific**
-* **output-oriented**
-* **human-facing**
+- **state-aware**
+- **domain-specific**
+- **output-oriented**
+- **human-facing**
 
 It is not just a dumb output relay.
 
@@ -85,16 +85,16 @@ Module 1 sends **group-level alert messages** directly to Module 3.
 These messages represent that a certain Module 1 group is active/alarming.
 Examples:
 
-* motion sensors group active
-* fire alarm group active
-* water alarm group active
-* technical fault group active
+- motion sensors group active
+- fire alarm group active
+- water alarm group active
+- technical fault group active
 
 Module 3 must be able to determine, for a relevant event:
 
-* which group triggered
-* which underlying sensors are active
-* enough identity/context information to derive a human-readable alarm source/location
+- which group triggered
+- which underlying sensors are active
+- enough identity/context information to derive a human-readable alarm source/location
 
 ### B. State from Module 2
 
@@ -102,11 +102,11 @@ Module 3 queries Module 2 for the **authoritative current house/system state**.
 
 Examples of such states:
 
-* Disarmed
-* Exit Delay
-* Armed External
-* Armed Internal
-* Alarm
+- Disarmed
+- Exit Delay
+- Armed External
+- Armed Internal
+- Alarm
 
 Module 3 uses this state to decide how the same Module 1 event should be interpreted and which outputs should result.
 
@@ -121,16 +121,16 @@ Module 3 must not interpret a fresh Module 1 event against an outdated Module 2 
 
 Therefore, the message/event tokens are used so that Module 3 can ensure that:
 
-* the Module 1 event being processed is clearly identified
-* the Module 2 state used for evaluation is synchronized consistently with the same processing timeline
+- the Module 1 event being processed is clearly identified
+- the Module 2 state used for evaluation is synchronized consistently with the same processing timeline
 
 The exact token mechanics are defined by Module 1 / Module 2, but Module 3 depends on them for correctness.
 
 The purpose of tokens is:
 
-* consistency
-* stale/duplicate protection
-* deterministic interpretation across modules
+- consistency
+- stale/duplicate protection
+- deterministic interpretation across modules
 
 ---
 
@@ -142,9 +142,9 @@ Module 3 interprets incoming Module 1 group events for its own domain.
 
 Examples:
 
-* an intrusion Module 3 may care about motion, doors, windows
-* a hazard Module 3 may care about fire, water, gas
-* a technical Module 3 may care about fault or service groups
+- an intrusion Module 3 may care about motion, doors, windows
+- a hazard Module 3 may care about fire, water, gas
+- a technical Module 3 may care about fault or service groups
 
 Each Module 3 instance only reacts to the groups relevant to its configured purpose.
 
@@ -156,19 +156,19 @@ Module 3 contains a **rule engine**, organized by **house/system state**.
 
 There is effectively a distinct rule set for each relevant state, for example:
 
-* rules when Disarmed
-* rules when Exit Delay
-* rules when Armed Internal
-* rules when Armed External
-* rules when Alarm
+- rules when Disarmed
+- rules when Exit Delay
+- rules when Armed Internal
+- rules when Armed External
+- rules when Alarm
 
 This means the same Module 1 event may produce different responses depending on the current Module 2 state.
 
 Examples:
 
-* motion while disarmed may produce no alarm or only an advisory output
-* motion while armed may produce a full intrusion response
-* fire may trigger a strong response in every state, but with state-specific differences
+- motion while disarmed may produce no alarm or only an advisory output
+- motion while armed may produce a full intrusion response
+- fire may trigger a strong response in every state, but with state-specific differences
 
 ---
 
@@ -178,30 +178,30 @@ Module 3 must determine **which concrete sensors are active** under the triggeri
 
 Module 3 uses:
 
-* the active sensor names
-* the names of their parents
-* the names of their grandparents
+- the active sensor names
+- the names of their parents
+- the names of their grandparents
 
 to build a clear description of:
 
-* location
-* source
-* alarm type
+- location
+- source
+- alarm type
 
 Examples:
 
-* “Motion detected in Guest Bedroom”
-* “Smoke alarm in Kitchen”
-* “Window contact alarm in Master Bedroom”
-* “Water leak detected in Utility Room”
+- “Motion detected in Guest Bedroom”
+- “Smoke alarm in Kitchen”
+- “Window contact alarm in Master Bedroom”
+- “Water leak detected in Utility Room”
 
 Important:
 Module 3 does not invent this semantic quality by itself.
 It depends on:
 
-* the user’s naming discipline
-* proper group assignment
-* proper object tree / location hierarchy
+- the user’s naming discipline
+- proper group assignment
+- proper object tree / location hierarchy
 
 So the wording quality is partly a configuration responsibility of the user.
 
@@ -211,27 +211,27 @@ So the wording quality is partly a configuration responsibility of the user.
 
 Based on:
 
-* the triggering Module 1 event
-* the synchronized Module 2 state
-* the active sensors / location wording
-* the Module 3 rule set
+- the triggering Module 1 event
+- the synchronized Module 2 state
+- the active sensors / location wording
+- the Module 3 rule set
 
 Module 3 determines which outputs should be generated.
 
 Possible outputs include, for example:
 
-* Alarm Bell
-* E-Mail
-* SMS
-* Symcon Notification
-* Alarm Light Outside
-* Siren Outside
-* Alarm Security Service
-* All Blinds Down
-* VOIP messages
-* Voice announcements
-* Message Screen
-* Miscellaneous alarms
+- Alarm Bell
+- E-Mail
+- SMS
+- Symcon Notification
+- Alarm Light Outside
+- Siren Outside
+- Alarm Security Service
+- All Blinds Down
+- VOIP messages
+- Voice announcements
+- Message Screen
+- Miscellaneous alarms
 
 Each Module 3 instance selects outputs according to its own domain logic.
 
@@ -254,16 +254,16 @@ Each Module 3 instance applies **its own throttling per output type**.
 
 Purpose:
 
-* prevent overload
-* prevent repeated flooding
-* respect output channel limitations
+- prevent overload
+- prevent repeated flooding
+- respect output channel limitations
 
 Examples:
 
-* cooldowns for email/SMS/notifications
-* avoiding repeated retriggering of the same bell/siren
-* limiting repeated screen or VOIP messages
-* throttling voice output locally
+- cooldowns for email/SMS/notifications
+- avoiding repeated retriggering of the same bell/siren
+- limiting repeated screen or VOIP messages
+- throttling voice output locally
 
 The current design assumes that this local throttling is sufficient for almost all outputs.
 
@@ -275,21 +275,21 @@ Voice output is the one output type that may become a shared scarce resource.
 
 Reason:
 
-* spoken output is serial
-* overlapping spoken messages create confusion
-* a loudspeaker system cannot safely deliver multiple messages at the same time
+- spoken output is serial
+- overlapping spoken messages create confusion
+- a loudspeaker system cannot safely deliver multiple messages at the same time
 
 Current design decision:
 
-* there is **no central Module 4**
-* each Module 3 throttles its own voice output locally
-* because cross-domain simultaneous alarms are assumed to be very rare
+- there is **no central Module 4**
+- each Module 3 throttles its own voice output locally
+- because cross-domain simultaneous alarms are assumed to be very rare
 
 Possible future extension:
 
-* introduce a dedicated **voice server / shared voice service**
-* all Module 3 instances would then submit voice messages there
-* the voice service would centrally handle serialization / overall throttling
+- introduce a dedicated **voice server / shared voice service**
+- all Module 3 instances would then submit voice messages there
+- the voice service would centrally handle serialization / overall throttling
 
 This is currently only a possible later extension, not part of the current architecture.
 
@@ -303,17 +303,17 @@ Each instance may be configured for a dedicated purpose or situation.
 
 Examples:
 
-* one Module 3 for intrusion
-* one Module 3 for hazard/fire
-* one Module 3 for technical alarms
+- one Module 3 for intrusion
+- one Module 3 for hazard/fire
+- one Module 3 for technical alarms
 
 This means:
 
-* Module 3 is **not a singleton**
-* each instance has its own subscriptions / relevant groups
-* each instance has its own rule engine
-* each instance has its own outputs
-* each instance throttles its own outputs locally
+- Module 3 is **not a singleton**
+- each instance has its own subscriptions / relevant groups
+- each instance has its own rule engine
+- each instance has its own outputs
+- each instance throttles its own outputs locally
 
 ---
 
@@ -321,13 +321,13 @@ This means:
 
 Module 3 must know or obtain:
 
-* which Module 1 groups it is responsible for
-* which underlying sensors are active in a triggered group
-* the names of the active sensors and their parent/grandparent hierarchy
-* the current authoritative Module 2 state
-* enough token information to ensure synchronized interpretation
-* its own per-state rule configuration
-* its own output definitions and per-output throttle settings
+- which Module 1 groups it is responsible for
+- which underlying sensors are active in a triggered group
+- the names of the active sensors and their parent/grandparent hierarchy
+- the current authoritative Module 2 state
+- enough token information to ensure synchronized interpretation
+- its own per-state rule configuration
+- its own output definitions and per-output throttle settings
 
 ---
 
@@ -337,11 +337,11 @@ Module 3 must **not** own or redefine the following:
 
 ### Not owned by Module 3
 
-* raw sensor truth
-* debouncing / aggregation logic of Module 1
-* global house/system state machine
-* global synchronization authority
-* decision of what the house state fundamentally is
+- raw sensor truth
+- debouncing / aggregation logic of Module 1
+- global house/system state machine
+- global synchronization authority
+- decision of what the house state fundamentally is
 
 ### In practice
 
@@ -355,18 +355,18 @@ Module 3 may **consume** group events and active sensors, but must not become th
 
 Module 1 must provide Module 3 with:
 
-* direct group-level alert delivery
-* consistent event identity/token
-* access to or inclusion of the concrete active sensors behind a triggered group
-* enough source metadata so that Module 3 can generate human-readable incident descriptions
+- direct group-level alert delivery
+- consistent event identity/token
+- access to or inclusion of the concrete active sensors behind a triggered group
+- enough source metadata so that Module 3 can generate human-readable incident descriptions
 
 Module 3 depends on Module 1 for event truth.
 
 Module 1 should not assume Module 3 is merely a dumb output sink; Module 3 needs enough detail to identify:
 
-* which sensor(s) triggered
-* what kind of source they are
-* where they are located in human terms
+- which sensor(s) triggered
+- what kind of source they are
+- where they are located in human terms
 
 ---
 
@@ -374,8 +374,8 @@ Module 1 should not assume Module 3 is merely a dumb output sink; Module 3 needs
 
 Module 2 must provide Module 3 with:
 
-* the authoritative current house/system state
-* a synchronized view that can be matched consistently to the Module 1 event token/timeline
+- the authoritative current house/system state
+- a synchronized view that can be matched consistently to the Module 1 event token/timeline
 
 Module 3 depends on Module 2 for state truth.
 
@@ -399,9 +399,9 @@ Obtains the authoritative Module 2 state consistently for the event.
 
 Determines:
 
-* which concrete sensors are active
-* where the incident is
-* what kind of incident wording should be used
+- which concrete sensors are active
+- where the incident is
+- what kind of incident wording should be used
 
 ### D. Rule evaluation
 
@@ -423,11 +423,11 @@ This is a useful mental model for all involved AIs.
 
 The current architecture assumes:
 
-* simultaneous alarms across different Module 3 domains are very rare
-* most outputs do not require global cross-instance arbitration
-* duplicate/overlapping activation of many outputs is acceptable or harmless
-* voice is the only output type that may later require central coordination
-* therefore local per-Module-3 throttling is sufficient for now
+- simultaneous alarms across different Module 3 domains are very rare
+- most outputs do not require global cross-instance arbitration
+- duplicate/overlapping activation of many outputs is acceptable or harmless
+- voice is the only output type that may later require central coordination
+- therefore local per-Module-3 throttling is sufficient for now
 
 This assumption is intentional and complexity-reducing.
 
@@ -437,10 +437,10 @@ This assumption is intentional and complexity-reducing.
 
 Module 3 is not intended to:
 
-* replace Module 2 as the central brain
-* replace Module 1 as the grouping/aggregation engine
-* centrally coordinate all output resources across all Module 3 instances
-* solve shared voice arbitration globally in the first version
+- replace Module 2 as the central brain
+- replace Module 1 as the grouping/aggregation engine
+- centrally coordinate all output resources across all Module 3 instances
+- solve shared voice arbitration globally in the first version
 
 ---
 
@@ -456,3 +456,146 @@ Module 3 is not intended to:
 
 ---
 
+Now the implemented output types can be described much more precisely.
+
+## Implemented output resource types and their parameters
+
+| Type / TypeID                                 | TargetObjectID means                                                                                     | Main content source               | Type-specific input parameters                                                 | What is actually sent                                                               |
+| --------------------------------------------- | -------------------------------------------------------------------------------------------------------- | --------------------------------- | ------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------- |
+| `request_action`                              | Symcon object that receives `RequestAction(...)`                                                         | `BuildRequestActionValue(...)`    | `ActionValueMode`, `ActionFixedValue`                                          | Depending on `ActionValueMode`: composed message text, fixed value, or JSON payload |
+| `notification`                                | Notification-capable target object / instance                                                            | composed message text             | no extra confirmed parameters beyond common text fields                        | text message                                                                        |
+| `voip`                                        | VoIP/call target object / instance                                                                       | composed message text             | no extra confirmed parameters beyond common text fields                        | text passed to the VoIP handler                                                     |
+| `screen`                                      | not a transport target in practice; output is written to Module 3’s internal `OutputScreenHtml` variable | `BuildOutputScreenEntryHtml(...)` | `ScreenLogMaxEntries` is a module property, not a resource-row field           | rendered HTML entry appended to the screen log                                      |
+| `email_1` / `email_2` / `email_3` / `email_4` | SMTP instance ID                                                                                         | subject + body from Module 3      | no extra row-specific parameters confirmed here; type is selected via `TypeID` | `SMTP_SendMail($TargetObjectID, $subject, $body)`                                   |
+
+## Common output-resource fields used for content composition
+
+These are the fields that feed the common text builder:
+
+| Field                | Meaning                                  |
+| -------------------- | ---------------------------------------- |
+| `PrefixText`         | fixed text before the message            |
+| `SuffixText`         | fixed text after the message             |
+| `UseSensorName`      | include sensor name                      |
+| `UseParentName`      | include parent name                      |
+| `UseGrandparentName` | include grandparent name                 |
+| `UseContent`         | include the core generated incident text |
+| `PrefixOrder`        | order position of prefix                 |
+| `SensorOrder`        | order position of sensor name            |
+| `ParentOrder`        | order position of parent name            |
+| `GrandparentOrder`   | order position of grandparent name       |
+| `ContentOrder`       | order position of generated content      |
+| `SuffixOrder`        | order position of suffix                 |
+
+So the final human-readable text is not just prefix/body/suffix in a fixed order. It is assembled by the configured order fields.
+
+---
+
+## `request_action` in detail
+
+This is now clear.
+
+| Field / parameter  | Meaning                                   |
+| ------------------ | ----------------------------------------- |
+| `TargetObjectID`   | object that receives `RequestAction(...)` |
+| `ActionValueMode`  | defines payload format                    |
+| `ActionFixedValue` | used only when mode is `fixed_value`      |
+
+### Supported `ActionValueMode` values
+
+| ActionValueMode | Content source                  | Result                 |
+| --------------- | ------------------------------- | ---------------------- |
+| `message_text`  | `BuildOutputMessageText(...)`   | plain composed text    |
+| `fixed_value`   | `ActionFixedValue`              | fixed configured value |
+| `json_payload`  | Module 3 builds structured JSON | JSON string payload    |
+
+### `json_payload` contains
+
+| JSON field               | Meaning                      |
+| ------------------------ | ---------------------------- |
+| `group`                  | group label                  |
+| `house_state_id`         | current house state ID       |
+| `house_state_name`       | current house state name     |
+| `message`                | composed output message text |
+| `event_epoch`            | event epoch from payload     |
+| `event_seq`              | event sequence from payload  |
+| `target_trigger_details` | trigger details from payload |
+
+So your earlier question was exactly right:
+
+**For `request_action`, the content does not come from `TargetObjectID`.**
+`TargetObjectID` only defines the recipient.
+The actual content comes from `ActionValueMode` plus the corresponding builder/value source.
+
+---
+
+## `email` in detail
+
+The email branch is also now precise.
+
+| Field / parameter | Meaning                                                   |
+| ----------------- | --------------------------------------------------------- |
+| `TypeID`          | must be one of `email_1`, `email_2`, `email_3`, `email_4` |
+| `TargetObjectID`  | SMTP instance ID                                          |
+| `subject`         | supplied by Module 3 execution logic                      |
+| `body`            | supplied by Module 3 execution logic                      |
+
+### What happens
+
+Module 3 validates:
+
+- email type is allowed
+- target instance exists
+- `SMTP_SendMail` is available
+
+Then it sends:
+
+`SMTP_SendMail($TargetObjectID, $subject, $body)`
+
+So for email, the important type-specific meaning is:
+
+- `TargetObjectID` = SMTP sender instance
+- content = **subject + body**, not a single message value
+
+---
+
+## `screen` in detail
+
+| Field / parameter     | Meaning                                   |
+| --------------------- | ----------------------------------------- |
+| `TargetObjectID`      | effectively not used in the handler shown |
+| `OutputScreenHtml`    | target variable inside Module 3 instance  |
+| `ScreenLogMaxEntries` | module property limiting retained entries |
+
+### What happens
+
+- Module 3 builds one HTML entry with `BuildOutputScreenEntryHtml(...)`
+- prepends it to the current screen entries
+- trims to `ScreenLogMaxEntries`
+- writes the wrapped HTML back into `OutputScreenHtml`
+
+So `screen` is really an **internal presentation output**, not an external transport.
+
+---
+
+## Practical conclusion
+
+The implemented output types are not all shaped the same:
+
+| Type             | Payload shape              |
+| ---------------- | -------------------------- |
+| `request_action` | text, fixed value, or JSON |
+| `email_*`        | subject + body             |
+| `notification`   | text                       |
+| `voip`           | text                       |
+| `screen`         | HTML entry                 |
+
+So when cloning Module 3 configurations, the fields that are most likely to be **type-sensitive** are:
+
+- `TypeID`
+- `TargetObjectID`
+- `ActionValueMode`
+- `ActionFixedValue`
+- the text composition flags/order fields
+
+If you want, the next useful step is a **template-safe vs instance-specific table for OutputResources**.
