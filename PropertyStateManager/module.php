@@ -1395,6 +1395,16 @@ class PropertyStateManager extends IPSModule
                     $this->LogMessage("[PSM-Logic] ALARM TRIGGERED: Group-level opening detected (External Armed)", KL_WARNING);
                     break;
                 }
+
+                // If someone is home while externally armed,
+                // restart the existing Exit Delay flow so the system can
+                // transition safely to Armed Internal.
+                if ($presence) {
+                    $newState = 2;
+                    $this->LogMessage("[PSM-Logic] Transition: Presence on while External Armed - starting Exit Delay for Internal Armed", KL_MESSAGE);
+                    break;
+                }
+
                 break;
 
             case 6: // ARMED INTERNAL
