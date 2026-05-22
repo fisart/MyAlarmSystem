@@ -1771,13 +1771,48 @@ class PropertyStateManager extends IPSModule
         }
         $buckets["bedroom_related"] = array_values(array_keys($bedroomNames));
 
-        // Optional extra metadata for Module 3 UI (does not affect buckets contract)
+        // Optional extra metadata for Module 3 UI.
+        // Export both raw BEDROOM_SYNC values and Module-2-normalized business meaning.
+        $bedroomDoorPolarity = (string)$this->ReadPropertyString("BedroomDoorPolarity");
+        if ($bedroomDoorPolarity !== 'secure' && $bedroomDoorPolarity !== 'breach') {
+            $bedroomDoorPolarity = 'breach';
+        }
+
+        $bedroomPresencePolarity = (string)$this->ReadPropertyString("BedroomPresencePolarity");
+        if ($bedroomPresencePolarity !== 'used' && $bedroomPresencePolarity !== 'unused') {
+            $bedroomPresencePolarity = 'used';
+        }
+
         $bedroomSyncSources = [];
         foreach ($presenceMap as $room) {
+            $rawSwitchState = (bool)($room["SwitchState"] ?? false);
+            $rawDoorTripped = (bool)($room["DoorTripped"] ?? false);
+
+            // Normalize bedroom presence / usage meaning:
+            // used   = SwitchState true means room is used / occupied
+            // unused = SwitchState true means room is unused / not occupied
+            $roomUsed = ($bedroomPresencePolarity === 'used') ? $rawSwitchState : !$rawSwitchState;
+
+            // Normalize bedroom door meaning:
+            // breach = DoorTripped true means open
+            // secure = DoorTripped true means closed
+            $doorOpen = ($bedroomDoorPolarity === 'breach') ? $rawDoorTripped : !$rawDoorTripped;
+
             $bedroomSyncSources[] = [
-                "group_name"   => (string)($room["GroupName"] ?? "Unknown"),
-                "switch_state" => (bool)($room["SwitchState"] ?? false),
-                "door_tripped" => (bool)($room["DoorTripped"] ?? false)
+                "group_name"              => (string)($room["GroupName"] ?? "Unknown"),
+
+                // Raw Module 1 BEDROOM_SYNC values
+                "switch_state_raw"         => $rawSwitchState,
+                "door_tripped_raw"         => $rawDoorTripped,
+
+                // Module 2 normalized business meaning
+                "room_used"                => $roomUsed,
+                "door_open"                => $doorOpen,
+                "blocking"                 => ($roomUsed && $doorOpen),
+
+                // Polarity metadata used for normalization
+                "bedroom_presence_polarity" => $bedroomPresencePolarity,
+                "bedroom_door_polarity"     => $bedroomDoorPolarity
             ];
         }
 
