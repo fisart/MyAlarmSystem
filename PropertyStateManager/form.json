@@ -37,6 +37,15 @@
       ]
     },
     {
+      "type": "Select",
+      "name": "BedroomPresencePolarity",
+      "caption": "Bedroom Presence Polarity (Active means...)",
+      "options": [
+        { "caption": "Used / Occupied", "value": "used" },
+        { "caption": "Unused / Not Occupied", "value": "unused" }
+      ]
+    },
+    {
       "type": "SelectInstance",
       "name": "VaultInstanceID",
       "caption": "Security Vault (SecretsManager)",
