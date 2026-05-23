@@ -55,14 +55,18 @@
               "name": "Active",
               "width": "70px",
               "add": true,
-              "edit": { "type": "CheckBox" }
+              "edit": {
+                "type": "CheckBox"
+              }
             },
             {
               "caption": "OutputID",
               "name": "OutputID",
               "width": "140px",
               "add": "",
-              "edit": { "type": "ValidationTextBox" },
+              "edit": {
+                "type": "ValidationTextBox"
+              },
               "visible": false
             },
             {
@@ -70,7 +74,9 @@
               "name": "Name",
               "width": "180px",
               "add": "",
-              "edit": { "type": "ValidationTextBox" }
+              "edit": {
+                "type": "ValidationTextBox"
+              }
             },
             {
               "caption": "TypeID",
@@ -87,77 +93,99 @@
               "name": "TargetObjectID",
               "width": "120px",
               "add": 0,
-              "edit": { "type": "SelectObject" }
+              "edit": {
+                "type": "SelectObject"
+              }
             },
             {
               "caption": "Max Msg",
               "name": "MaxMessages",
               "width": "85px",
               "add": 1,
-              "edit": { "type": "NumberSpinner" }
+              "edit": {
+                "type": "NumberSpinner"
+              }
             },
             {
               "caption": "Per Sec",
               "name": "PerSeconds",
               "width": "85px",
               "add": 60,
-              "edit": { "type": "NumberSpinner" }
+              "edit": {
+                "type": "NumberSpinner"
+              }
             },
             {
               "caption": "Prefix",
               "name": "PrefixText",
               "width": "140px",
               "add": "",
-              "edit": { "type": "ValidationTextBox" }
+              "edit": {
+                "type": "ValidationTextBox"
+              }
             },
             {
               "caption": "Sensor",
               "name": "UseSensorName",
               "width": "60px",
               "add": true,
-              "edit": { "type": "CheckBox" }
+              "edit": {
+                "type": "CheckBox"
+              }
             },
             {
               "caption": "Parent",
               "name": "UseParentName",
               "width": "60px",
               "add": false,
-              "edit": { "type": "CheckBox" }
+              "edit": {
+                "type": "CheckBox"
+              }
             },
             {
               "caption": "Grand",
               "name": "UseGrandparentName",
               "width": "60px",
               "add": false,
-              "edit": { "type": "CheckBox" }
+              "edit": {
+                "type": "CheckBox"
+              }
             },
             {
               "caption": "Content",
               "name": "UseContent",
               "width": "70px",
               "add": false,
-              "edit": { "type": "CheckBox" }
+              "edit": {
+                "type": "CheckBox"
+              }
             },
             {
               "caption": "Suffix",
               "name": "SuffixText",
               "width": "140px",
               "add": "",
-              "edit": { "type": "ValidationTextBox" }
+              "edit": {
+                "type": "ValidationTextBox"
+              }
             },
             {
               "caption": "Phone Number",
               "name": "PhoneNumber",
               "width": "140px",
               "add": "",
-              "edit": { "type": "ValidationTextBox" }
+              "edit": {
+                "type": "ValidationTextBox"
+              }
             },
             {
               "caption": "Volume",
               "name": "Volume",
               "width": "80px",
               "add": "",
-              "edit": { "type": "ValidationTextBox" }
+              "edit": {
+                "type": "ValidationTextBox"
+              }
             },
             {
               "caption": "Value Mode",
@@ -167,9 +195,18 @@
               "edit": {
                 "type": "Select",
                 "options": [
-                  { "caption": "Message Text", "value": "message_text" },
-                  { "caption": "JSON Payload", "value": "json_payload" },
-                  { "caption": "Fixed Value", "value": "fixed_value" }
+                  {
+                    "caption": "Message Text",
+                    "value": "message_text"
+                  },
+                  {
+                    "caption": "JSON Payload",
+                    "value": "json_payload"
+                  },
+                  {
+                    "caption": "Fixed Value",
+                    "value": "fixed_value"
+                  }
                 ]
               }
             },
@@ -178,49 +215,63 @@
               "name": "ActionFixedValue",
               "width": "140px",
               "add": "",
-              "edit": { "type": "ValidationTextBox" }
+              "edit": {
+                "type": "ValidationTextBox"
+              }
             },
             {
               "caption": "Prefix Ord",
               "name": "PrefixOrder",
               "width": "85px",
               "add": 10,
-              "edit": { "type": "NumberSpinner" }
+              "edit": {
+                "type": "NumberSpinner"
+              }
             },
             {
               "caption": "Sensor Ord",
               "name": "SensorOrder",
               "width": "85px",
               "add": 20,
-              "edit": { "type": "NumberSpinner" }
+              "edit": {
+                "type": "NumberSpinner"
+              }
             },
             {
               "caption": "Parent Ord",
               "name": "ParentOrder",
               "width": "85px",
               "add": 30,
-              "edit": { "type": "NumberSpinner" }
+              "edit": {
+                "type": "NumberSpinner"
+              }
             },
             {
               "caption": "Grand Ord",
               "name": "GrandparentOrder",
               "width": "85px",
               "add": 40,
-              "edit": { "type": "NumberSpinner" }
+              "edit": {
+                "type": "NumberSpinner"
+              }
             },
             {
               "caption": "Content Ord",
               "name": "ContentOrder",
               "width": "85px",
               "add": 50,
-              "edit": { "type": "NumberSpinner" }
+              "edit": {
+                "type": "NumberSpinner"
+              }
             },
             {
               "caption": "Suffix Ord",
               "name": "SuffixOrder",
               "width": "85px",
               "add": 60,
-              "edit": { "type": "NumberSpinner" }
+              "edit": {
+                "type": "NumberSpinner"
+              }
             },
             {
               "caption": "Type Label",
@@ -321,9 +372,18 @@
               "name": "ActionValueMode",
               "caption": "Action Value Mode",
               "options": [
-                { "caption": "Message Text", "value": "message_text" },
-                { "caption": "JSON Payload", "value": "json_payload" },
-                { "caption": "Fixed Value", "value": "fixed_value" }
+                {
+                  "caption": "Message Text",
+                  "value": "message_text"
+                },
+                {
+                  "caption": "JSON Payload",
+                  "value": "json_payload"
+                },
+                {
+                  "caption": "Fixed Value",
+                  "value": "fixed_value"
+                }
               ]
             },
             {
@@ -393,7 +453,9 @@
               "width": "1px",
               "add": "",
               "visible": false,
-              "edit": { "type": "ValidationTextBox" }
+              "edit": {
+                "type": "ValidationTextBox"
+              }
             },
             {
               "caption": "Group",
@@ -407,7 +469,9 @@
               "name": "All_On",
               "width": "60px",
               "add": false,
-              "edit": { "type": "CheckBox" }
+              "edit": {
+                "type": "CheckBox"
+              }
             },
             {
               "caption": "All Severity",
@@ -417,11 +481,26 @@
               "edit": {
                 "type": "Select",
                 "options": [
-                  { "caption": "", "value": "" },
-                  { "caption": "Low", "value": "Low" },
-                  { "caption": "Medium", "value": "Medium" },
-                  { "caption": "High", "value": "High" },
-                  { "caption": "Critical", "value": "Critical" }
+                  {
+                    "caption": "",
+                    "value": ""
+                  },
+                  {
+                    "caption": "Low",
+                    "value": "Low"
+                  },
+                  {
+                    "caption": "Medium",
+                    "value": "Medium"
+                  },
+                  {
+                    "caption": "High",
+                    "value": "High"
+                  },
+                  {
+                    "caption": "Critical",
+                    "value": "Critical"
+                  }
                 ]
               }
             },
@@ -430,7 +509,9 @@
               "name": "S_0_Active",
               "width": "55px",
               "add": false,
-              "edit": { "type": "CheckBox" }
+              "edit": {
+                "type": "CheckBox"
+              }
             },
             {
               "caption": "D Sev",
@@ -440,11 +521,26 @@
               "edit": {
                 "type": "Select",
                 "options": [
-                  { "caption": "", "value": "" },
-                  { "caption": "Low", "value": "Low" },
-                  { "caption": "Medium", "value": "Medium" },
-                  { "caption": "High", "value": "High" },
-                  { "caption": "Critical", "value": "Critical" }
+                  {
+                    "caption": "",
+                    "value": ""
+                  },
+                  {
+                    "caption": "Low",
+                    "value": "Low"
+                  },
+                  {
+                    "caption": "Medium",
+                    "value": "Medium"
+                  },
+                  {
+                    "caption": "High",
+                    "value": "High"
+                  },
+                  {
+                    "caption": "Critical",
+                    "value": "Critical"
+                  }
                 ]
               }
             },
@@ -473,7 +569,9 @@
               "name": "S_2_Active",
               "width": "55px",
               "add": false,
-              "edit": { "type": "CheckBox" }
+              "edit": {
+                "type": "CheckBox"
+              }
             },
             {
               "caption": "E Sev",
@@ -483,11 +581,26 @@
               "edit": {
                 "type": "Select",
                 "options": [
-                  { "caption": "", "value": "" },
-                  { "caption": "Low", "value": "Low" },
-                  { "caption": "Medium", "value": "Medium" },
-                  { "caption": "High", "value": "High" },
-                  { "caption": "Critical", "value": "Critical" }
+                  {
+                    "caption": "",
+                    "value": ""
+                  },
+                  {
+                    "caption": "Low",
+                    "value": "Low"
+                  },
+                  {
+                    "caption": "Medium",
+                    "value": "Medium"
+                  },
+                  {
+                    "caption": "High",
+                    "value": "High"
+                  },
+                  {
+                    "caption": "Critical",
+                    "value": "Critical"
+                  }
                 ]
               }
             },
@@ -516,7 +629,9 @@
               "name": "S_3_Active",
               "width": "60px",
               "add": false,
-              "edit": { "type": "CheckBox" }
+              "edit": {
+                "type": "CheckBox"
+              }
             },
             {
               "caption": "AE Sev",
@@ -526,11 +641,26 @@
               "edit": {
                 "type": "Select",
                 "options": [
-                  { "caption": "", "value": "" },
-                  { "caption": "Low", "value": "Low" },
-                  { "caption": "Medium", "value": "Medium" },
-                  { "caption": "High", "value": "High" },
-                  { "caption": "Critical", "value": "Critical" }
+                  {
+                    "caption": "",
+                    "value": ""
+                  },
+                  {
+                    "caption": "Low",
+                    "value": "Low"
+                  },
+                  {
+                    "caption": "Medium",
+                    "value": "Medium"
+                  },
+                  {
+                    "caption": "High",
+                    "value": "High"
+                  },
+                  {
+                    "caption": "Critical",
+                    "value": "Critical"
+                  }
                 ]
               }
             },
@@ -559,7 +689,9 @@
               "name": "S_6_Active",
               "width": "60px",
               "add": false,
-              "edit": { "type": "CheckBox" }
+              "edit": {
+                "type": "CheckBox"
+              }
             },
             {
               "caption": "AI Sev",
@@ -569,11 +701,26 @@
               "edit": {
                 "type": "Select",
                 "options": [
-                  { "caption": "", "value": "" },
-                  { "caption": "Low", "value": "Low" },
-                  { "caption": "Medium", "value": "Medium" },
-                  { "caption": "High", "value": "High" },
-                  { "caption": "Critical", "value": "Critical" }
+                  {
+                    "caption": "",
+                    "value": ""
+                  },
+                  {
+                    "caption": "Low",
+                    "value": "Low"
+                  },
+                  {
+                    "caption": "Medium",
+                    "value": "Medium"
+                  },
+                  {
+                    "caption": "High",
+                    "value": "High"
+                  },
+                  {
+                    "caption": "Critical",
+                    "value": "Critical"
+                  }
                 ]
               }
             },
@@ -602,7 +749,9 @@
               "name": "S_9_Active",
               "width": "55px",
               "add": false,
-              "edit": { "type": "CheckBox" }
+              "edit": {
+                "type": "CheckBox"
+              }
             },
             {
               "caption": "A Sev",
@@ -612,11 +761,26 @@
               "edit": {
                 "type": "Select",
                 "options": [
-                  { "caption": "", "value": "" },
-                  { "caption": "Low", "value": "Low" },
-                  { "caption": "Medium", "value": "Medium" },
-                  { "caption": "High", "value": "High" },
-                  { "caption": "Critical", "value": "Critical" }
+                  {
+                    "caption": "",
+                    "value": ""
+                  },
+                  {
+                    "caption": "Low",
+                    "value": "Low"
+                  },
+                  {
+                    "caption": "Medium",
+                    "value": "Medium"
+                  },
+                  {
+                    "caption": "High",
+                    "value": "High"
+                  },
+                  {
+                    "caption": "Critical",
+                    "value": "Critical"
+                  }
                 ]
               }
             },
@@ -664,7 +828,9 @@
               "width": "1px",
               "add": "",
               "visible": false,
-              "edit": { "type": "ValidationTextBox" }
+              "edit": {
+                "type": "ValidationTextBox"
+              }
             },
             {
               "caption": "GroupKey",
@@ -672,7 +838,9 @@
               "width": "1px",
               "add": "",
               "visible": false,
-              "edit": { "type": "ValidationTextBox" }
+              "edit": {
+                "type": "ValidationTextBox"
+              }
             },
             {
               "caption": "Group",
@@ -693,49 +861,63 @@
               "name": "AllStates",
               "width": "50px",
               "add": false,
-              "edit": { "type": "CheckBox" }
+              "edit": {
+                "type": "CheckBox"
+              }
             },
             {
               "caption": "None",
               "name": "NoneStates",
               "width": "60px",
               "add": false,
-              "edit": { "type": "CheckBox" }
+              "edit": {
+                "type": "CheckBox"
+              }
             },
             {
               "caption": "Disarmed",
               "name": "HS_0",
               "width": "75px",
               "add": false,
-              "edit": { "type": "CheckBox" }
+              "edit": {
+                "type": "CheckBox"
+              }
             },
             {
               "caption": "Exit Delay",
               "name": "HS_2",
               "width": "75px",
               "add": false,
-              "edit": { "type": "CheckBox" }
+              "edit": {
+                "type": "CheckBox"
+              }
             },
             {
               "caption": "Armed Ext",
               "name": "HS_3",
               "width": "80px",
               "add": false,
-              "edit": { "type": "CheckBox" }
+              "edit": {
+                "type": "CheckBox"
+              }
             },
             {
               "caption": "Armed Int",
               "name": "HS_6",
               "width": "80px",
               "add": false,
-              "edit": { "type": "CheckBox" }
+              "edit": {
+                "type": "CheckBox"
+              }
             },
             {
               "caption": "Alarm",
               "name": "HS_9",
               "width": "65px",
               "add": false,
-              "edit": { "type": "CheckBox" }
+              "edit": {
+                "type": "CheckBox"
+              }
             }
           ],
           "values": []
@@ -746,6 +928,10 @@
       "type": "ExpansionPanel",
       "caption": "4. Configuration Backup",
       "items": [
+        {
+          "type": "Label",
+          "caption": "Full configuration backup — includes output resources, group-state rules, rule-output assignments and matrix configuration."
+        },
         {
           "type": "ValidationTextBox",
           "name": "ConfigBackupJson",
@@ -760,6 +946,25 @@
           "type": "Button",
           "caption": "Import Configuration",
           "onClick": "IPS_RequestAction($id, \"ImportConfiguration\", true);"
+        },
+        {
+          "type": "Label",
+          "caption": "Output Resources only — use this to copy shared output settings between Module 3 instances without changing rules or assignments."
+        },
+        {
+          "type": "ValidationTextBox",
+          "name": "OutputResourcesBackupJson",
+          "caption": "Output Resources JSON"
+        },
+        {
+          "type": "Button",
+          "caption": "Export Output Resources",
+          "onClick": "IPS_RequestAction($id, \"ExportOutputResources\", true);"
+        },
+        {
+          "type": "Button",
+          "caption": "Import Output Resources",
+          "onClick": "IPS_RequestAction($id, \"ImportOutputResources\", true);"
         }
       ]
     }
@@ -821,6 +1026,16 @@
       "code": 205,
       "icon": "active",
       "caption": "Configuration imported"
+    },
+    {
+      "code": 206,
+      "icon": "active",
+      "caption": "Output resources exported"
+    },
+    {
+      "code": 207,
+      "icon": "active",
+      "caption": "Output resources imported"
     }
   ]
 }
