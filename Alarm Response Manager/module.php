@@ -236,23 +236,23 @@ class AlarmResponseManager extends IPSModule
                     throw $e;
                 }
                 break;
-                case 'ExportOutputResources':
-    try {
-        $this->ExportOutputResources();
-    } catch (Throwable $e) {
-        $this->LogMessage('ExportOutputResources failed: ' . $e->getMessage(), KL_MESSAGE);
-        throw $e;
-    }
-    break;
+            case 'ExportOutputResources':
+                try {
+                    $this->ExportOutputResources();
+                } catch (Throwable $e) {
+                    $this->LogMessage('ExportOutputResources failed: ' . $e->getMessage(), KL_MESSAGE);
+                    throw $e;
+                }
+                break;
 
-case 'ImportOutputResources':
-    try {
-        $this->ImportOutputResources();
-    } catch (Throwable $e) {
-        $this->LogMessage('ImportOutputResources failed: ' . $e->getMessage(), KL_MESSAGE);
-        throw $e;
-    }
-    break;
+            case 'ImportOutputResources':
+                try {
+                    $this->ImportOutputResources();
+                } catch (Throwable $e) {
+                    $this->LogMessage('ImportOutputResources failed: ' . $e->getMessage(), KL_MESSAGE);
+                    throw $e;
+                }
+                break;
 
             default:
                 throw new Exception('Invalid Ident');
@@ -478,214 +478,281 @@ case 'ImportOutputResources':
     }
 
     public function ExportOutputResources(): void
-{
-    $export = [
-        'schema'      => 'ARMM.OutputResources.v1',
-        'module'      => 'ARMResponseManager',
-        'exported_at' => time(),
-        'instance_id' => $this->InstanceID,
-        'target_name' => $this->GetModule1TargetDisplayName(),
-        'OutputResources' => $this->readListProperty('OutputResources')
-    ];
-
-    IPS_SetProperty(
-        $this->InstanceID,
-        'OutputResourcesBackupJson',
-        json_encode($export, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)
-    );
-
-    IPS_ApplyChanges($this->InstanceID);
-
-    $this->SetStatus(206);
-    $this->LogMessage('ExportOutputResources: output resources JSON written to OutputResourcesBackupJson', KL_MESSAGE);
-}
-
-public function ImportOutputResources(): void
-{
-    $raw = $this->ReadPropertyString('OutputResourcesBackupJson');
-    if (trim($raw) === '') {
-        throw new Exception('OutputResourcesBackupJson is empty.');
-    }
-
-    $data = json_decode($raw, true);
-    if (!is_array($data)) {
-        throw new Exception('OutputResourcesBackupJson does not contain valid JSON.');
-    }
-
-    $outputResources = $this->ValidateAndNormalizeOutputResourcesImport($data);
-    $this->ValidateImportedOutputIDsAgainstLocalAssignments($outputResources);
-
-    IPS_SetProperty($this->InstanceID, 'OutputResources', json_encode(array_values($outputResources)));
-    IPS_ApplyChanges($this->InstanceID);
-
-    $this->SetStatus(207);
-    $this->LogMessage('ImportOutputResources: output resources imported from OutputResourcesBackupJson', KL_MESSAGE);
-}
-
-private function ValidateAndNormalizeOutputResourcesImport(array $data): array
-{
-    $schema = (string) ($data['schema'] ?? '');
-
-    if ($schema === 'ARMM.OutputResources.v1') {
-        $resources = $data['OutputResources'] ?? null;
-    } elseif ($schema === 'ARMM.ConfigBackup.v1') {
-        $resources = $data['config']['OutputResources'] ?? null;
-    } else {
-        throw new Exception('Unsupported output resources import schema.');
-    }
-
-    if (!is_array($resources)) {
-        throw new Exception('Import JSON does not contain an OutputResources array.');
-    }
-
-    $validTypeIDs = [];
-    foreach ($this->GetBuiltInOutputTypes() as $typeRow) {
-        if (!is_array($typeRow)) {
-            continue;
-        }
-
-        $typeID = trim((string) ($typeRow['TypeID'] ?? ''));
-        if ($typeID !== '') {
-            $validTypeIDs[$typeID] = true;
-        }
-    }
-
-    $validActionModes = [
-        'message_text' => true,
-        'json_payload' => true,
-        'fixed_value'  => true
-    ];
-
-    $seenOutputIDs = [];
-    $normalized = [];
-
-    foreach ($resources as $index => $row) {
-        if (!is_array($row)) {
-            throw new Exception('OutputResources row ' . $index . ' is invalid.');
-        }
-
-        $outputID = trim((string) ($row['OutputID'] ?? ''));
-        if ($outputID === '') {
-            throw new Exception('OutputResources row ' . $index . ' is missing OutputID.');
-        }
-
-        if (isset($seenOutputIDs[$outputID])) {
-            throw new Exception('Duplicate OutputID in import: ' . $outputID);
-        }
-        $seenOutputIDs[$outputID] = true;
-
-        $typeID = trim((string) ($row['TypeID'] ?? ''));
-        if ($typeID === '') {
-            throw new Exception('OutputResources row ' . $index . ' is missing TypeID.');
-        }
-
-        if (!isset($validTypeIDs[$typeID])) {
-            throw new Exception('OutputResources row ' . $index . ' has unsupported TypeID: ' . $typeID);
-        }
-
-        $maxMessages = (int) ($row['MaxMessages'] ?? 1);
-        $perSeconds = (int) ($row['PerSeconds'] ?? 60);
-
-        if ($maxMessages < 0) {
-            throw new Exception('OutputResources row ' . $index . ' has invalid MaxMessages.');
-        }
-
-        if ($perSeconds < 0) {
-            throw new Exception('OutputResources row ' . $index . ' has invalid PerSeconds.');
-        }
-
-        $actionValueMode = trim((string) ($row['ActionValueMode'] ?? 'message_text'));
-        if ($actionValueMode === '') {
-            $actionValueMode = 'message_text';
-        }
-
-        if (!isset($validActionModes[$actionValueMode])) {
-            throw new Exception('OutputResources row ' . $index . ' has invalid ActionValueMode: ' . $actionValueMode);
-        }
-
-        $normalized[] = [
-            'Active'             => (bool) ($row['Active'] ?? true),
-            'OutputID'           => $outputID,
-            'Name'               => (string) ($row['Name'] ?? ''),
-            'TypeID'             => $typeID,
-            'TargetObjectID'     => (int) ($row['TargetObjectID'] ?? 0),
-            'MaxMessages'        => $maxMessages,
-            'PerSeconds'         => $perSeconds,
-            'PrefixText'         => (string) ($row['PrefixText'] ?? ''),
-            'UseSensorName'      => (bool) ($row['UseSensorName'] ?? true),
-            'UseParentName'      => (bool) ($row['UseParentName'] ?? false),
-            'UseGrandparentName' => (bool) ($row['UseGrandparentName'] ?? false),
-            'UseContent'         => (bool) ($row['UseContent'] ?? false),
-            'SuffixText'         => (string) ($row['SuffixText'] ?? ''),
-            'EmailAddress'       => (string) ($row['EmailAddress'] ?? ''),
-            'PhoneNumber'        => (string) ($row['PhoneNumber'] ?? ''),
-            'Volume'             => (string) ($row['Volume'] ?? ''),
-            'ActionValueMode'    => $actionValueMode,
-            'ActionFixedValue'   => (string) ($row['ActionFixedValue'] ?? ''),
-            'PrefixOrder'        => (int) ($row['PrefixOrder'] ?? 10),
-            'SensorOrder'        => (int) ($row['SensorOrder'] ?? 20),
-            'ParentOrder'        => (int) ($row['ParentOrder'] ?? 30),
-            'GrandparentOrder'   => (int) ($row['GrandparentOrder'] ?? 40),
-            'ContentOrder'       => (int) ($row['ContentOrder'] ?? 50),
-            'SuffixOrder'        => (int) ($row['SuffixOrder'] ?? 60)
+    {
+        $export = [
+            'schema'      => 'ARMM.OutputResources.v1',
+            'module'      => 'ARMResponseManager',
+            'exported_at' => time(),
+            'instance_id' => $this->InstanceID,
+            'target_name' => $this->GetModule1TargetDisplayName(),
+            'OutputResources' => $this->readListProperty('OutputResources')
         ];
+
+        IPS_SetProperty(
+            $this->InstanceID,
+            'OutputResourcesBackupJson',
+            json_encode($export, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)
+        );
+
+        IPS_ApplyChanges($this->InstanceID);
+
+        $this->SetStatus(206);
+        $this->LogMessage('ExportOutputResources: output resources JSON written to OutputResourcesBackupJson', KL_MESSAGE);
     }
 
-    return array_values($normalized);
-}
-
-private function ValidateImportedOutputIDsAgainstLocalAssignments(array $outputResources): void
-{
-    $importedOutputIDs = [];
-    foreach ($outputResources as $row) {
-        if (!is_array($row)) {
-            continue;
+    public function ImportOutputResources(): void
+    {
+        $raw = $this->ReadPropertyString('OutputResourcesBackupJson');
+        if (trim($raw) === '') {
+            throw new Exception('OutputResourcesBackupJson is empty.');
         }
 
-        $outputID = trim((string) ($row['OutputID'] ?? ''));
-        if ($outputID !== '') {
-            $importedOutputIDs[$outputID] = true;
-        }
-    }
-
-    $referencedOutputIDs = [];
-
-    foreach ($this->readListProperty('AssignmentMatrixConfig') as $row) {
-        if (!is_array($row)) {
-            continue;
+        $data = json_decode($raw, true);
+        if (!is_array($data)) {
+            throw new Exception('OutputResourcesBackupJson does not contain valid JSON.');
         }
 
-        $outputID = trim((string) ($row['OutputID'] ?? ''));
-        if ($outputID !== '') {
-            $referencedOutputIDs[$outputID] = true;
-        }
-    }
+        $importedOutputResources = $this->ValidateAndNormalizeOutputResourcesImport($data);
 
-    foreach ($this->readListProperty('RuleOutputAssignments') as $row) {
-        if (!is_array($row)) {
-            continue;
-        }
+        $mergedOutputResources = $this->MergeOutputResourcesByOutputID(
+            $this->readListProperty('OutputResources'),
+            $importedOutputResources
+        );
 
-        $outputID = trim((string) ($row['OutputID'] ?? ''));
-        if ($outputID !== '') {
-            $referencedOutputIDs[$outputID] = true;
-        }
-    }
+        IPS_SetProperty($this->InstanceID, 'OutputResources', json_encode(array_values($mergedOutputResources)));
+        IPS_ApplyChanges($this->InstanceID);
 
-    $missing = [];
-    foreach (array_keys($referencedOutputIDs) as $outputID) {
-        if (!isset($importedOutputIDs[$outputID])) {
-            $missing[] = $outputID;
-        }
-    }
-
-    if (count($missing) > 0) {
-        throw new Exception(
-            'Output import would remove OutputID(s) still used by local assignments: '
-            . implode(', ', $missing)
+        $this->SetStatus(207);
+        $this->LogMessage(
+            'ImportOutputResources: output resources merged from OutputResourcesBackupJson; imported='
+                . count($importedOutputResources)
+                . ', final='
+                . count($mergedOutputResources),
+            KL_MESSAGE
         );
     }
-}
+
+    private function MergeOutputResourcesByOutputID(array $localRows, array $importRows): array
+    {
+        $merged = [];
+        $localOrder = [];
+        $importOrder = [];
+
+        foreach ($localRows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $outputID = trim((string) ($row['OutputID'] ?? ''));
+            if ($outputID === '') {
+                continue;
+            }
+
+            if (!isset($merged[$outputID])) {
+                $localOrder[] = $outputID;
+            }
+
+            $merged[$outputID] = $row;
+        }
+
+        foreach ($importRows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $outputID = trim((string) ($row['OutputID'] ?? ''));
+            if ($outputID === '') {
+                continue;
+            }
+
+            if (!isset($merged[$outputID])) {
+                $importOrder[] = $outputID;
+            }
+
+            $merged[$outputID] = $row;
+        }
+
+        $result = [];
+
+        foreach ($localOrder as $outputID) {
+            if (isset($merged[$outputID])) {
+                $result[] = $merged[$outputID];
+            }
+        }
+
+        foreach ($importOrder as $outputID) {
+            if (isset($merged[$outputID])) {
+                $result[] = $merged[$outputID];
+            }
+        }
+
+        return array_values($result);
+    }
+
+    private function ValidateAndNormalizeOutputResourcesImport(array $data): array
+    {
+        $schema = (string) ($data['schema'] ?? '');
+
+        if ($schema === 'ARMM.OutputResources.v1') {
+            $resources = $data['OutputResources'] ?? null;
+        } elseif ($schema === 'ARMM.ConfigBackup.v1') {
+            $resources = $data['config']['OutputResources'] ?? null;
+        } else {
+            throw new Exception('Unsupported output resources import schema.');
+        }
+
+        if (!is_array($resources)) {
+            throw new Exception('Import JSON does not contain an OutputResources array.');
+        }
+
+        $validTypeIDs = [];
+        foreach ($this->GetBuiltInOutputTypes() as $typeRow) {
+            if (!is_array($typeRow)) {
+                continue;
+            }
+
+            $typeID = trim((string) ($typeRow['TypeID'] ?? ''));
+            if ($typeID !== '') {
+                $validTypeIDs[$typeID] = true;
+            }
+        }
+
+        $validActionModes = [
+            'message_text' => true,
+            'json_payload' => true,
+            'fixed_value'  => true
+        ];
+
+        $seenOutputIDs = [];
+        $normalized = [];
+
+        foreach ($resources as $index => $row) {
+            if (!is_array($row)) {
+                throw new Exception('OutputResources row ' . $index . ' is invalid.');
+            }
+
+            $outputID = trim((string) ($row['OutputID'] ?? ''));
+            if ($outputID === '') {
+                throw new Exception('OutputResources row ' . $index . ' is missing OutputID.');
+            }
+
+            if (isset($seenOutputIDs[$outputID])) {
+                throw new Exception('Duplicate OutputID in import: ' . $outputID);
+            }
+            $seenOutputIDs[$outputID] = true;
+
+            $typeID = trim((string) ($row['TypeID'] ?? ''));
+            if ($typeID === '') {
+                throw new Exception('OutputResources row ' . $index . ' is missing TypeID.');
+            }
+
+            if (!isset($validTypeIDs[$typeID])) {
+                throw new Exception('OutputResources row ' . $index . ' has unsupported TypeID: ' . $typeID);
+            }
+
+            $maxMessages = (int) ($row['MaxMessages'] ?? 1);
+            $perSeconds = (int) ($row['PerSeconds'] ?? 60);
+
+            if ($maxMessages < 0) {
+                throw new Exception('OutputResources row ' . $index . ' has invalid MaxMessages.');
+            }
+
+            if ($perSeconds < 0) {
+                throw new Exception('OutputResources row ' . $index . ' has invalid PerSeconds.');
+            }
+
+            $actionValueMode = trim((string) ($row['ActionValueMode'] ?? 'message_text'));
+            if ($actionValueMode === '') {
+                $actionValueMode = 'message_text';
+            }
+
+            if (!isset($validActionModes[$actionValueMode])) {
+                throw new Exception('OutputResources row ' . $index . ' has invalid ActionValueMode: ' . $actionValueMode);
+            }
+
+            $normalized[] = [
+                'Active'             => (bool) ($row['Active'] ?? true),
+                'OutputID'           => $outputID,
+                'Name'               => (string) ($row['Name'] ?? ''),
+                'TypeID'             => $typeID,
+                'TargetObjectID'     => (int) ($row['TargetObjectID'] ?? 0),
+                'MaxMessages'        => $maxMessages,
+                'PerSeconds'         => $perSeconds,
+                'PrefixText'         => (string) ($row['PrefixText'] ?? ''),
+                'UseSensorName'      => (bool) ($row['UseSensorName'] ?? true),
+                'UseParentName'      => (bool) ($row['UseParentName'] ?? false),
+                'UseGrandparentName' => (bool) ($row['UseGrandparentName'] ?? false),
+                'UseContent'         => (bool) ($row['UseContent'] ?? false),
+                'SuffixText'         => (string) ($row['SuffixText'] ?? ''),
+                'EmailAddress'       => (string) ($row['EmailAddress'] ?? ''),
+                'PhoneNumber'        => (string) ($row['PhoneNumber'] ?? ''),
+                'Volume'             => (string) ($row['Volume'] ?? ''),
+                'ActionValueMode'    => $actionValueMode,
+                'ActionFixedValue'   => (string) ($row['ActionFixedValue'] ?? ''),
+                'PrefixOrder'        => (int) ($row['PrefixOrder'] ?? 10),
+                'SensorOrder'        => (int) ($row['SensorOrder'] ?? 20),
+                'ParentOrder'        => (int) ($row['ParentOrder'] ?? 30),
+                'GrandparentOrder'   => (int) ($row['GrandparentOrder'] ?? 40),
+                'ContentOrder'       => (int) ($row['ContentOrder'] ?? 50),
+                'SuffixOrder'        => (int) ($row['SuffixOrder'] ?? 60)
+            ];
+        }
+
+        return array_values($normalized);
+    }
+
+    private function ValidateImportedOutputIDsAgainstLocalAssignments(array $outputResources): void
+    {
+        $importedOutputIDs = [];
+        foreach ($outputResources as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $outputID = trim((string) ($row['OutputID'] ?? ''));
+            if ($outputID !== '') {
+                $importedOutputIDs[$outputID] = true;
+            }
+        }
+
+        $referencedOutputIDs = [];
+
+        foreach ($this->readListProperty('AssignmentMatrixConfig') as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $outputID = trim((string) ($row['OutputID'] ?? ''));
+            if ($outputID !== '') {
+                $referencedOutputIDs[$outputID] = true;
+            }
+        }
+
+        foreach ($this->readListProperty('RuleOutputAssignments') as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $outputID = trim((string) ($row['OutputID'] ?? ''));
+            if ($outputID !== '') {
+                $referencedOutputIDs[$outputID] = true;
+            }
+        }
+
+        $missing = [];
+        foreach (array_keys($referencedOutputIDs) as $outputID) {
+            if (!isset($importedOutputIDs[$outputID])) {
+                $missing[] = $outputID;
+            }
+        }
+
+        if (count($missing) > 0) {
+            throw new Exception(
+                'Output import would remove OutputID(s) still used by local assignments: '
+                    . implode(', ', $missing)
+            );
+        }
+    }
 
     public function ExportConfiguration(): void
     {
