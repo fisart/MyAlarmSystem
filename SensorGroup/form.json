@@ -172,7 +172,7 @@
     {
       "type": "List",
       "name": "DispatchTargets",
-      "caption": "Module 2 Instances",
+      "caption": "Dispatch Targets",
       "rowCount": 5,
       "add": true,
       "delete": true,
@@ -188,12 +188,13 @@
           }
         },
         {
-          "caption": "Instance",
+          "caption": "Target ObjectID",
           "name": "InstanceID",
-          "width": "220px",
+          "width": "160px",
           "add": 0,
           "edit": {
-            "type": "SelectInstance"
+            "type": "NumberSpinner",
+            "minimum": 1
           }
         }
       ],

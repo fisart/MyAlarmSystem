@@ -615,6 +615,47 @@ class SensorGroup extends IPSModule
         return true;
     }
 
+    private function IsDispatchTargetObjectValid(int $targetID): bool
+    {
+        return $targetID > 0 && (IPS_InstanceExists($targetID) || IPS_ScriptExists($targetID));
+    }
+
+    private function GetDispatchTargetObjectType(int $targetID): string
+    {
+        if ($targetID > 0 && IPS_InstanceExists($targetID)) {
+            return 'instance';
+        }
+
+        if ($targetID > 0 && IPS_ScriptExists($targetID)) {
+            return 'script';
+        }
+
+        return 'invalid';
+    }
+
+    private function DispatchPayloadToTarget(int $targetID, string $payloadJson): bool
+    {
+        if ($targetID <= 0) {
+            return false;
+        }
+
+        if (IPS_InstanceExists($targetID)) {
+            @IPS_RequestAction($targetID, 'ReceivePayload', $payloadJson);
+            return true;
+        }
+
+        if (IPS_ScriptExists($targetID)) {
+            IPS_RunScriptEx($targetID, [
+                'payload'            => $payloadJson,
+                'Payload'            => $payloadJson,
+                'source_instance_id' => $this->InstanceID
+            ]);
+            return true;
+        }
+
+        return false;
+    }
+
     private function ReadConfigPropertyList(string $propName): array
     {
         $tmp = json_decode((string)$this->ReadPropertyString($propName), true);
@@ -2113,7 +2154,10 @@ class SensorGroup extends IPSModule
 
         foreach (array_keys($allRoutedTargets) as $iid) {
             $iid = (int)$iid;
-            if (!IPS_InstanceExists($iid)) {
+            if (!$this->IsDispatchTargetObjectValid($iid)) {
+                if ($this->ReadPropertyBoolean('DebugMode')) {
+                    $this->LogMessage("DEBUG [Dispatch EXEC]: Skipping invalid target ObjectID=$iid", KL_WARNING);
+                }
                 continue;
             }
 
@@ -2253,7 +2297,20 @@ class SensorGroup extends IPSModule
             }
 
             try {
-                @IPS_RequestAction($iid, 'ReceivePayload', $payloadJsonForTarget);
+                $targetType = $this->GetDispatchTargetObjectType($iid);
+
+                if ($this->ReadPropertyBoolean('DebugMode')) {
+                    $this->LogMessage(
+                        "DEBUG [Dispatch EXEC]: Dispatching to ObjectID={$iid} Type={$targetType}",
+                        KL_MESSAGE
+                    );
+                }
+
+                $sent = $this->DispatchPayloadToTarget($iid, $payloadJsonForTarget);
+
+                if (!$sent && $this->ReadPropertyBoolean('DebugMode')) {
+                    $this->LogMessage("DISPATCH ERROR: Target {$iid} is neither instance nor script.", KL_WARNING);
+                }
             } catch (Throwable $e) {
                 if ($this->ReadPropertyBoolean('DebugMode')) {
                     $this->LogMessage("DISPATCH ERROR: Target {$iid} exception: " . $e->getMessage(), KL_WARNING);
@@ -3446,14 +3503,18 @@ class SensorGroup extends IPSModule
                 continue;
             }
 
-            // Build caption even if instance is missing (don't filter it out)
+            // Build caption for instances and scripts.
+            // Field name remains InstanceID for backward compatibility,
+            // but the value may now be either an instance ID or a script ID.
             if (IPS_InstanceExists($iid)) {
-                $instCaption = IPS_GetName($iid);
+                $targetCaption = 'Instance: ' . IPS_GetName($iid);
+            } elseif (IPS_ScriptExists($iid)) {
+                $targetCaption = 'Script: ' . IPS_GetName($iid);
             } else {
-                $instCaption = 'Missing Instance #' . $iid;
+                $targetCaption = 'Missing Target #' . $iid;
             }
 
-            $cap = ($name !== '') ? ($name . ' (' . $instCaption . ')') : $instCaption;
+            $cap = ($name !== '') ? ($name . ' (' . $targetCaption . ')') : $targetCaption;
 
             $targetOptions[] = ['caption' => $cap, 'value' => $iid];
         }
