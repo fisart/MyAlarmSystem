@@ -1,0 +1,165 @@
+{
+  "elements": [
+    {
+      "type": "ExpansionPanel",
+      "caption": "Heartbeat Sender",
+      "items": [
+        {
+          "type": "SelectVariable",
+          "name": "HeartbeatInputVariableID",
+          "caption": "Heartbeat input variable",
+          "width": "600px"
+        },
+        {
+          "type": "NumberSpinner",
+          "name": "CycleIntervalSeconds",
+          "caption": "Cycle interval seconds",
+          "minimum": 10,
+          "maximum": 3600
+        },
+        {
+          "type": "NumberSpinner",
+          "name": "ResetDelayMs",
+          "caption": "Reset delay milliseconds",
+          "minimum": 0,
+          "maximum": 10000
+        },
+        {
+          "type": "NumberSpinner",
+          "name": "DeliveryTimeoutSeconds",
+          "caption": "Delivery timeout seconds",
+          "minimum": 5,
+          "maximum": 3600
+        },
+        {
+          "type": "NumberSpinner",
+          "name": "Module1MaxAgeSeconds",
+          "caption": "Module 1 max age seconds",
+          "minimum": 5,
+          "maximum": 3600
+        }
+      ]
+    },
+    {
+      "type": "ExpansionPanel",
+      "caption": "Module 3 Watch List",
+      "items": [
+        {
+          "type": "List",
+          "name": "WatchList",
+          "caption": "Watched Module 3 output variables",
+          "rowCount": 6,
+          "add": true,
+          "delete": true,
+          "columns": [
+            {
+              "caption": "Active",
+              "name": "Active",
+              "width": "80px",
+              "add": true,
+              "edit": {
+                "type": "CheckBox"
+              }
+            },
+            {
+              "caption": "Name",
+              "name": "Name",
+              "width": "260px",
+              "add": "New Module 3 Server",
+              "edit": {
+                "type": "ValidationTextBox"
+              }
+            },
+            {
+              "caption": "OutputVariableID",
+              "name": "OutputVariableID",
+              "width": "180px",
+              "add": 0,
+              "edit": {
+                "type": "NumberSpinner",
+                "minimum": 0
+              }
+            },
+            {
+              "caption": "MaxAgeSeconds",
+              "name": "MaxAgeSeconds",
+              "width": "160px",
+              "add": 180,
+              "edit": {
+                "type": "NumberSpinner",
+                "minimum": 5,
+                "maximum": 3600
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "ExpansionPanel",
+      "caption": "Notifications and Diagnostics",
+      "items": [
+        {
+          "type": "SelectInstance",
+          "name": "SmtpInstanceID",
+          "caption": "SMTP instance",
+          "width": "600px"
+        },
+        {
+          "type": "ValidationTextBox",
+          "name": "EmailTo",
+          "caption": "Email recipient override, optional"
+        },
+        {
+          "type": "CheckBox",
+          "name": "SendEmail",
+          "caption": "Send email on failure/recovery"
+        },
+        {
+          "type": "CheckBox",
+          "name": "DebugMode",
+          "caption": "Debug mode"
+        }
+      ]
+    }
+  ],
+  "actions": [
+    {
+      "type": "Button",
+      "caption": "Run heartbeat cycle now",
+      "onClick": "AHW_RunCycle($id);"
+    },
+    {
+      "type": "Button",
+      "caption": "Send heartbeat only",
+      "onClick": "AHW_SendHeartbeat($id);"
+    },
+    {
+      "type": "Button",
+      "caption": "Rebuild status HTML",
+      "onClick": "AHW_RebuildStatus($id);"
+    },
+    {
+      "type": "Button",
+      "caption": "Clear runtime state",
+      "onClick": "AHW_ClearRuntime($id);"
+    }
+  ],
+  "status": [
+    {
+      "code": 102,
+      "icon": "active",
+      "caption": "Active"
+    },
+    {
+      "code": 201,
+      "icon": "error",
+      "caption": "Heartbeat input variable is not configured or missing."
+    },
+    {
+      "code": 202,
+      "icon": "warning",
+      "caption": "No active Module 3 watch targets configured."
+    }
+  ]
+}

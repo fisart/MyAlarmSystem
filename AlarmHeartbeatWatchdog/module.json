@@ -1,0 +1,13 @@
+{
+  "id": "{02B51F4D-6B3F-4CB5-A9D5-2F1F123C646B}",
+  "name": "Alarm Heartbeat Watchdog",
+  "type": 3,
+  "vendor": "Alarm System",
+  "aliases": [
+    "Alarm Heartbeat Watchdog"
+  ],
+  "parentRequirements": [],
+  "childRequirements": [],
+  "implemented": [],
+  "prefix": "AHW"
+}
