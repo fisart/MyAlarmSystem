@@ -2888,62 +2888,77 @@ document.addEventListener("DOMContentLoaded", () => {
 
     private function EnqueueModule1Payload(array $payload, string $payloadJson): void
     {
-        $queue = $this->GetPendingModule1PayloadQueue();
-
-        $eventID = trim((string) ($payload['event_id'] ?? ''));
-        $eventEpoch = (string) ($payload['event_epoch'] ?? '0');
-        $eventSeq = (int) ($payload['event_seq'] ?? 0);
-
-        foreach ($queue as $existing) {
-            $existingPayload = $existing['payload'] ?? [];
-            if (!is_array($existingPayload)) {
-                continue;
-            }
-
-            $existingEventID = trim((string) ($existingPayload['event_id'] ?? ''));
-            $existingEpoch = (string) ($existingPayload['event_epoch'] ?? '0');
-            $existingSeq = (int) ($existingPayload['event_seq'] ?? 0);
-
-            if ($eventID !== '' && $existingEventID === $eventID) {
-                $this->LogMessage('EnqueueModule1Payload: duplicate event_id ignored: ' . $eventID, KL_MESSAGE);
-                return;
-            }
-
-            if ($eventID === '' && $existingEpoch === $eventEpoch && $existingSeq === $eventSeq) {
-                $this->LogMessage(
-                    'EnqueueModule1Payload: duplicate event token ignored: (' . $eventEpoch . ',' . $eventSeq . ')',
-                    KL_MESSAGE
-                );
-                return;
-            }
-        }
-
-        $queue[] = [
-            'received_at'  => time(),
-            'event_epoch'  => $eventEpoch,
-            'event_seq'    => $eventSeq,
-            'event_id'     => $eventID,
-            'payload_json' => $payloadJson,
-            'payload'      => $payload
-        ];
-
-        $maxQueueSize = 100;
-        if (count($queue) > $maxQueueSize) {
-            $dropCount = count($queue) - $maxQueueSize;
-            $queue = array_slice($queue, -$maxQueueSize);
+        if (!$this->EnterPayloadQueueLock()) {
+            $eventEpoch = (string) ($payload['event_epoch'] ?? '0');
+            $eventSeq = (int) ($payload['event_seq'] ?? 0);
 
             $this->LogMessage(
-                'EnqueueModule1Payload: pending queue overflow, dropped oldest entries=' . $dropCount,
+                'EnqueueModule1Payload: queue lock timeout, event not queued=(' . $eventEpoch . ',' . $eventSeq . ')',
                 KL_MESSAGE
             );
+            return;
         }
 
-        $this->WritePendingModule1PayloadQueue($queue);
+        try {
+            $queue = $this->GetPendingModule1PayloadQueue();
 
-        $this->LogMessage(
-            'EnqueueModule1Payload: queued event=(' . $eventEpoch . ',' . $eventSeq . '), queue_size=' . count($queue),
-            KL_MESSAGE
-        );
+            $eventID = trim((string) ($payload['event_id'] ?? ''));
+            $eventEpoch = (string) ($payload['event_epoch'] ?? '0');
+            $eventSeq = (int) ($payload['event_seq'] ?? 0);
+
+            foreach ($queue as $existing) {
+                $existingPayload = $existing['payload'] ?? [];
+                if (!is_array($existingPayload)) {
+                    continue;
+                }
+
+                $existingEventID = trim((string) ($existingPayload['event_id'] ?? ''));
+                $existingEpoch = (string) ($existingPayload['event_epoch'] ?? '0');
+                $existingSeq = (int) ($existingPayload['event_seq'] ?? 0);
+
+                if ($eventID !== '' && $existingEventID === $eventID) {
+                    $this->LogMessage('EnqueueModule1Payload: duplicate event_id ignored: ' . $eventID, KL_MESSAGE);
+                    return;
+                }
+
+                if ($eventID === '' && $existingEpoch === $eventEpoch && $existingSeq === $eventSeq) {
+                    $this->LogMessage(
+                        'EnqueueModule1Payload: duplicate event token ignored: (' . $eventEpoch . ',' . $eventSeq . ')',
+                        KL_MESSAGE
+                    );
+                    return;
+                }
+            }
+
+            $queue[] = [
+                'received_at'  => time(),
+                'event_epoch'  => $eventEpoch,
+                'event_seq'    => $eventSeq,
+                'event_id'     => $eventID,
+                'payload_json' => $payloadJson,
+                'payload'      => $payload
+            ];
+
+            $maxQueueSize = 100;
+            if (count($queue) > $maxQueueSize) {
+                $dropCount = count($queue) - $maxQueueSize;
+                $queue = array_slice($queue, -$maxQueueSize);
+
+                $this->LogMessage(
+                    'EnqueueModule1Payload: pending queue overflow, dropped oldest entries=' . $dropCount,
+                    KL_MESSAGE
+                );
+            }
+
+            $this->WritePendingModule1PayloadQueue($queue);
+
+            $this->LogMessage(
+                'EnqueueModule1Payload: queued event=(' . $eventEpoch . ',' . $eventSeq . '), queue_size=' . count($queue),
+                KL_MESSAGE
+            );
+        } finally {
+            $this->LeavePayloadQueueLock();
+        }
     }
 
 
@@ -2962,91 +2977,147 @@ document.addEventListener("DOMContentLoaded", () => {
 
     private function ProcessPendingModule1PayloadQueue(?array $houseOverride = null): void
     {
-        $queue = $this->GetPendingModule1PayloadQueue();
-        if (count($queue) === 0) {
+        if (!$this->EnterPayloadProcessorLock()) {
+            $this->LogMessage('ProcessPendingModule1PayloadQueue: processor already running, skipped this trigger', KL_MESSAGE);
             return;
         }
 
-        $remaining = [];
-        $processed = 0;
-        $blocked = false;
-
-        foreach ($queue as $index => $entry) {
-            if ($blocked) {
-                $remaining[] = $entry;
-                continue;
+        try {
+            if (!$this->EnterPayloadQueueLock()) {
+                $this->LogMessage('ProcessPendingModule1PayloadQueue: queue lock timeout while reading queue', KL_MESSAGE);
+                return;
             }
 
-            $payload = $entry['payload'] ?? null;
-            if (!is_array($payload)) {
-                $processed++;
-                continue;
+            try {
+                $queue = $this->GetPendingModule1PayloadQueue();
+
+                if (count($queue) === 0) {
+                    return;
+                }
+
+                $this->WritePendingModule1PayloadQueue([]);
+            } finally {
+                $this->LeavePayloadQueueLock();
             }
 
-            $payloadJson = (string) ($entry['payload_json'] ?? '');
-            if ($payloadJson === '') {
-                $payloadJson = json_encode($payload);
-            }
+            $remaining = [];
+            $processed = 0;
+            $blocked = false;
 
-            $eventEpoch = (string) ($payload['event_epoch'] ?? '0');
-            $eventSeq = (int) ($payload['event_seq'] ?? 0);
-            $eventType = strtoupper(trim((string) ($payload['event_type'] ?? '')));
+            foreach ($queue as $entry) {
+                if ($blocked) {
+                    $remaining[] = $entry;
+                    continue;
+                }
 
-            if ($eventType !== 'ALARM') {
-                $this->LogMessage('ProcessPendingModule1PayloadQueue: skipped non-ALARM event_type=' . $eventType, KL_MESSAGE);
-                $processed++;
-                continue;
-            }
+                $payload = $entry['payload'] ?? null;
+                if (!is_array($payload)) {
+                    $processed++;
+                    continue;
+                }
 
-            $targetGroups = $payload['target_active_groups'] ?? [];
+                $payloadJson = (string) ($entry['payload_json'] ?? '');
+                if ($payloadJson === '') {
+                    $payloadJson = json_encode($payload);
+                }
 
-            if (!is_array($targetGroups) || count($targetGroups) === 0) {
+                $eventEpoch = (string) ($payload['event_epoch'] ?? '0');
+                $eventSeq = (int) ($payload['event_seq'] ?? 0);
+                $eventType = strtoupper(trim((string) ($payload['event_type'] ?? '')));
+
+                if ($eventType !== 'ALARM') {
+                    $this->LogMessage(
+                        'ProcessPendingModule1PayloadQueue: skipped non-ALARM event_type=' . $eventType,
+                        KL_MESSAGE
+                    );
+                    $processed++;
+                    continue;
+                }
+
+                $targetGroups = $payload['target_active_groups'] ?? [];
+
+                if (!is_array($targetGroups) || count($targetGroups) === 0) {
+                    $this->SetCurrentModule1PayloadContext($payload, $payloadJson);
+                    $this->ReevaluateCurrentAlarmContext($payload, $houseOverride ?? ['system_state_id' => 0]);
+
+                    $this->LogMessage(
+                        'ProcessPendingModule1PayloadQueue: processed reset/all-clear event=(' . $eventEpoch . ',' . $eventSeq . ')',
+                        KL_MESSAGE
+                    );
+
+                    $processed++;
+                    continue;
+                }
+
+                $house = $houseOverride;
+                if ($house === null) {
+                    $house = $this->GetUsableHouseStateSnapshot($eventEpoch, $eventSeq);
+                }
+
+                if ($house === null) {
+                    $this->LogMessage(
+                        'ProcessPendingModule1PayloadQueue: blocked, no usable house snapshot for event=(' . $eventEpoch . ',' . $eventSeq . ')',
+                        KL_MESSAGE
+                    );
+
+                    $remaining[] = $entry;
+                    $blocked = true;
+                    continue;
+                }
+
                 $this->SetCurrentModule1PayloadContext($payload, $payloadJson);
-                $this->ReevaluateCurrentAlarmContext($payload, $houseOverride ?? ['system_state_id' => 0]);
+                $this->ReevaluateCurrentAlarmContext($payload, $house);
 
                 $this->LogMessage(
-                    'ProcessPendingModule1PayloadQueue: processed reset/all-clear event=(' . $eventEpoch . ',' . $eventSeq . ')',
+                    'ProcessPendingModule1PayloadQueue: processed event=(' . $eventEpoch . ',' . $eventSeq . ')',
                     KL_MESSAGE
                 );
 
                 $processed++;
-                continue;
             }
 
-            $house = $houseOverride;
-            if ($house === null) {
-                $house = $this->GetUsableHouseStateSnapshot($eventEpoch, $eventSeq);
+            if (count($remaining) > 0) {
+                if (!$this->EnterPayloadQueueLock()) {
+                    $this->LogMessage(
+                        'ProcessPendingModule1PayloadQueue: queue lock timeout while restoring remaining events; remaining=' . count($remaining),
+                        KL_MESSAGE
+                    );
+                    return;
+                }
+
+                try {
+                    $currentQueue = $this->GetPendingModule1PayloadQueue();
+
+                    /*
+                 * Important:
+                 * Remaining old events go back to the front.
+                 * New events that arrived while processing stay behind them.
+                 */
+                    $mergedQueue = array_merge($remaining, $currentQueue);
+
+                    $maxQueueSize = 100;
+                    if (count($mergedQueue) > $maxQueueSize) {
+                        $dropCount = count($mergedQueue) - $maxQueueSize;
+                        $mergedQueue = array_slice($mergedQueue, -$maxQueueSize);
+
+                        $this->LogMessage(
+                            'ProcessPendingModule1PayloadQueue: queue overflow after restore, dropped oldest entries=' . $dropCount,
+                            KL_MESSAGE
+                        );
+                    }
+
+                    $this->WritePendingModule1PayloadQueue($mergedQueue);
+                } finally {
+                    $this->LeavePayloadQueueLock();
+                }
             }
 
-            if ($house === null) {
-                $this->LogMessage(
-                    'ProcessPendingModule1PayloadQueue: blocked, no usable house snapshot for event=(' . $eventEpoch . ',' . $eventSeq . ')',
-                    KL_MESSAGE
-                );
-
-                $remaining[] = $entry;
-                $blocked = true;
-                continue;
-            }
-
-            $this->SetCurrentModule1PayloadContext($payload, $payloadJson);
-            $this->ReevaluateCurrentAlarmContext($payload, $house);
-
-            $this->LogMessage(
-                'ProcessPendingModule1PayloadQueue: processed event=(' . $eventEpoch . ',' . $eventSeq . ')',
-                KL_MESSAGE
-            );
-
-            $processed++;
-        }
-
-        $this->WritePendingModule1PayloadQueue($remaining);
-
-        if ($processed > 0 || count($remaining) > 0) {
             $this->LogMessage(
                 'ProcessPendingModule1PayloadQueue: processed=' . $processed . ', remaining=' . count($remaining),
                 KL_MESSAGE
             );
+        } finally {
+            $this->LeavePayloadProcessorLock();
         }
     }
 
@@ -3056,7 +3127,28 @@ document.addEventListener("DOMContentLoaded", () => {
         return $this->ReadAttributeString('PendingModule1PayloadQueue');
     }
 
+    private function EnterPayloadQueueLock(int $timeoutMs = 5000): bool
+    {
+        return IPS_SemaphoreEnter('ARMM_Q_' . $this->InstanceID, $timeoutMs);
+    }
 
+
+    private function LeavePayloadQueueLock(): void
+    {
+        IPS_SemaphoreLeave('ARMM_Q_' . $this->InstanceID);
+    }
+
+
+    private function EnterPayloadProcessorLock(int $timeoutMs = 1): bool
+    {
+        return IPS_SemaphoreEnter('ARMM_PROC_' . $this->InstanceID, $timeoutMs);
+    }
+
+
+    private function LeavePayloadProcessorLock(): void
+    {
+        IPS_SemaphoreLeave('ARMM_PROC_' . $this->InstanceID);
+    }
     private function ValidateHouseStateSnapshot(array $data): bool
     {
         if (($data['schema'] ?? '') !== 'PSM.HouseState.v2') {
