@@ -77,6 +77,7 @@ class AlarmResponseManager extends IPSModule
         $this->RegisterAttributeString('LastReceivedPayloadRaw', '');
 
         $this->RegisterAttributeString('CachedModule1PayloadRaw', '');
+        $this->RegisterAttributeString('PendingModule1PayloadQueue', '[]');
         $this->RegisterAttributeString('CachedTargetActiveGroups', '[]');
         $this->RegisterAttributeString('CachedTargetActiveClasses', '[]');
         $this->RegisterAttributeString('CachedTargetActiveSensorDetails', '[]');
@@ -2347,6 +2348,7 @@ document.addEventListener("DOMContentLoaded", () => {
     public function ReceivePayload(string $payloadJson): void
     {
         $this->WriteAttributeString('LastReceivedPayloadRaw', $payloadJson);
+
         $payload = json_decode($payloadJson, true);
         if (!is_array($payload)) {
             $this->LogMessage('ReceivePayload: invalid JSON payload', KL_MESSAGE);
@@ -2355,46 +2357,24 @@ document.addEventListener("DOMContentLoaded", () => {
 
         $eventEpoch = (string) ($payload['event_epoch'] ?? '0');
         $eventSeq = (int) ($payload['event_seq'] ?? 0);
+
         $this->WriteAttributeString('LastEventEpoch', $eventEpoch);
         $this->WriteAttributeInteger('LastEventSeq', $eventSeq);
 
         $eventType = strtoupper(trim((string) ($payload['event_type'] ?? '')));
-        $targetGroups = $payload['target_active_groups'] ?? [];
-        $targetClasses = $payload['target_active_classes'] ?? [];
-        $targetSensorDetails = $payload['target_active_sensor_details'] ?? [];
 
-        $this->WriteAttributeString('CachedModule1PayloadRaw', $payloadJson);
-        $this->WriteAttributeString('CachedTargetActiveGroups', json_encode(is_array($targetGroups) ? array_values($targetGroups) : []));
-        $this->WriteAttributeString('CachedTargetActiveClasses', json_encode(is_array($targetClasses) ? array_values($targetClasses) : []));
-        $this->WriteAttributeString('CachedTargetActiveSensorDetails', json_encode(is_array($targetSensorDetails) ? array_values($targetSensorDetails) : []));
+        $this->SetCurrentModule1PayloadContext($payload, $payloadJson);
 
         if ($eventType !== 'ALARM') {
             $this->LogMessage('ReceivePayload: ignored non-ALARM event_type=' . $eventType, KL_MESSAGE);
             return;
         }
 
-        if (!is_array($targetGroups) || count($targetGroups) === 0) {
-            $this->WriteAttributeString('CachedModule1PayloadRaw', $payloadJson);
-            $this->WriteAttributeString('CachedTargetActiveGroups', '[]');
-            $this->WriteAttributeString('CachedTargetActiveClasses', '[]');
-            $this->WriteAttributeString('CachedTargetActiveSensorDetails', '[]');
-
-            $this->WriteAttributeString('LastActiveGroups', '[]');
-            $this->WriteAttributeString('LastActiveRuleIDs', '[]');
-            $this->WriteAttributeString('LastActiveOutputIDs', '[]');
-            $this->WriteAttributeString('ActiveOutputMatchKeys', '[]');
-            $this->LogMessage('ReceivePayload: reset/all-clear detected, live path and active output matches cleared', KL_MESSAGE);
-            return;
-        }
-
-        $house = $this->GetUsableHouseStateSnapshot($eventEpoch, $eventSeq);
-        if ($house === null) {
-            $this->LogMessage('ReceivePayload: no usable house snapshot available', KL_MESSAGE);
-            return;
-        }
-
-        $this->ReevaluateCurrentAlarmContext($payload, $house);
+        $this->EnqueueModule1Payload($payload, $payloadJson);
+        $this->ProcessPendingModule1PayloadQueue();
     }
+
+
     public function DebugGetLastReceivedPayloadRaw(): string
     {
         return $this->ReadAttributeString('LastReceivedPayloadRaw');
@@ -2829,20 +2809,253 @@ document.addEventListener("DOMContentLoaded", () => {
             KL_MESSAGE
         );
 
-        $cachedPayloadJson = $this->ReadAttributeString('CachedModule1PayloadRaw');
-        $cachedPayload = json_decode($cachedPayloadJson, true);
+        $this->ProcessPendingModule1PayloadQueue($data);
+    }
 
-        if (is_array($cachedPayload)) {
-            $cachedGroups = $cachedPayload['target_active_groups'] ?? [];
-            if (is_array($cachedGroups) && count($cachedGroups) > 0) {
+
+    private function GetPendingModule1PayloadQueue(): array
+    {
+        $raw = $this->ReadAttributeString('PendingModule1PayloadQueue');
+        $data = json_decode($raw, true);
+
+        if (!is_array($data)) {
+            return [];
+        }
+
+        $queue = [];
+
+        foreach ($data as $entry) {
+            if (!is_array($entry)) {
+                continue;
+            }
+
+            $payload = $entry['payload'] ?? null;
+            if (!is_array($payload)) {
+                continue;
+            }
+
+            $payloadJson = (string) ($entry['payload_json'] ?? '');
+            if ($payloadJson === '') {
+                $payloadJson = json_encode($payload);
+            }
+
+            $queue[] = [
+                'received_at'  => (int) ($entry['received_at'] ?? time()),
+                'event_epoch'  => (string) ($payload['event_epoch'] ?? '0'),
+                'event_seq'    => (int) ($payload['event_seq'] ?? 0),
+                'event_id'     => (string) ($payload['event_id'] ?? ''),
+                'payload_json' => $payloadJson,
+                'payload'      => $payload
+            ];
+        }
+
+        return array_values($queue);
+    }
+
+
+    private function WritePendingModule1PayloadQueue(array $queue): void
+    {
+        $clean = [];
+
+        foreach ($queue as $entry) {
+            if (!is_array($entry)) {
+                continue;
+            }
+
+            $payload = $entry['payload'] ?? null;
+            if (!is_array($payload)) {
+                continue;
+            }
+
+            $payloadJson = (string) ($entry['payload_json'] ?? '');
+            if ($payloadJson === '') {
+                $payloadJson = json_encode($payload);
+            }
+
+            $clean[] = [
+                'received_at'  => (int) ($entry['received_at'] ?? time()),
+                'event_epoch'  => (string) ($payload['event_epoch'] ?? '0'),
+                'event_seq'    => (int) ($payload['event_seq'] ?? 0),
+                'event_id'     => (string) ($payload['event_id'] ?? ''),
+                'payload_json' => $payloadJson,
+                'payload'      => $payload
+            ];
+        }
+
+        $this->WriteAttributeString('PendingModule1PayloadQueue', json_encode(array_values($clean)));
+    }
+
+
+    private function EnqueueModule1Payload(array $payload, string $payloadJson): void
+    {
+        $queue = $this->GetPendingModule1PayloadQueue();
+
+        $eventID = trim((string) ($payload['event_id'] ?? ''));
+        $eventEpoch = (string) ($payload['event_epoch'] ?? '0');
+        $eventSeq = (int) ($payload['event_seq'] ?? 0);
+
+        foreach ($queue as $existing) {
+            $existingPayload = $existing['payload'] ?? [];
+            if (!is_array($existingPayload)) {
+                continue;
+            }
+
+            $existingEventID = trim((string) ($existingPayload['event_id'] ?? ''));
+            $existingEpoch = (string) ($existingPayload['event_epoch'] ?? '0');
+            $existingSeq = (int) ($existingPayload['event_seq'] ?? 0);
+
+            if ($eventID !== '' && $existingEventID === $eventID) {
+                $this->LogMessage('EnqueueModule1Payload: duplicate event_id ignored: ' . $eventID, KL_MESSAGE);
+                return;
+            }
+
+            if ($eventID === '' && $existingEpoch === $eventEpoch && $existingSeq === $eventSeq) {
                 $this->LogMessage(
-                    'ReceiveHouseStateSnapshot: reevaluating cached Module 1 context for house state ' . $stateID,
+                    'EnqueueModule1Payload: duplicate event token ignored: (' . $eventEpoch . ',' . $eventSeq . ')',
                     KL_MESSAGE
                 );
-                $this->ReevaluateCurrentAlarmContext($cachedPayload, $data);
+                return;
             }
         }
+
+        $queue[] = [
+            'received_at'  => time(),
+            'event_epoch'  => $eventEpoch,
+            'event_seq'    => $eventSeq,
+            'event_id'     => $eventID,
+            'payload_json' => $payloadJson,
+            'payload'      => $payload
+        ];
+
+        $maxQueueSize = 100;
+        if (count($queue) > $maxQueueSize) {
+            $dropCount = count($queue) - $maxQueueSize;
+            $queue = array_slice($queue, -$maxQueueSize);
+
+            $this->LogMessage(
+                'EnqueueModule1Payload: pending queue overflow, dropped oldest entries=' . $dropCount,
+                KL_MESSAGE
+            );
+        }
+
+        $this->WritePendingModule1PayloadQueue($queue);
+
+        $this->LogMessage(
+            'EnqueueModule1Payload: queued event=(' . $eventEpoch . ',' . $eventSeq . '), queue_size=' . count($queue),
+            KL_MESSAGE
+        );
     }
+
+
+    private function SetCurrentModule1PayloadContext(array $payload, string $payloadJson): void
+    {
+        $targetGroups = $payload['target_active_groups'] ?? [];
+        $targetClasses = $payload['target_active_classes'] ?? [];
+        $targetSensorDetails = $payload['target_active_sensor_details'] ?? [];
+
+        $this->WriteAttributeString('CachedModule1PayloadRaw', $payloadJson);
+        $this->WriteAttributeString('CachedTargetActiveGroups', json_encode(is_array($targetGroups) ? array_values($targetGroups) : []));
+        $this->WriteAttributeString('CachedTargetActiveClasses', json_encode(is_array($targetClasses) ? array_values($targetClasses) : []));
+        $this->WriteAttributeString('CachedTargetActiveSensorDetails', json_encode(is_array($targetSensorDetails) ? array_values($targetSensorDetails) : []));
+    }
+
+
+    private function ProcessPendingModule1PayloadQueue(?array $houseOverride = null): void
+    {
+        $queue = $this->GetPendingModule1PayloadQueue();
+        if (count($queue) === 0) {
+            return;
+        }
+
+        $remaining = [];
+        $processed = 0;
+        $blocked = false;
+
+        foreach ($queue as $index => $entry) {
+            if ($blocked) {
+                $remaining[] = $entry;
+                continue;
+            }
+
+            $payload = $entry['payload'] ?? null;
+            if (!is_array($payload)) {
+                $processed++;
+                continue;
+            }
+
+            $payloadJson = (string) ($entry['payload_json'] ?? '');
+            if ($payloadJson === '') {
+                $payloadJson = json_encode($payload);
+            }
+
+            $eventEpoch = (string) ($payload['event_epoch'] ?? '0');
+            $eventSeq = (int) ($payload['event_seq'] ?? 0);
+            $eventType = strtoupper(trim((string) ($payload['event_type'] ?? '')));
+
+            if ($eventType !== 'ALARM') {
+                $this->LogMessage('ProcessPendingModule1PayloadQueue: skipped non-ALARM event_type=' . $eventType, KL_MESSAGE);
+                $processed++;
+                continue;
+            }
+
+            $targetGroups = $payload['target_active_groups'] ?? [];
+
+            if (!is_array($targetGroups) || count($targetGroups) === 0) {
+                $this->SetCurrentModule1PayloadContext($payload, $payloadJson);
+                $this->ReevaluateCurrentAlarmContext($payload, $houseOverride ?? ['system_state_id' => 0]);
+
+                $this->LogMessage(
+                    'ProcessPendingModule1PayloadQueue: processed reset/all-clear event=(' . $eventEpoch . ',' . $eventSeq . ')',
+                    KL_MESSAGE
+                );
+
+                $processed++;
+                continue;
+            }
+
+            $house = $houseOverride;
+            if ($house === null) {
+                $house = $this->GetUsableHouseStateSnapshot($eventEpoch, $eventSeq);
+            }
+
+            if ($house === null) {
+                $this->LogMessage(
+                    'ProcessPendingModule1PayloadQueue: blocked, no usable house snapshot for event=(' . $eventEpoch . ',' . $eventSeq . ')',
+                    KL_MESSAGE
+                );
+
+                $remaining[] = $entry;
+                $blocked = true;
+                continue;
+            }
+
+            $this->SetCurrentModule1PayloadContext($payload, $payloadJson);
+            $this->ReevaluateCurrentAlarmContext($payload, $house);
+
+            $this->LogMessage(
+                'ProcessPendingModule1PayloadQueue: processed event=(' . $eventEpoch . ',' . $eventSeq . ')',
+                KL_MESSAGE
+            );
+
+            $processed++;
+        }
+
+        $this->WritePendingModule1PayloadQueue($remaining);
+
+        if ($processed > 0 || count($remaining) > 0) {
+            $this->LogMessage(
+                'ProcessPendingModule1PayloadQueue: processed=' . $processed . ', remaining=' . count($remaining),
+                KL_MESSAGE
+            );
+        }
+    }
+
+
+    public function DebugGetPendingModule1PayloadQueue(): string
+    {
+        return $this->ReadAttributeString('PendingModule1PayloadQueue');
+    }
+
 
     private function ValidateHouseStateSnapshot(array $data): bool
     {
