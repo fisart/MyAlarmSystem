@@ -260,6 +260,96 @@ class AlarmResponseManager extends IPSModule
         }
     }
 
+    private function IsHeartbeatPayload(array $payload): bool
+    {
+        $heartbeatGroupKey = 'grp_98ed2ddcf5544c848df4d58d4d3485b9';
+
+        $groups = $payload['target_active_groups'] ?? [];
+        if (is_array($groups)) {
+            foreach ($groups as $groupRaw) {
+                $group = trim((string) $groupRaw);
+
+                if ($group === '') {
+                    continue;
+                }
+
+                if (stripos($group, 'heartbeat') !== false) {
+                    return true;
+                }
+
+                if ($this->MakeGroupKey($group) === $heartbeatGroupKey) {
+                    return true;
+                }
+            }
+        }
+
+        $details = $payload['target_active_sensor_details'] ?? [];
+        if (is_array($details)) {
+            foreach ($details as $detail) {
+                if (!is_array($detail)) {
+                    continue;
+                }
+
+                $haystack = strtolower(json_encode($detail));
+
+                if (strpos($haystack, 'heartbeat') !== false) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+
+    private function IsHeartbeatOutputResource(array $resource): bool
+    {
+        $outputID = trim((string) ($resource['OutputID'] ?? ''));
+        $name = trim((string) ($resource['Name'] ?? ''));
+
+        return $outputID === 'out_fb8e0a6d7fa7' || strcasecmp($name, 'Heartbeat') === 0;
+    }
+
+
+    private function GetHeartbeatTraceToken(array $payload): string
+    {
+        $eventID = trim((string) ($payload['event_id'] ?? ''));
+        $epoch = (string) ($payload['event_epoch'] ?? '0');
+        $seq = (int) ($payload['event_seq'] ?? 0);
+        $timestamp = (int) ($payload['timestamp'] ?? 0);
+
+        return 'event_id=' . ($eventID !== '' ? $eventID : '-')
+            . ' token=(' . $epoch . ',' . $seq . ')'
+            . ' ts=' . $timestamp;
+    }
+
+
+    private function LogHeartbeatTrace(array $payload, string $stage, array $context = []): void
+    {
+        if (!$this->IsHeartbeatPayload($payload)) {
+            return;
+        }
+
+        $parts = [];
+        $parts[] = 'HBTRACE';
+        $parts[] = $stage;
+        $parts[] = $this->GetHeartbeatTraceToken($payload);
+
+        foreach ($context as $key => $value) {
+            if (is_array($value)) {
+                $value = json_encode($value);
+            } elseif (is_bool($value)) {
+                $value = $value ? 'true' : 'false';
+            } elseif ($value === null) {
+                $value = 'null';
+            }
+
+            $parts[] = $key . '=' . (string) $value;
+        }
+
+        $this->LogMessage(implode(' | ', $parts), KL_MESSAGE);
+    }
+
     private function BuildOutputScreenEntryHtml(array $resource, array $payload, array $house, string $groupLabel): string
     {
         $eventTimestamp = (int) ($payload['timestamp'] ?? time());
@@ -2363,15 +2453,34 @@ document.addEventListener("DOMContentLoaded", () => {
 
         $eventType = strtoupper(trim((string) ($payload['event_type'] ?? '')));
 
+        $this->LogHeartbeatTrace($payload, 'RECEIVE_ENTER', [
+            'event_type' => $eventType,
+            'target_active_groups' => $payload['target_active_groups'] ?? [],
+            'queue_size_before' => count($this->GetPendingModule1PayloadQueue())
+        ]);
+
         $this->SetCurrentModule1PayloadContext($payload, $payloadJson);
 
         if ($eventType !== 'ALARM') {
+            $this->LogHeartbeatTrace($payload, 'RECEIVE_IGNORED_NON_ALARM', [
+                'event_type' => $eventType
+            ]);
+
             $this->LogMessage('ReceivePayload: ignored non-ALARM event_type=' . $eventType, KL_MESSAGE);
             return;
         }
 
         $this->EnqueueModule1Payload($payload, $payloadJson);
+
+        $this->LogHeartbeatTrace($payload, 'RECEIVE_AFTER_ENQUEUE', [
+            'queue_size_after' => count($this->GetPendingModule1PayloadQueue())
+        ]);
+
         $this->ProcessPendingModule1PayloadQueue();
+
+        $this->LogHeartbeatTrace($payload, 'RECEIVE_AFTER_PROCESS_TRIGGER', [
+            'queue_size_after_process_trigger' => count($this->GetPendingModule1PayloadQueue())
+        ]);
     }
 
 
@@ -2411,6 +2520,12 @@ document.addEventListener("DOMContentLoaded", () => {
 
         $houseState = (string) ((int) ($house['system_state_id'] ?? 0));
         $this->LogMessage('ReevaluateCurrentAlarmContext: houseState=' . $houseState, KL_MESSAGE);
+
+        $this->LogHeartbeatTrace($payload, 'REEVALUATE_ENTER', [
+            'house_state' => (int) ($house['system_state_id'] ?? -1),
+            'target_active_groups' => $payload['target_active_groups'] ?? [],
+            'active_match_keys_before' => $this->ReadAttributeString('ActiveOutputMatchKeys')
+        ]);
 
         $previousMatchKeys = $this->GetActiveOutputMatchKeySet();
 
@@ -2462,7 +2577,22 @@ document.addEventListener("DOMContentLoaded", () => {
                     $currentMatchKeys[$matchKey] = true;
                     $activeOutputIDsForView[$outputID] = true;
 
+                    if ($this->IsHeartbeatOutputResource($resource)) {
+                        $this->LogHeartbeatTrace($payload, 'REEVALUATE_HEARTBEAT_OUTPUT_CANDIDATE', [
+                            'group_key' => $groupKey,
+                            'output_id' => (string) ($resource['OutputID'] ?? ''),
+                            'match_key' => $matchKey,
+                            'already_active' => isset($previousMatchKeys[$matchKey])
+                        ]);
+                    }
+
                     if (isset($previousMatchKeys[$matchKey])) {
+                        if ($this->IsHeartbeatOutputResource($resource)) {
+                            $this->LogHeartbeatTrace($payload, 'REEVALUATE_HEARTBEAT_SUPPRESSED_ALREADY_ACTIVE', [
+                                'match_key' => $matchKey
+                            ]);
+                        }
+
                         continue;
                     }
 
@@ -2553,6 +2683,16 @@ document.addEventListener("DOMContentLoaded", () => {
                 }
 
                 if ($throttlingEnabled && $remainingSlots <= 0) {
+                    if ($this->IsHeartbeatOutputResource($resource)) {
+                        $this->LogHeartbeatTrace($payload, 'REEVALUATE_HEARTBEAT_THROTTLED', [
+                            'output_id' => $outputID,
+                            'match_key' => $matchKey,
+                            'rule_id' => $ruleID,
+                            'severity' => $severity,
+                            'remaining_slots' => $remainingSlots
+                        ]);
+                    }
+
                     $this->LogMessage(
                         'ReevaluateCurrentAlarmContext: throttled OutputID=' . $outputID
                             . ' match=' . $matchKey
@@ -2563,7 +2703,27 @@ document.addEventListener("DOMContentLoaded", () => {
                     continue;
                 }
 
+                if ($this->IsHeartbeatOutputResource($resource)) {
+                    $this->LogHeartbeatTrace($payload, 'EXECUTE_HEARTBEAT_BEFORE', [
+                        'output_id' => $outputID,
+                        'match_key' => $matchKey,
+                        'rule_id' => $ruleID,
+                        'severity' => $severity,
+                        'target_object_id' => (int) ($resource['TargetObjectID'] ?? 0),
+                        'type_id' => (string) ($resource['TypeID'] ?? '')
+                    ]);
+                }
+
                 $ok = $this->ExecuteOutputResource($resource, $payload, $house, $groupLabel);
+
+                if ($this->IsHeartbeatOutputResource($resource)) {
+                    $this->LogHeartbeatTrace($payload, 'EXECUTE_HEARTBEAT_AFTER', [
+                        'output_id' => $outputID,
+                        'match_key' => $matchKey,
+                        'result' => $ok
+                    ]);
+                }
+
                 $this->LogMessage(
                     'ReevaluateCurrentAlarmContext: execute match=' . $matchKey
                         . ' OutputID=' . $outputID
@@ -2892,6 +3052,8 @@ document.addEventListener("DOMContentLoaded", () => {
             $eventEpoch = (string) ($payload['event_epoch'] ?? '0');
             $eventSeq = (int) ($payload['event_seq'] ?? 0);
 
+            $this->LogHeartbeatTrace($payload, 'ENQUEUE_LOCK_TIMEOUT', []);
+
             $this->LogMessage(
                 'EnqueueModule1Payload: queue lock timeout, event not queued=(' . $eventEpoch . ',' . $eventSeq . ')',
                 KL_MESSAGE
@@ -2906,6 +3068,10 @@ document.addEventListener("DOMContentLoaded", () => {
             $eventEpoch = (string) ($payload['event_epoch'] ?? '0');
             $eventSeq = (int) ($payload['event_seq'] ?? 0);
 
+            $this->LogHeartbeatTrace($payload, 'ENQUEUE_LOCKED', [
+                'queue_size_before' => count($queue)
+            ]);
+
             foreach ($queue as $existing) {
                 $existingPayload = $existing['payload'] ?? [];
                 if (!is_array($existingPayload)) {
@@ -2917,11 +3083,17 @@ document.addEventListener("DOMContentLoaded", () => {
                 $existingSeq = (int) ($existingPayload['event_seq'] ?? 0);
 
                 if ($eventID !== '' && $existingEventID === $eventID) {
+                    $this->LogHeartbeatTrace($payload, 'ENQUEUE_DUPLICATE_EVENT_ID', [
+                        'duplicate_event_id' => $eventID
+                    ]);
+
                     $this->LogMessage('EnqueueModule1Payload: duplicate event_id ignored: ' . $eventID, KL_MESSAGE);
                     return;
                 }
 
                 if ($eventID === '' && $existingEpoch === $eventEpoch && $existingSeq === $eventSeq) {
+                    $this->LogHeartbeatTrace($payload, 'ENQUEUE_DUPLICATE_TOKEN', []);
+
                     $this->LogMessage(
                         'EnqueueModule1Payload: duplicate event token ignored: (' . $eventEpoch . ',' . $eventSeq . ')',
                         KL_MESSAGE
@@ -2944,6 +3116,10 @@ document.addEventListener("DOMContentLoaded", () => {
                 $dropCount = count($queue) - $maxQueueSize;
                 $queue = array_slice($queue, -$maxQueueSize);
 
+                $this->LogHeartbeatTrace($payload, 'ENQUEUE_QUEUE_OVERFLOW', [
+                    'drop_count' => $dropCount
+                ]);
+
                 $this->LogMessage(
                     'EnqueueModule1Payload: pending queue overflow, dropped oldest entries=' . $dropCount,
                     KL_MESSAGE
@@ -2951,6 +3127,10 @@ document.addEventListener("DOMContentLoaded", () => {
             }
 
             $this->WritePendingModule1PayloadQueue($queue);
+
+            $this->LogHeartbeatTrace($payload, 'ENQUEUE_STORED', [
+                'queue_size_after' => count($queue)
+            ]);
 
             $this->LogMessage(
                 'EnqueueModule1Payload: queued event=(' . $eventEpoch . ',' . $eventSeq . '), queue_size=' . count($queue),
@@ -2995,6 +3175,15 @@ document.addEventListener("DOMContentLoaded", () => {
                     return;
                 }
 
+                foreach ($queue as $entry) {
+                    $p = $entry['payload'] ?? null;
+                    if (is_array($p)) {
+                        $this->LogHeartbeatTrace($p, 'PROCESS_BATCH_PICKED_UP', [
+                            'batch_size' => count($queue)
+                        ]);
+                    }
+                }
+
                 $this->WritePendingModule1PayloadQueue([]);
             } finally {
                 $this->LeavePayloadQueueLock();
@@ -3007,6 +3196,12 @@ document.addEventListener("DOMContentLoaded", () => {
             foreach ($queue as $entry) {
                 if ($blocked) {
                     $remaining[] = $entry;
+
+                    $payloadBlocked = $entry['payload'] ?? null;
+                    if (is_array($payloadBlocked)) {
+                        $this->LogHeartbeatTrace($payloadBlocked, 'PROCESS_LEFT_BEHIND_DUE_TO_EARLIER_BLOCK', []);
+                    }
+
                     continue;
                 }
 
@@ -3025,7 +3220,16 @@ document.addEventListener("DOMContentLoaded", () => {
                 $eventSeq = (int) ($payload['event_seq'] ?? 0);
                 $eventType = strtoupper(trim((string) ($payload['event_type'] ?? '')));
 
+                $this->LogHeartbeatTrace($payload, 'PROCESS_EVENT_ENTER', [
+                    'event_type' => $eventType,
+                    'target_active_groups' => $payload['target_active_groups'] ?? []
+                ]);
+
                 if ($eventType !== 'ALARM') {
+                    $this->LogHeartbeatTrace($payload, 'PROCESS_SKIP_NON_ALARM', [
+                        'event_type' => $eventType
+                    ]);
+
                     $this->LogMessage(
                         'ProcessPendingModule1PayloadQueue: skipped non-ALARM event_type=' . $eventType,
                         KL_MESSAGE
@@ -3038,6 +3242,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
                 if (!is_array($targetGroups) || count($targetGroups) === 0) {
                     $this->SetCurrentModule1PayloadContext($payload, $payloadJson);
+
+                    $this->LogHeartbeatTrace($payload, 'PROCESS_RESET_ALL_CLEAR', []);
+
                     $this->ReevaluateCurrentAlarmContext($payload, $houseOverride ?? ['system_state_id' => 0]);
 
                     $this->LogMessage(
@@ -3055,6 +3262,8 @@ document.addEventListener("DOMContentLoaded", () => {
                 }
 
                 if ($house === null) {
+                    $this->LogHeartbeatTrace($payload, 'PROCESS_BLOCKED_NO_HOUSE_SNAPSHOT', []);
+
                     $this->LogMessage(
                         'ProcessPendingModule1PayloadQueue: blocked, no usable house snapshot for event=(' . $eventEpoch . ',' . $eventSeq . ')',
                         KL_MESSAGE
@@ -3065,8 +3274,16 @@ document.addEventListener("DOMContentLoaded", () => {
                     continue;
                 }
 
+                $this->LogHeartbeatTrace($payload, 'PROCESS_HAS_HOUSE_SNAPSHOT', [
+                    'house_state' => (int) ($house['system_state_id'] ?? -1),
+                    'house_sync_epoch' => (string) ($house['sync']['last_processed_event_epoch'] ?? '0'),
+                    'house_sync_seq' => (int) ($house['sync']['last_processed_event_seq'] ?? 0)
+                ]);
+
                 $this->SetCurrentModule1PayloadContext($payload, $payloadJson);
                 $this->ReevaluateCurrentAlarmContext($payload, $house);
+
+                $this->LogHeartbeatTrace($payload, 'PROCESS_REEVALUATE_DONE', []);
 
                 $this->LogMessage(
                     'ProcessPendingModule1PayloadQueue: processed event=(' . $eventEpoch . ',' . $eventSeq . ')',
@@ -3087,18 +3304,21 @@ document.addEventListener("DOMContentLoaded", () => {
 
                 try {
                     $currentQueue = $this->GetPendingModule1PayloadQueue();
-
-                    /*
-                 * Important:
-                 * Remaining old events go back to the front.
-                 * New events that arrived while processing stay behind them.
-                 */
                     $mergedQueue = array_merge($remaining, $currentQueue);
 
                     $maxQueueSize = 100;
                     if (count($mergedQueue) > $maxQueueSize) {
                         $dropCount = count($mergedQueue) - $maxQueueSize;
                         $mergedQueue = array_slice($mergedQueue, -$maxQueueSize);
+
+                        foreach ($remaining as $entry) {
+                            $p = $entry['payload'] ?? null;
+                            if (is_array($p)) {
+                                $this->LogHeartbeatTrace($p, 'PROCESS_RESTORE_QUEUE_OVERFLOW', [
+                                    'drop_count' => $dropCount
+                                ]);
+                            }
+                        }
 
                         $this->LogMessage(
                             'ProcessPendingModule1PayloadQueue: queue overflow after restore, dropped oldest entries=' . $dropCount,
