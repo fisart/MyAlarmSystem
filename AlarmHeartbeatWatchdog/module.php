@@ -180,16 +180,30 @@ class AlarmHeartbeatWatchdog extends IPSModule
         $this->WriteAttributeString('LastFailureText', '');
         $this->WriteAttributeString('LastCheckJson', '{}');
 
-        foreach ([
-            'LastCheckText', 'StatusHTML', 'LastSentText', 'Module1LastSeenText', 'Module1LastPayload', 'AlarmStateJson'
-        ] as $ident) {
+        foreach (
+            [
+                'LastCheckText',
+                'StatusHTML',
+                'LastSentText',
+                'Module1LastSeenText',
+                'Module1LastPayload',
+                'AlarmStateJson'
+            ] as $ident
+        ) {
             $this->SetValueSafe($ident, '');
         }
 
-        foreach ([
-            'LastSentTimestamp', 'PendingTimestamp', 'PendingDeadline', 'Module1LastSeen',
-            'Module1LastHeartbeatTimestamp', 'Module1RuntimeSeconds', 'Module1Counter'
-        ] as $ident) {
+        foreach (
+            [
+                'LastSentTimestamp',
+                'PendingTimestamp',
+                'PendingDeadline',
+                'Module1LastSeen',
+                'Module1LastHeartbeatTimestamp',
+                'Module1RuntimeSeconds',
+                'Module1Counter'
+            ] as $ident
+        ) {
             $this->SetValueSafe($ident, 0);
         }
 
