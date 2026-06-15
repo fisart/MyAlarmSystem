@@ -3,11 +3,11 @@
 declare(strict_types=1);
 
 // AlarmHeartbeatWatchdog module.php
-// Version: 1.4.1
+// Version: 1.5.0
 // Heartbeat token mode: milliseconds since midnight used as an integer correlation token
 // Pulse model: token is active only for PulseDurationMs/ResetDelayMs, then HeartbeatInputVariableID is reset to 0
-// Delivery confirmation mode: internal RegisterMessage/MessageSink for Module 3 output variables
-// Notes: VALUE_PRESENT_NO_EVENT is a warning state and does not trigger email notifications. Module 1 reset payloads with token 0 do not overwrite the last valid heartbeat token.
+// Delivery confirmation mode: module-managed triggered events plus internal RegisterMessage/MessageSink fallback for Module 3 output variables
+// Notes: Adds module-managed output-variable events. VALUE_PRESENT_NO_EVENT is a warning state and does not trigger email notifications. Module 1 reset payloads with token 0 do not overwrite the last valid heartbeat token.
 
 class AlarmHeartbeatWatchdog extends IPSModule
 {
@@ -43,6 +43,7 @@ class AlarmHeartbeatWatchdog extends IPSModule
         $this->RegisterAttributeString('LastCheckJson', '{}');
         $this->RegisterAttributeString('HeartbeatHistoryJson', '[]');
         $this->RegisterAttributeString('RegisteredWatchVariableIDsJson', '[]');
+        $this->RegisterAttributeString('ManagedOutputEventsJson', '{}');
 
         $this->RegisterVariableBoolean('OverallOK', 'Overall OK', '~Switch', 10);
         $this->RegisterVariableString('LastCheckText', 'Last Check', '', 20);
@@ -71,6 +72,7 @@ class AlarmHeartbeatWatchdog extends IPSModule
         $watchList = $this->GetActiveWatchList();
 
         $this->SyncWatchedOutputMessages($watchList);
+        $this->SyncManagedOutputEvents($watchList);
 
         if (!$this->ReadPropertyBoolean('HeartbeatEnabled')) {
             $this->SetStatus(self::STATUS_ACTIVE);
@@ -114,17 +116,11 @@ class AlarmHeartbeatWatchdog extends IPSModule
         }
 
         $varID = (int)$SenderID;
-        $watch = $this->FindWatchByOutputVariableID($varID);
-        if (count($watch) === 0) {
+        if ($varID <= 0 || !IPS_VariableExists($varID)) {
             return;
         }
 
-        if (!IPS_VariableExists($varID)) {
-            return;
-        }
-
-        $value = (int)GetValue($varID);
-        $this->HandleWatchedOutputUpdate($watch, $value);
+        $this->NotifyOutputVariableChanged($varID, (int)GetValue($varID));
     }
 
     public function RunCycle(): void
@@ -346,13 +342,50 @@ class AlarmHeartbeatWatchdog extends IPSModule
             'generated_at' => time(),
             'generated_at_text' => date('Y-m-d H:i:s'),
             'current_status' => json_decode($this->GetCurrentStatus(), true),
-            'heartbeat_history' => json_decode($this->GetHeartbeatHistory(), true)
+            'heartbeat_history' => json_decode($this->GetHeartbeatHistory(), true),
+            'managed_output_events' => $this->ReadManagedOutputEvents()
         ];
 
         return json_encode(
             $snapshot,
             JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE
         ) ?: '{}';
+    }
+
+    public function NotifyOutputVariableChanged(int $variableID, int $value): bool
+    {
+        $lockName = 'AHW_OutputEvent_' . $this->InstanceID;
+        if (!IPS_SemaphoreEnter($lockName, 5000)) {
+            $this->LogMessage('NotifyOutputVariableChanged skipped: semaphore busy for variable ' . $variableID, KL_WARNING);
+            return false;
+        }
+
+        try {
+            if ($variableID <= 0 || !IPS_VariableExists($variableID)) {
+                $this->LogDebug('NotifyOutputVariableChanged ignored: variable missing, variable=' . $variableID);
+                return false;
+            }
+
+            $watch = $this->FindWatchByOutputVariableID($variableID);
+            if (count($watch) === 0) {
+                $this->LogDebug('NotifyOutputVariableChanged ignored: variable not in active WatchList, variable=' . $variableID);
+                return false;
+            }
+
+            if ($value <= 0) {
+                $value = (int)GetValue($variableID);
+            }
+
+            if ($value <= 0) {
+                $this->LogDebug('NotifyOutputVariableChanged ignored reset/invalid value for variable=' . $variableID . ', value=' . $value);
+                return true;
+            }
+
+            $this->HandleWatchedOutputUpdate($watch, $value);
+            return true;
+        } finally {
+            IPS_SemaphoreLeave($lockName);
+        }
     }
 
     private function CheckPendingHeartbeat(): array
@@ -1156,6 +1189,88 @@ class AlarmHeartbeatWatchdog extends IPSModule
         }
 
         return number_format($milliseconds / 1000, 3, '.', '') . ' s';
+    }
+
+    private function SyncManagedOutputEvents(array $activeWatchList): void
+    {
+        $managed = $this->ReadManagedOutputEvents();
+        $current = [];
+        $updatedManaged = [];
+
+        foreach ($activeWatchList as $watch) {
+            $varID = (int)($watch['OutputVariableID'] ?? 0);
+            if ($varID <= 0 || !IPS_VariableExists($varID)) {
+                continue;
+            }
+            $current[] = $varID;
+        }
+
+        $current = array_values(array_unique($current));
+
+        foreach ($managed as $oldVarID => $eventID) {
+            $oldVarID = (int)$oldVarID;
+            $eventID = (int)$eventID;
+            if (!in_array($oldVarID, $current, true)) {
+                if ($eventID > 0 && IPS_EventExists($eventID)) {
+                    IPS_DeleteEvent($eventID);
+                    $this->LogDebug('Deleted managed output event ' . $eventID . ' for removed variable ' . $oldVarID);
+                }
+            }
+        }
+
+        foreach ($current as $varID) {
+            $eventID = isset($managed[(string)$varID]) ? (int)$managed[(string)$varID] : 0;
+            if ($eventID <= 0 || !IPS_EventExists($eventID)) {
+                $eventID = IPS_CreateEvent(0);
+                $this->LogDebug('Created managed output event ' . $eventID . ' for variable ' . $varID);
+            }
+
+            $this->ConfigureManagedOutputEvent($eventID, $varID);
+            $updatedManaged[(string)$varID] = $eventID;
+        }
+
+        $this->WriteAttributeString('ManagedOutputEventsJson', json_encode($updatedManaged, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+    }
+
+    private function ConfigureManagedOutputEvent(int $eventID, int $variableID): void
+    {
+        $script = '<?php' . "\n" .
+            '$watchdogID = ' . $this->InstanceID . ';' . "\n" .
+            '$variableID = ' . $variableID . ';' . "\n" .
+            '$value = isset($_IPS[\'VALUE\']) ? (int)$_IPS[\'VALUE\'] : (IPS_VariableExists($variableID) ? (int)GetValue($variableID) : 0);' . "\n" .
+            'AHW_NotifyOutputVariableChanged($watchdogID, $variableID, $value);' . "\n";
+
+        IPS_SetName($eventID, 'AHW Output Update ' . $variableID);
+        IPS_SetParent($eventID, $this->InstanceID);
+        IPS_SetEventTrigger($eventID, 0, $variableID); // 0 = On Variable Update
+        IPS_SetEventScript($eventID, $script);
+
+        // Required by newer IP-Symcon versions for event automation execution.
+        if (function_exists('IPS_SetEventAction')) {
+            @IPS_SetEventAction($eventID, '{7938A5A2-0981-5FE0-BE6C-8AA610D654EB}', []);
+        }
+
+        IPS_SetEventActive($eventID, true);
+    }
+
+    private function ReadManagedOutputEvents(): array
+    {
+        $raw = $this->ReadAttributeString('ManagedOutputEventsJson');
+        $decoded = json_decode($raw, true);
+        if (!is_array($decoded)) {
+            return [];
+        }
+
+        $result = [];
+        foreach ($decoded as $varID => $eventID) {
+            $varID = (int)$varID;
+            $eventID = (int)$eventID;
+            if ($varID > 0 && $eventID > 0) {
+                $result[(string)$varID] = $eventID;
+            }
+        }
+
+        return $result;
     }
 
     private function SyncWatchedOutputMessages(array $activeWatchList): void
