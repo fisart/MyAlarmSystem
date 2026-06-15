@@ -3,9 +3,10 @@
 declare(strict_types=1);
 
 // AlarmHeartbeatWatchdog module.php
-// Version: 1.2.0
+// Version: 1.3.0
 // Heartbeat token mode: milliseconds since midnight
-// Notes: Keeps the existing HeartbeatEnabled switch and adds runtime-aware heartbeat history/status output.
+// Delivery confirmation mode: internal RegisterMessage/MessageSink for Module 3 output variables
+// Notes: Keeps the existing HeartbeatEnabled switch and records Module 3 arrivals event-driven with millisecond runtime.
 
 class AlarmHeartbeatWatchdog extends IPSModule
 {
@@ -40,6 +41,7 @@ class AlarmHeartbeatWatchdog extends IPSModule
         $this->RegisterAttributeString('LastFailureText', '');
         $this->RegisterAttributeString('LastCheckJson', '{}');
         $this->RegisterAttributeString('HeartbeatHistoryJson', '[]');
+        $this->RegisterAttributeString('RegisteredWatchVariableIDsJson', '[]');
 
         $this->RegisterVariableBoolean('OverallOK', 'Overall OK', '~Switch', 10);
         $this->RegisterVariableString('LastCheckText', 'Last Check', '', 20);
@@ -66,6 +68,9 @@ class AlarmHeartbeatWatchdog extends IPSModule
 
         $inputID = $this->ReadPropertyInteger('HeartbeatInputVariableID');
         $watchList = $this->GetActiveWatchList();
+
+        $this->SyncWatchedOutputMessages($watchList);
+
         if (!$this->ReadPropertyBoolean('HeartbeatEnabled')) {
             $this->SetStatus(self::STATUS_ACTIVE);
             $this->SetTimerInterval('HeartbeatTimer', 0);
@@ -99,6 +104,26 @@ class AlarmHeartbeatWatchdog extends IPSModule
         }
 
         throw new Exception('Invalid ident: ' . $Ident);
+    }
+
+    public function MessageSink($TimeStamp, $SenderID, $Message, $Data): void
+    {
+        if ($Message !== VM_UPDATE) {
+            return;
+        }
+
+        $varID = (int)$SenderID;
+        $watch = $this->FindWatchByOutputVariableID($varID);
+        if (count($watch) === 0) {
+            return;
+        }
+
+        if (!IPS_VariableExists($varID)) {
+            return;
+        }
+
+        $value = (int)GetValue($varID);
+        $this->HandleWatchedOutputUpdate($watch, $value);
     }
 
     public function RunCycle(): void
@@ -230,6 +255,7 @@ class AlarmHeartbeatWatchdog extends IPSModule
         $this->WriteAttributeString('LastFailureText', '');
         $this->WriteAttributeString('LastCheckJson', '{}');
         $this->WriteAttributeString('HeartbeatHistoryJson', '[]');
+        $this->WriteAttributeString('RegisteredWatchVariableIDsJson', $this->ReadAttributeString('RegisteredWatchVariableIDsJson'));
 
         foreach (
             [
@@ -317,90 +343,71 @@ class AlarmHeartbeatWatchdog extends IPSModule
     {
         $lastSeen = (int)$this->GetValueSafe('Module1LastSeen', 0);
         $lastHeartbeat = (int)$this->GetValueSafe('Module1LastHeartbeatTimestamp', 0);
-        $runtimeMs = (int)$this->GetValueSafe('Module1RuntimeSeconds', -1);
         $maxAge = max(5, $this->ReadPropertyInteger('Module1MaxAgeSeconds'));
-
         $seenAge = ($lastSeen > 0) ? $nowSeconds - $lastSeen : PHP_INT_MAX;
-        $state = 'UNKNOWN';
-        $message = 'Unknown Module 1 callback state.';
-        $lateMs = -1;
 
-        if ($lastHeartbeat === $pending) {
-            $lateMs = $this->GetLateMilliseconds($sentAt, $deadline, $this->GetDayMillisecondsFromEpochSeconds($lastSeen));
-            if ($lateMs <= 0) {
-                if ($seenAge <= $maxAge) {
-                    $state = 'OK';
-                    $message = 'OK';
-                } else {
-                    $state = 'STALE';
-                    $message = 'Module 1 callback is stale.';
-                }
-            } else {
-                $state = 'LATE';
-                $message = 'Module 1 callback arrived late by ' . $this->FormatRuntimeMilliseconds($lateMs) . '.';
-            }
-        } else {
-            if ($lastHeartbeat > 0) {
-                $historyEntry = $this->FindHeartbeatHistoryEntry($lastHeartbeat);
-                if (count($historyEntry) > 0) {
-                    $oldSentAt = (int)($historyEntry['sent_at'] ?? $lastHeartbeat);
-                    $oldDeadline = (int)($historyEntry['deadline'] ?? 0);
-                    $oldObservedMs = $this->GetDayMillisecondsFromEpochSeconds($lastSeen);
-                    $oldRuntimeMs = $this->GetElapsedMilliseconds($oldSentAt, $oldObservedMs);
-                    $oldLateMs = $this->GetLateMilliseconds($oldSentAt, $oldDeadline, $oldObservedMs);
-                    $oldState = ($oldLateMs > 0) ? 'LATE' : 'OK';
-                    $oldMessage = ($oldState === 'LATE')
-                        ? 'Module 1 callback arrived late by ' . $this->FormatRuntimeMilliseconds($oldLateMs) . '.'
-                        : 'OK';
+        // Primary success path: ReceivePayload() records the Module 1 arrival immediately with millisecond precision.
+        $recordedTarget = $this->FindHeartbeatHistoryTarget($pending, 'Module 1 callback');
+        if (count($recordedTarget) > 0) {
+            $state = (string)($recordedTarget['state'] ?? 'UNKNOWN');
+            $runtimeMs = (int)($recordedTarget['runtime_ms'] ?? -1);
+            $lateMs = (int)($recordedTarget['late_ms'] ?? -1);
+            $message = (string)($recordedTarget['message'] ?? '-');
 
-                    $this->UpdateHeartbeatHistoryTarget(
-                        $lastHeartbeat,
-                        'Module 1 callback',
-                        $oldState,
-                        $lastHeartbeat,
-                        $oldObservedMs,
-                        $oldRuntimeMs,
-                        $oldLateMs,
-                        $oldMessage
-                    );
-                }
+            if ($state === 'OK' && $seenAge > $maxAge) {
+                $state = 'STALE';
+                $message = 'Module 1 callback is stale.';
             }
 
-            if ($this->IsDeadlineExceeded($sentAt, $deadline, $nowMs)) {
-                $state = 'MISSING';
-                $message = 'Module 1 callback for expected heartbeat is missing.';
-            } else {
-                $state = 'WAITING';
-                $message = 'Waiting for Module 1 callback.';
-            }
+            return [
+                'name' => 'Module 1 callback',
+                'ok' => ($state === 'OK'),
+                'state' => $state,
+                'last_seen' => $lastSeen,
+                'last_seen_text' => $lastSeen > 0 ? date('Y-m-d H:i:s', $lastSeen) : '-',
+                'last_heartbeat' => $lastHeartbeat,
+                'expected' => $pending,
+                'runtime_ms' => $runtimeMs,
+                'runtime_seconds' => $runtimeMs >= 0 ? (int)floor($runtimeMs / 1000) : -1,
+                'age_seconds' => $seenAge === PHP_INT_MAX ? -1 : $seenAge,
+                'late_ms' => $lateMs,
+                'late_seconds' => $lateMs >= 0 ? (int)floor($lateMs / 1000) : -1,
+                'message' => $message
+            ];
         }
 
-        $ok = ($state === 'OK');
+        if ($this->IsDeadlineExceeded($sentAt, $deadline, $nowMs)) {
+            $state = 'MISSING';
+            $message = 'Module 1 callback for expected heartbeat is missing.';
+        } else {
+            $state = 'WAITING';
+            $message = 'Waiting for Module 1 callback.';
+        }
 
         $this->UpdateHeartbeatHistoryTarget(
             $pending,
             'Module 1 callback',
             $state,
             $lastHeartbeat,
-            $lastSeen > 0 ? $this->GetDayMillisecondsFromEpochSeconds($lastSeen) : 0,
-            $runtimeMs,
-            $lateMs,
+            0,
+            -1,
+            -1,
             $message
         );
 
         return [
             'name' => 'Module 1 callback',
-            'ok' => $ok,
+            'ok' => false,
             'state' => $state,
             'last_seen' => $lastSeen,
             'last_seen_text' => $lastSeen > 0 ? date('Y-m-d H:i:s', $lastSeen) : '-',
             'last_heartbeat' => $lastHeartbeat,
             'expected' => $pending,
-            'runtime_ms' => $runtimeMs,
-            'runtime_seconds' => $runtimeMs >= 0 ? (int)floor($runtimeMs / 1000) : -1,
+            'runtime_ms' => -1,
+            'runtime_seconds' => -1,
             'age_seconds' => $seenAge === PHP_INT_MAX ? -1 : $seenAge,
-            'late_ms' => $lateMs,
-            'late_seconds' => $lateMs >= 0 ? (int)floor($lateMs / 1000) : -1,
+            'late_ms' => -1,
+            'late_seconds' => -1,
             'message' => $message
         ];
     }
@@ -409,7 +416,6 @@ class AlarmHeartbeatWatchdog extends IPSModule
     {
         $name = (string)($watch['Name'] ?? 'Unnamed target');
         $varID = (int)($watch['OutputVariableID'] ?? 0);
-        $maxAge = max(5, (int)($watch['MaxAgeSeconds'] ?? 180));
 
         if ($varID <= 0 || !IPS_VariableExists($varID)) {
             $this->UpdateHeartbeatHistoryTarget(
@@ -430,6 +436,8 @@ class AlarmHeartbeatWatchdog extends IPSModule
                 'variable_id' => $varID,
                 'value' => null,
                 'updated' => 0,
+                'updated_ms' => 0,
+                'updated_text' => '-',
                 'runtime_ms' => -1,
                 'runtime_seconds' => -1,
                 'age_seconds' => -1,
@@ -440,55 +448,49 @@ class AlarmHeartbeatWatchdog extends IPSModule
         }
 
         $value = (int)GetValue($varID);
-        $varInfo = IPS_GetVariable($varID);
-        $updated = (int)($varInfo['VariableUpdated'] ?? 0);
-        $updatedMs = $updated > 0 ? $this->GetDayMillisecondsFromEpochSeconds($updated) : 0;
-        $age = ($updated > 0) ? $nowSeconds - $updated : PHP_INT_MAX;
-        $runtimeMs = ($updated > 0) ? max(0, $this->GetElapsedMilliseconds($sentAt, $updatedMs)) : -1;
-        $state = 'UNKNOWN';
-        $message = 'Unknown heartbeat state.';
-        $lateMs = -1;
 
+        // Primary success path: the output variable change is recorded immediately by MessageSink().
+        // This avoids using IPS_GetVariable()['VariableUpdated'], which only has second precision.
+        $recordedTarget = $this->FindHeartbeatHistoryTarget($pending, $name);
+        if (count($recordedTarget) > 0) {
+            $state = (string)($recordedTarget['state'] ?? 'UNKNOWN');
+            $runtimeMs = (int)($recordedTarget['runtime_ms'] ?? -1);
+            $lateMs = (int)($recordedTarget['late_ms'] ?? -1);
+            $updatedMs = (int)($recordedTarget['updated'] ?? 0);
+            $message = (string)($recordedTarget['message'] ?? '-');
+
+            return [
+                'name' => $name,
+                'ok' => ($state === 'OK'),
+                'state' => $state,
+                'variable_id' => $varID,
+                'value' => $value,
+                'expected' => $pending,
+                'updated' => 0,
+                'updated_ms' => $updatedMs,
+                'updated_text' => $updatedMs > 0 ? $this->FormatDayMilliseconds($updatedMs) : '-',
+                'runtime_ms' => $runtimeMs,
+                'runtime_seconds' => $runtimeMs >= 0 ? (int)floor($runtimeMs / 1000) : -1,
+                'age_seconds' => -1,
+                'late_ms' => $lateMs,
+                'late_seconds' => $lateMs >= 0 ? (int)floor($lateMs / 1000) : -1,
+                'message' => $message
+            ];
+        }
+
+        // Fallback: if the value has changed but no MessageSink record exists, do not use VariableUpdated
+        // for latency. Report the missing event subscription/arrival information explicitly.
         if ($value === $pending) {
-            $lateMs = $this->GetLateMilliseconds($sentAt, $deadline, $updatedMs);
-            if ($lateMs <= 0) {
-                if ($age <= $maxAge) {
-                    $state = 'OK';
-                    $message = 'OK';
-                } else {
-                    $state = 'STALE';
-                    $message = 'Expected token present but stale.';
-                }
+            if ($this->IsDeadlineExceeded($sentAt, $deadline, $nowMs)) {
+                $state = 'NO_EVENT';
+                $message = 'Expected token is present, but no Module 3 update event was recorded.';
+                $ok = false;
             } else {
-                $state = 'LATE';
-                $message = 'Heartbeat arrived late by ' . $this->FormatRuntimeMilliseconds($lateMs) . '.';
+                $state = 'WAITING';
+                $message = 'Expected token is present, waiting for Module 3 update event.';
+                $ok = false;
             }
         } else {
-            if ($value > 0) {
-                $historyEntry = $this->FindHeartbeatHistoryEntry($value);
-                if (count($historyEntry) > 0) {
-                    $oldSentAt = (int)($historyEntry['sent_at'] ?? $value);
-                    $oldDeadline = (int)($historyEntry['deadline'] ?? 0);
-                    $oldRuntimeMs = $updated > 0 ? max(0, $this->GetElapsedMilliseconds($oldSentAt, $updatedMs)) : -1;
-                    $oldLateMs = $updated > 0 ? $this->GetLateMilliseconds($oldSentAt, $oldDeadline, $updatedMs) : -1;
-                    $oldState = ($oldLateMs > 0) ? 'LATE' : 'OK';
-                    $oldMessage = ($oldState === 'LATE')
-                        ? 'Heartbeat arrived late by ' . $this->FormatRuntimeMilliseconds($oldLateMs) . '.'
-                        : 'OK';
-
-                    $this->UpdateHeartbeatHistoryTarget(
-                        $value,
-                        $name,
-                        $oldState,
-                        $value,
-                        $updatedMs,
-                        $oldRuntimeMs,
-                        $oldLateMs,
-                        $oldMessage
-                    );
-                }
-            }
-
             if ($this->IsDeadlineExceeded($sentAt, $deadline, $nowMs)) {
                 $state = 'MISSING';
                 $message = 'Expected heartbeat token is missing.';
@@ -496,18 +498,17 @@ class AlarmHeartbeatWatchdog extends IPSModule
                 $state = 'WAITING';
                 $message = 'Waiting for expected heartbeat token.';
             }
+            $ok = false;
         }
-
-        $ok = ($state === 'OK');
 
         $this->UpdateHeartbeatHistoryTarget(
             $pending,
             $name,
             $state,
             $value,
-            $updatedMs,
-            $runtimeMs,
-            $lateMs,
+            0,
+            -1,
+            -1,
             $message
         );
 
@@ -518,14 +519,14 @@ class AlarmHeartbeatWatchdog extends IPSModule
             'variable_id' => $varID,
             'value' => $value,
             'expected' => $pending,
-            'updated' => $updated,
-            'updated_ms' => $updatedMs,
-            'updated_text' => $updated > 0 ? date('Y-m-d H:i:s', $updated) : '-',
-            'runtime_ms' => $runtimeMs,
-            'runtime_seconds' => $runtimeMs >= 0 ? (int)floor($runtimeMs / 1000) : -1,
-            'age_seconds' => $age === PHP_INT_MAX ? -1 : $age,
-            'late_ms' => $lateMs,
-            'late_seconds' => $lateMs >= 0 ? (int)floor($lateMs / 1000) : -1,
+            'updated' => 0,
+            'updated_ms' => 0,
+            'updated_text' => '-',
+            'runtime_ms' => -1,
+            'runtime_seconds' => -1,
+            'age_seconds' => -1,
+            'late_ms' => -1,
+            'late_seconds' => -1,
             'message' => $message
         ];
     }
@@ -953,16 +954,14 @@ class AlarmHeartbeatWatchdog extends IPSModule
     private function GetDayMilliseconds(): int
     {
         $now = microtime(true);
-
-        $secondsToday =
-            ((int)date('G', (int)$now) * 3600) +
-            ((int)date('i', (int)$now) * 60) +
-            ((int)date('s', (int)$now));
-
+        $secondsToday = ((int)date('G', (int)$now) * 3600)
+            + ((int)date('i', (int)$now) * 60)
+            + (int)date('s', (int)$now);
         $milliseconds = (int)floor(($now - floor($now)) * 1000);
-
-        return ($secondsToday * 1000) + $milliseconds;
+        $result = ($secondsToday * 1000) + $milliseconds;
+        return $result > 0 ? $result : 1;
     }
+
     private function GetDayMillisecondsFromEpochSeconds(int $epochSeconds): int
     {
         if ($epochSeconds <= 0) {
@@ -1022,44 +1021,23 @@ class AlarmHeartbeatWatchdog extends IPSModule
         return max(0, $actualMs - $allowedMs);
     }
 
-
-    private function GetRuntimeFromTokenMs(int $tokenMs): int
+    private function FormatDayMilliseconds(int $milliseconds): string
     {
-        if ($tokenMs <= 0 || $tokenMs > 86400000) {
-            return -1;
-        }
-
-        $nowMs = $this->GetDayMilliseconds();
-        $runtimeMs = $nowMs - $tokenMs;
-
-        if ($runtimeMs < 0) {
-            $runtimeMs += 86400000;
-        }
-
-        return $runtimeMs;
-    }
-
-    private function FormatDayMilliseconds(int $value): string
-    {
-        if ($value <= 0) {
+        if ($milliseconds <= 0) {
             return '-';
         }
 
-        if ($value > 86400000) {
-            return date('Y-m-d H:i:s', $value);
-        }
+        $milliseconds = $milliseconds % 86400000;
+        $hours = intdiv($milliseconds, 3600000);
+        $milliseconds %= 3600000;
+        $minutes = intdiv($milliseconds, 60000);
+        $milliseconds %= 60000;
+        $seconds = intdiv($milliseconds, 1000);
+        $ms = $milliseconds % 1000;
 
-        $hours = intdiv($value, 3600000);
-        $remainder = $value % 3600000;
-
-        $minutes = intdiv($remainder, 60000);
-        $remainder = $remainder % 60000;
-
-        $seconds = intdiv($remainder, 1000);
-        $milliseconds = $remainder % 1000;
-
-        return sprintf('%02d:%02d:%02d.%03d', $hours, $minutes, $seconds, $milliseconds);
+        return sprintf('%02d:%02d:%02d.%03d', $hours, $minutes, $seconds, $ms);
     }
+
     private function FormatRuntimeMilliseconds(int $milliseconds): string
     {
         if ($milliseconds < 0) {
@@ -1071,6 +1049,131 @@ class AlarmHeartbeatWatchdog extends IPSModule
         }
 
         return number_format($milliseconds / 1000, 3, '.', '') . ' s';
+    }
+
+    private function SyncWatchedOutputMessages(array $activeWatchList): void
+    {
+        $previous = $this->ReadRegisteredWatchVariableIDs();
+        $current = [];
+
+        foreach ($activeWatchList as $watch) {
+            $varID = (int)($watch['OutputVariableID'] ?? 0);
+            if ($varID > 0 && IPS_VariableExists($varID)) {
+                $current[] = $varID;
+            }
+        }
+
+        $current = array_values(array_unique($current));
+
+        foreach ($previous as $oldVarID) {
+            if (!in_array($oldVarID, $current, true)) {
+                $this->UnregisterMessage($oldVarID, VM_UPDATE);
+                $this->LogDebug('Unregistered Module 3 output update message for variable ' . $oldVarID);
+            }
+        }
+
+        foreach ($current as $newVarID) {
+            if (!in_array($newVarID, $previous, true)) {
+                $this->RegisterMessage($newVarID, VM_UPDATE);
+                $this->LogDebug('Registered Module 3 output update message for variable ' . $newVarID);
+            }
+        }
+
+        $this->WriteAttributeString('RegisteredWatchVariableIDsJson', json_encode($current, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+    }
+
+    private function ReadRegisteredWatchVariableIDs(): array
+    {
+        $raw = $this->ReadAttributeString('RegisteredWatchVariableIDsJson');
+        $decoded = json_decode($raw, true);
+        if (!is_array($decoded)) {
+            return [];
+        }
+
+        $result = [];
+        foreach ($decoded as $id) {
+            $id = (int)$id;
+            if ($id > 0) {
+                $result[] = $id;
+            }
+        }
+
+        return array_values(array_unique($result));
+    }
+
+    private function FindWatchByOutputVariableID(int $varID): array
+    {
+        if ($varID <= 0) {
+            return [];
+        }
+
+        foreach ($this->GetActiveWatchList() as $watch) {
+            if ((int)($watch['OutputVariableID'] ?? 0) === $varID) {
+                return $watch;
+            }
+        }
+
+        return [];
+    }
+
+    private function HandleWatchedOutputUpdate(array $watch, int $value): void
+    {
+        $name = (string)($watch['Name'] ?? 'Unnamed target');
+        $varID = (int)($watch['OutputVariableID'] ?? 0);
+        $observedMs = $this->GetDayMilliseconds();
+
+        if ($value <= 0) {
+            $this->LogDebug('Module 3 output update ignored for ' . $name . ' (' . $varID . '): value=' . $value);
+            return;
+        }
+
+        $historyEntry = $this->FindHeartbeatHistoryEntry($value);
+        if (count($historyEntry) === 0) {
+            $this->LogDebug('Module 3 output update ignored for ' . $name . ' (' . $varID . '): token not in history=' . $value);
+            return;
+        }
+
+        $sentAt = (int)($historyEntry['sent_at'] ?? $value);
+        $deadline = (int)($historyEntry['deadline'] ?? 0);
+        $runtimeMs = $this->GetElapsedMilliseconds($sentAt, $observedMs);
+        $lateMs = $this->GetLateMilliseconds($sentAt, $deadline, $observedMs);
+        $state = ($lateMs > 0) ? 'LATE' : 'OK';
+        $message = ($state === 'LATE')
+            ? 'Module 3 output event arrived late by ' . $this->FormatRuntimeMilliseconds($lateMs) . '.'
+            : 'OK';
+
+        $this->UpdateHeartbeatHistoryTarget(
+            $value,
+            $name,
+            $state,
+            $value,
+            $observedMs,
+            $runtimeMs,
+            $lateMs,
+            $message
+        );
+
+        $this->LogDebug('Module 3 output event: ' . $name . ', token=' . $value . ', runtime=' . $this->FormatRuntimeMilliseconds($runtimeMs));
+        $this->RebuildStatus();
+    }
+
+    private function FindHeartbeatHistoryTarget(int $timestamp, string $targetName): array
+    {
+        if ($timestamp <= 0 || $targetName === '') {
+            return [];
+        }
+
+        $entry = $this->FindHeartbeatHistoryEntry($timestamp);
+        if (count($entry) === 0) {
+            return [];
+        }
+
+        $targets = $entry['targets'] ?? [];
+        if (!is_array($targets) || !isset($targets[$targetName]) || !is_array($targets[$targetName])) {
+            return [];
+        }
+
+        return $targets[$targetName];
     }
 
     private function SetValueSafe(string $ident, $value): void
