@@ -66,7 +66,6 @@ class AlarmResponseManager extends IPSModule
         $this->RegisterPropertyString('GroupStateRules', '[]');
         $this->RegisterPropertyString('RuleOutputAssignments', '[]');
 
-
         $this->RegisterAttributeString('CachedHouseStateSnapshot', '');
         $this->RegisterAttributeInteger('CachedHouseStateReceivedAt', 0);
         $this->RegisterAttributeString('LastEventEpoch', '0');
@@ -88,6 +87,8 @@ class AlarmResponseManager extends IPSModule
         $this->RegisterVariableString('OutputScreenHtml', 'Output Screen', '~HTMLBox', 0);
         $this->RegisterVariableBoolean('OutputKillSwitch', 'Output Kill Switch', '~Switch', 10);
         $this->EnableAction('OutputKillSwitch');
+
+        $this->RegisterVariableString('HeartbeatAuditLog', 'Heartbeat Audit Log', '~TextBox', 20);
     }
 
     public function ApplyChanges()
@@ -283,6 +284,171 @@ class AlarmResponseManager extends IPSModule
 
         return (bool) GetValueBoolean($varID);
     }
+
+    private function IsHeartbeatGroupLabel(string $groupLabel): bool
+    {
+        $heartbeatGroupKey = 'grp_98ed2ddcf5544c848df4d58d4d3485b9';
+
+        $groupLabel = trim($groupLabel);
+        if ($groupLabel === '') {
+            return false;
+        }
+
+        if ($this->MakeGroupKey($groupLabel) === $heartbeatGroupKey) {
+            return true;
+        }
+
+        return stripos($groupLabel, 'heartbeat') !== false;
+    }
+
+
+    private function IsHeartbeatPayload(array $payload): bool
+    {
+        $groups = $payload['target_active_groups'] ?? [];
+        if (!is_array($groups)) {
+            return false;
+        }
+
+        foreach ($groups as $groupRaw) {
+            if ($this->IsHeartbeatGroupLabel((string) $groupRaw)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+
+    private function IsHeartbeatOutputResource(array $resource): bool
+    {
+        $outputID = trim((string) ($resource['OutputID'] ?? ''));
+        $name = trim((string) ($resource['Name'] ?? ''));
+
+        return $outputID === 'out_fb8e0a6d7fa7' || strcasecmp($name, 'Heartbeat') === 0;
+    }
+
+
+    private function ExtractHeartbeatContentToken(array $payload): string
+    {
+        if (!$this->IsHeartbeatPayload($payload)) {
+            return '';
+        }
+
+        $trigger = $payload['target_trigger_details'] ?? [];
+        if (is_array($trigger)) {
+            $token = $this->ExtractContentValueFromSensorDetail($trigger);
+            if ($token !== '') {
+                return $token;
+            }
+        }
+
+        $details = $payload['target_active_sensor_details'] ?? [];
+        if (is_array($details)) {
+            foreach ($details as $detail) {
+                if (!is_array($detail)) {
+                    continue;
+                }
+
+                $haystack = strtolower(json_encode($detail));
+                if (strpos($haystack, 'heartbeat') === false) {
+                    continue;
+                }
+
+                $token = $this->ExtractContentValueFromSensorDetail($detail);
+                if ($token !== '') {
+                    return $token;
+                }
+            }
+
+            foreach ($details as $detail) {
+                if (!is_array($detail)) {
+                    continue;
+                }
+
+                $token = $this->ExtractContentValueFromSensorDetail($detail);
+                if ($token !== '') {
+                    return $token;
+                }
+            }
+        }
+
+        return '';
+    }
+
+
+    private function ExtractContentValueFromSensorDetail(array $detail): string
+    {
+        $valueHuman = trim((string) ($detail['value_human'] ?? ''));
+        if ($valueHuman !== '') {
+            return $valueHuman;
+        }
+
+        if (array_key_exists('value_raw', $detail)) {
+            return trim((string) $detail['value_raw']);
+        }
+
+        if (array_key_exists('content', $detail)) {
+            return trim((string) $detail['content']);
+        }
+
+        return '';
+    }
+
+
+    private function AppendHeartbeatAuditForPayload(array $payload, string $stage, array $context = []): void
+    {
+        $token = $this->ExtractHeartbeatContentToken($payload);
+        if ($token === '') {
+            return;
+        }
+
+        $this->AppendHeartbeatAuditLine($token, $stage, $context);
+    }
+
+
+    private function AppendHeartbeatAuditLine(string $token, string $stage, array $context = []): void
+    {
+        $varID = @$this->GetIDForIdent('HeartbeatAuditLog');
+        if ($varID === false || $varID <= 0) {
+            return;
+        }
+
+        $parts = [];
+        $parts[] = date('Y-m-d H:i:s');
+        $parts[] = 'token=' . $token;
+        $parts[] = $stage;
+
+        foreach ($context as $key => $value) {
+            if (is_array($value)) {
+                $value = json_encode($value, JSON_UNESCAPED_SLASHES);
+            } elseif (is_bool($value)) {
+                $value = $value ? 'true' : 'false';
+            } elseif ($value === null) {
+                $value = 'null';
+            }
+
+            $parts[] = $key . '=' . (string) $value;
+        }
+
+        $line = implode(' | ', $parts);
+
+        $current = trim((string) GetValueString($varID));
+        $lines = $current === '' ? [] : preg_split('/\R/', $current);
+
+        if (!is_array($lines)) {
+            $lines = [];
+        }
+
+        $lines[] = $line;
+
+        $maxLines = 300;
+        if (count($lines) > $maxLines) {
+            $lines = array_slice($lines, -$maxLines);
+        }
+
+        SetValueString($varID, implode("\n", $lines));
+    }
+
     private function BuildOutputScreenEntryHtml(array $resource, array $payload, array $house, string $groupLabel): string
     {
         $eventTimestamp = (int) ($payload['timestamp'] ?? time());
@@ -2386,9 +2552,21 @@ document.addEventListener("DOMContentLoaded", () => {
 
         $eventType = strtoupper(trim((string) ($payload['event_type'] ?? '')));
 
+        $this->AppendHeartbeatAuditForPayload($payload, 'RECEIVED', [
+            'event_type' => $eventType,
+            'event_epoch' => $eventEpoch,
+            'event_seq' => $eventSeq,
+            'groups' => $payload['target_active_groups'] ?? []
+        ]);
+
         $this->SetCurrentModule1PayloadContext($payload, $payloadJson);
 
         if ($eventType !== 'ALARM') {
+            $this->AppendHeartbeatAuditForPayload($payload, 'NOT_WRITTEN', [
+                'reason' => 'non_alarm_event_type',
+                'event_type' => $eventType
+            ]);
+
             $this->LogMessage('ReceivePayload: ignored non-ALARM event_type=' . $eventType, KL_MESSAGE);
             return;
         }
@@ -2424,6 +2602,10 @@ document.addEventListener("DOMContentLoaded", () => {
     {
         $targetGroups = $payload['target_active_groups'] ?? [];
         if (!is_array($targetGroups) || count($targetGroups) === 0) {
+            $this->AppendHeartbeatAuditForPayload($payload, 'NOT_WRITTEN', [
+                'reason' => 'no_active_target_groups'
+            ]);
+
             $this->WriteAttributeString('LastActiveGroups', '[]');
             $this->WriteAttributeString('LastActiveRuleIDs', '[]');
             $this->WriteAttributeString('LastActiveOutputIDs', '[]');
@@ -2435,6 +2617,11 @@ document.addEventListener("DOMContentLoaded", () => {
         $houseState = (string) ((int) ($house['system_state_id'] ?? 0));
         $this->LogMessage('ReevaluateCurrentAlarmContext: houseState=' . $houseState, KL_MESSAGE);
 
+        $this->AppendHeartbeatAuditForPayload($payload, 'REEVALUATE_ENTER', [
+            'house_state' => $houseState,
+            'groups' => $targetGroups
+        ]);
+
         $previousMatchKeys = $this->GetActiveOutputMatchKeySet();
 
         $currentMatchKeys = [];
@@ -2443,6 +2630,7 @@ document.addEventListener("DOMContentLoaded", () => {
         $activeOutputIDsForView = [];
         $candidatesByOutputID = [];
         $queueSeq = 0;
+        $heartbeatOutputCandidateCreated = false;
 
         foreach ($targetGroups as $groupLabelRaw) {
             $groupLabel = trim((string) $groupLabelRaw);
@@ -2456,6 +2644,24 @@ document.addEventListener("DOMContentLoaded", () => {
             $ruleIDs = $this->FindMatchingRuleIDsForGroupAndState($groupLabel, $houseState);
             $this->LogMessage('ReevaluateCurrentAlarmContext: group=' . $groupLabel . ' matched rules=' . json_encode($ruleIDs), KL_MESSAGE);
 
+            if ($this->IsHeartbeatGroupLabel($groupLabel)) {
+                $this->AppendHeartbeatAuditForPayload($payload, 'RULE_MATCH_CHECK', [
+                    'group' => $groupLabel,
+                    'group_key' => $groupKey,
+                    'house_state' => $houseState,
+                    'rule_count' => count($ruleIDs),
+                    'rule_ids' => $ruleIDs
+                ]);
+
+                if (count($ruleIDs) === 0) {
+                    $this->AppendHeartbeatAuditForPayload($payload, 'NOT_WRITTEN', [
+                        'reason' => 'no_matching_rule',
+                        'group' => $groupLabel,
+                        'house_state' => $houseState
+                    ]);
+                }
+            }
+
             foreach ($ruleIDs as $ruleID) {
                 $activeRuleIDsForView[$ruleID] = true;
 
@@ -2464,6 +2670,13 @@ document.addEventListener("DOMContentLoaded", () => {
                 $priority = $this->GetSeverityPriority($severity);
 
                 $assignments = $this->FindAssignmentsForRuleID($ruleID);
+
+                if ($this->IsHeartbeatGroupLabel($groupLabel)) {
+                    $this->AppendHeartbeatAuditForPayload($payload, 'ASSIGNMENT_CHECK', [
+                        'rule_id' => $ruleID,
+                        'assignment_count' => count($assignments)
+                    ]);
+                }
 
                 foreach ($assignments as $assignment) {
                     $outputID = trim((string) ($assignment['OutputID'] ?? ''));
@@ -2474,10 +2687,27 @@ document.addEventListener("DOMContentLoaded", () => {
                     $resource = $this->FindOutputResourceByID($outputID);
                     if ($resource === null) {
                         $this->LogMessage('ReevaluateCurrentAlarmContext: OutputID not found: ' . $outputID, KL_MESSAGE);
+
+                        if ($this->IsHeartbeatGroupLabel($groupLabel)) {
+                            $this->AppendHeartbeatAuditForPayload($payload, 'NOT_WRITTEN', [
+                                'reason' => 'output_resource_not_found',
+                                'output_id' => $outputID,
+                                'rule_id' => $ruleID
+                            ]);
+                        }
+
                         continue;
                     }
 
                     if (!(bool) ($resource['Active'] ?? false)) {
+                        if ($this->IsHeartbeatOutputResource($resource)) {
+                            $this->AppendHeartbeatAuditForPayload($payload, 'NOT_WRITTEN', [
+                                'reason' => 'heartbeat_output_inactive',
+                                'output_id' => $outputID,
+                                'rule_id' => $ruleID
+                            ]);
+                        }
+
                         continue;
                     }
 
@@ -2486,6 +2716,15 @@ document.addEventListener("DOMContentLoaded", () => {
                     $activeOutputIDsForView[$outputID] = true;
 
                     if (isset($previousMatchKeys[$matchKey])) {
+                        if ($this->IsHeartbeatOutputResource($resource)) {
+                            $this->AppendHeartbeatAuditForPayload($payload, 'NOT_WRITTEN', [
+                                'reason' => 'suppressed_already_active_match',
+                                'match_key' => $matchKey,
+                                'output_id' => $outputID,
+                                'rule_id' => $ruleID
+                            ]);
+                        }
+
                         continue;
                     }
 
@@ -2501,6 +2740,17 @@ document.addEventListener("DOMContentLoaded", () => {
                         'QueueSeq'   => $queueSeq,
                         'Resource'   => $resource
                     ];
+
+                    if ($this->IsHeartbeatOutputResource($resource)) {
+                        $heartbeatOutputCandidateCreated = true;
+
+                        $this->AppendHeartbeatAuditForPayload($payload, 'OUTPUT_CANDIDATE', [
+                            'output_id' => $outputID,
+                            'match_key' => $matchKey,
+                            'rule_id' => $ruleID,
+                            'severity' => $severity
+                        ]);
+                    }
 
                     if (!isset($candidatesByOutputID[$outputID])) {
                         $candidatesByOutputID[$outputID] = [];
@@ -2525,6 +2775,12 @@ document.addEventListener("DOMContentLoaded", () => {
                     }
                 }
             }
+        }
+
+        if ($this->IsHeartbeatPayload($payload) && !$heartbeatOutputCandidateCreated) {
+            $this->AppendHeartbeatAuditForPayload($payload, 'NO_HEARTBEAT_OUTPUT_CANDIDATE', [
+                'note' => 'may_have_been_suppressed_or_no_assignment'
+            ]);
         }
 
         $now = time();
@@ -2576,6 +2832,16 @@ document.addEventListener("DOMContentLoaded", () => {
                 }
 
                 if ($throttlingEnabled && $remainingSlots <= 0) {
+                    if ($this->IsHeartbeatOutputResource($resource)) {
+                        $this->AppendHeartbeatAuditForPayload($payload, 'NOT_WRITTEN', [
+                            'reason' => 'throttled',
+                            'output_id' => $outputID,
+                            'match_key' => $matchKey,
+                            'rule_id' => $ruleID,
+                            'remaining_slots' => $remainingSlots
+                        ]);
+                    }
+
                     $this->LogMessage(
                         'ReevaluateCurrentAlarmContext: throttled OutputID=' . $outputID
                             . ' match=' . $matchKey
@@ -2587,6 +2853,15 @@ document.addEventListener("DOMContentLoaded", () => {
                 }
 
                 if ($this->IsOutputKillSwitchActive()) {
+                    if ($this->IsHeartbeatOutputResource($resource)) {
+                        $this->AppendHeartbeatAuditForPayload($payload, 'NOT_WRITTEN', [
+                            'reason' => 'output_kill_switch_active',
+                            'output_id' => $outputID,
+                            'match_key' => $matchKey,
+                            'rule_id' => $ruleID
+                        ]);
+                    }
+
                     $this->LogMessage(
                         'ReevaluateCurrentAlarmContext: output suppressed by OutputKillSwitch'
                             . ' match=' . $matchKey
@@ -2599,7 +2874,24 @@ document.addEventListener("DOMContentLoaded", () => {
                     continue;
                 }
 
+                if ($this->IsHeartbeatOutputResource($resource)) {
+                    $this->AppendHeartbeatAuditForPayload($payload, 'EXECUTE_ATTEMPT', [
+                        'output_id' => $outputID,
+                        'target_object_id' => (int) ($resource['TargetObjectID'] ?? 0),
+                        'match_key' => $matchKey,
+                        'rule_id' => $ruleID
+                    ]);
+                }
+
                 $ok = $this->ExecuteOutputResource($resource, $payload, $house, $groupLabel);
+
+                if ($this->IsHeartbeatOutputResource($resource)) {
+                    $this->AppendHeartbeatAuditForPayload($payload, 'EXECUTE_RESULT', [
+                        'output_id' => $outputID,
+                        'result' => $ok
+                    ]);
+                }
+
                 $this->LogMessage(
                     'ReevaluateCurrentAlarmContext: execute match=' . $matchKey
                         . ' OutputID=' . $outputID
@@ -2628,7 +2920,6 @@ document.addEventListener("DOMContentLoaded", () => {
             KL_MESSAGE
         );
     }
-
 
     private function FindRuleByID(string $ruleID): ?array
     {
@@ -2928,6 +3219,12 @@ document.addEventListener("DOMContentLoaded", () => {
             $eventEpoch = (string) ($payload['event_epoch'] ?? '0');
             $eventSeq = (int) ($payload['event_seq'] ?? 0);
 
+            $this->AppendHeartbeatAuditForPayload($payload, 'NOT_WRITTEN', [
+                'reason' => 'queue_lock_timeout',
+                'event_epoch' => $eventEpoch,
+                'event_seq' => $eventSeq
+            ]);
+
             $this->LogMessage(
                 'EnqueueModule1Payload: queue lock timeout, event not queued=(' . $eventEpoch . ',' . $eventSeq . ')',
                 KL_MESSAGE
@@ -2953,11 +3250,22 @@ document.addEventListener("DOMContentLoaded", () => {
                 $existingSeq = (int) ($existingPayload['event_seq'] ?? 0);
 
                 if ($eventID !== '' && $existingEventID === $eventID) {
+                    $this->AppendHeartbeatAuditForPayload($payload, 'NOT_WRITTEN', [
+                        'reason' => 'duplicate_event_id',
+                        'event_id' => $eventID
+                    ]);
+
                     $this->LogMessage('EnqueueModule1Payload: duplicate event_id ignored: ' . $eventID, KL_MESSAGE);
                     return;
                 }
 
                 if ($eventID === '' && $existingEpoch === $eventEpoch && $existingSeq === $eventSeq) {
+                    $this->AppendHeartbeatAuditForPayload($payload, 'NOT_WRITTEN', [
+                        'reason' => 'duplicate_event_token',
+                        'event_epoch' => $eventEpoch,
+                        'event_seq' => $eventSeq
+                    ]);
+
                     $this->LogMessage(
                         'EnqueueModule1Payload: duplicate event token ignored: (' . $eventEpoch . ',' . $eventSeq . ')',
                         KL_MESSAGE
@@ -2980,6 +3288,11 @@ document.addEventListener("DOMContentLoaded", () => {
                 $dropCount = count($queue) - $maxQueueSize;
                 $queue = array_slice($queue, -$maxQueueSize);
 
+                $this->AppendHeartbeatAuditForPayload($payload, 'QUEUE_OVERFLOW_CHECK', [
+                    'drop_count' => $dropCount,
+                    'note' => 'oldest_entries_dropped'
+                ]);
+
                 $this->LogMessage(
                     'EnqueueModule1Payload: pending queue overflow, dropped oldest entries=' . $dropCount,
                     KL_MESSAGE
@@ -2987,6 +3300,12 @@ document.addEventListener("DOMContentLoaded", () => {
             }
 
             $this->WritePendingModule1PayloadQueue($queue);
+
+            $this->AppendHeartbeatAuditForPayload($payload, 'QUEUED', [
+                'queue_size' => count($queue),
+                'event_epoch' => $eventEpoch,
+                'event_seq' => $eventSeq
+            ]);
 
             $this->LogMessage(
                 'EnqueueModule1Payload: queued event=(' . $eventEpoch . ',' . $eventSeq . '), queue_size=' . count($queue),
@@ -3031,6 +3350,15 @@ document.addEventListener("DOMContentLoaded", () => {
                     return;
                 }
 
+                foreach ($queue as $entry) {
+                    $payloadForAudit = $entry['payload'] ?? null;
+                    if (is_array($payloadForAudit)) {
+                        $this->AppendHeartbeatAuditForPayload($payloadForAudit, 'PROCESS_PICKED_UP', [
+                            'batch_size' => count($queue)
+                        ]);
+                    }
+                }
+
                 $this->WritePendingModule1PayloadQueue([]);
             } finally {
                 $this->LeavePayloadQueueLock();
@@ -3043,6 +3371,14 @@ document.addEventListener("DOMContentLoaded", () => {
             foreach ($queue as $entry) {
                 if ($blocked) {
                     $remaining[] = $entry;
+
+                    $payloadBlocked = $entry['payload'] ?? null;
+                    if (is_array($payloadBlocked)) {
+                        $this->AppendHeartbeatAuditForPayload($payloadBlocked, 'NOT_WRITTEN', [
+                            'reason' => 'left_behind_due_to_earlier_blocked_event'
+                        ]);
+                    }
+
                     continue;
                 }
 
@@ -3062,6 +3398,11 @@ document.addEventListener("DOMContentLoaded", () => {
                 $eventType = strtoupper(trim((string) ($payload['event_type'] ?? '')));
 
                 if ($eventType !== 'ALARM') {
+                    $this->AppendHeartbeatAuditForPayload($payload, 'NOT_WRITTEN', [
+                        'reason' => 'process_non_alarm_event_type',
+                        'event_type' => $eventType
+                    ]);
+
                     $this->LogMessage(
                         'ProcessPendingModule1PayloadQueue: skipped non-ALARM event_type=' . $eventType,
                         KL_MESSAGE
@@ -3075,6 +3416,11 @@ document.addEventListener("DOMContentLoaded", () => {
                 if (!is_array($targetGroups) || count($targetGroups) === 0) {
                     $this->SetCurrentModule1PayloadContext($payload, $payloadJson);
                     $this->ReevaluateCurrentAlarmContext($payload, $houseOverride ?? ['system_state_id' => 0]);
+
+                    $this->AppendHeartbeatAuditForPayload($payload, 'PROCESSED_RESET_OR_ALL_CLEAR', [
+                        'event_epoch' => $eventEpoch,
+                        'event_seq' => $eventSeq
+                    ]);
 
                     $this->LogMessage(
                         'ProcessPendingModule1PayloadQueue: processed reset/all-clear event=(' . $eventEpoch . ',' . $eventSeq . ')',
@@ -3091,6 +3437,12 @@ document.addEventListener("DOMContentLoaded", () => {
                 }
 
                 if ($house === null) {
+                    $this->AppendHeartbeatAuditForPayload($payload, 'NOT_WRITTEN', [
+                        'reason' => 'blocked_no_usable_house_snapshot',
+                        'event_epoch' => $eventEpoch,
+                        'event_seq' => $eventSeq
+                    ]);
+
                     $this->LogMessage(
                         'ProcessPendingModule1PayloadQueue: blocked, no usable house snapshot for event=(' . $eventEpoch . ',' . $eventSeq . ')',
                         KL_MESSAGE
@@ -3101,8 +3453,19 @@ document.addEventListener("DOMContentLoaded", () => {
                     continue;
                 }
 
+                $this->AppendHeartbeatAuditForPayload($payload, 'PROCESS_HAS_HOUSE_SNAPSHOT', [
+                    'house_state' => (int) ($house['system_state_id'] ?? -1),
+                    'house_sync_epoch' => (string) ($house['sync']['last_processed_event_epoch'] ?? '0'),
+                    'house_sync_seq' => (int) ($house['sync']['last_processed_event_seq'] ?? 0)
+                ]);
+
                 $this->SetCurrentModule1PayloadContext($payload, $payloadJson);
                 $this->ReevaluateCurrentAlarmContext($payload, $house);
+
+                $this->AppendHeartbeatAuditForPayload($payload, 'PROCESS_DONE', [
+                    'event_epoch' => $eventEpoch,
+                    'event_seq' => $eventSeq
+                ]);
 
                 $this->LogMessage(
                     'ProcessPendingModule1PayloadQueue: processed event=(' . $eventEpoch . ',' . $eventSeq . ')',
@@ -3123,18 +3486,21 @@ document.addEventListener("DOMContentLoaded", () => {
 
                 try {
                     $currentQueue = $this->GetPendingModule1PayloadQueue();
-
-                    /*
-                 * Important:
-                 * Remaining old events go back to the front.
-                 * New events that arrived while processing stay behind them.
-                 */
                     $mergedQueue = array_merge($remaining, $currentQueue);
 
                     $maxQueueSize = 100;
                     if (count($mergedQueue) > $maxQueueSize) {
                         $dropCount = count($mergedQueue) - $maxQueueSize;
                         $mergedQueue = array_slice($mergedQueue, -$maxQueueSize);
+
+                        foreach ($remaining as $entry) {
+                            $payloadForAudit = $entry['payload'] ?? null;
+                            if (is_array($payloadForAudit)) {
+                                $this->AppendHeartbeatAuditForPayload($payloadForAudit, 'QUEUE_OVERFLOW_AFTER_RESTORE', [
+                                    'drop_count' => $dropCount
+                                ]);
+                            }
+                        }
 
                         $this->LogMessage(
                             'ProcessPendingModule1PayloadQueue: queue overflow after restore, dropped oldest entries=' . $dropCount,
@@ -3407,11 +3773,26 @@ document.addEventListener("DOMContentLoaded", () => {
         $valueMode = trim((string) ($resource['ActionValueMode'] ?? 'message_text'));
 
         if ($targetObjectID <= 0 || !@IPS_ObjectExists($targetObjectID)) {
+            if ($this->IsHeartbeatOutputResource($resource)) {
+                $this->AppendHeartbeatAuditForPayload($payload, 'NOT_WRITTEN', [
+                    'reason' => 'invalid_target_object',
+                    'target_object_id' => $targetObjectID
+                ]);
+            }
+
             $this->LogMessage('SendRequestActionOutputResource: invalid target object', KL_MESSAGE);
             return false;
         }
 
         $value = $this->BuildRequestActionValue($resource, $payload, $house, $groupLabel, $valueMode);
+
+        if ($this->IsHeartbeatOutputResource($resource)) {
+            $this->AppendHeartbeatAuditForPayload($payload, 'REQUESTACTION_VALUE_BUILT', [
+                'target_object_id' => $targetObjectID,
+                'value_mode' => $valueMode,
+                'value' => is_scalar($value) || $value === null ? (string) $value : json_encode($value)
+            ]);
+        }
 
         $this->LogMessage('SendRequestActionOutputResource: TargetObjectID=' . $targetObjectID, KL_MESSAGE);
         $this->LogMessage('SendRequestActionOutputResource: ActionValueMode=' . $valueMode, KL_MESSAGE);
@@ -3423,8 +3804,44 @@ document.addEventListener("DOMContentLoaded", () => {
         try {
             RequestAction($targetObjectID, $value);
             $this->LogMessage('SendRequestActionOutputResource: RequestAction executed successfully', KL_MESSAGE);
+
+            if ($this->IsHeartbeatOutputResource($resource)) {
+                $this->AppendHeartbeatAuditForPayload($payload, 'REQUESTACTION_OK', [
+                    'target_object_id' => $targetObjectID,
+                    'value' => is_scalar($value) || $value === null ? (string) $value : json_encode($value)
+                ]);
+
+                if (@IPS_VariableExists($targetObjectID)) {
+                    $actual = GetValue($targetObjectID);
+                    $expected = is_scalar($value) || $value === null ? (string) $value : json_encode($value);
+                    $actualText = is_scalar($actual) || $actual === null ? (string) $actual : json_encode($actual);
+
+                    $this->AppendHeartbeatAuditForPayload($payload, 'TARGET_VALUE_AFTER_REQUESTACTION', [
+                        'target_object_id' => $targetObjectID,
+                        'expected' => $expected,
+                        'actual' => $actualText,
+                        'matches' => ($actualText === $expected)
+                    ]);
+
+                    if ($actualText !== $expected) {
+                        $this->AppendHeartbeatAuditForPayload($payload, 'NOT_WRITTEN', [
+                            'reason' => 'target_value_mismatch_after_requestaction',
+                            'expected' => $expected,
+                            'actual' => $actualText
+                        ]);
+                    }
+                }
+            }
+
             return true;
         } catch (Throwable $e) {
+            if ($this->IsHeartbeatOutputResource($resource)) {
+                $this->AppendHeartbeatAuditForPayload($payload, 'NOT_WRITTEN', [
+                    'reason' => 'requestaction_exception',
+                    'message' => $e->getMessage()
+                ]);
+            }
+
             $this->LogMessage('SendRequestActionOutputResource failed: ' . $e->getMessage(), KL_MESSAGE);
             return false;
         }
