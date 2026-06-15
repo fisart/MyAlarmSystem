@@ -34,6 +34,7 @@ class AlarmHeartbeatWatchdog extends IPSModule
         $this->RegisterAttributeBoolean('LastOverallOK', true);
         $this->RegisterAttributeString('LastFailureText', '');
         $this->RegisterAttributeString('LastCheckJson', '{}');
+        $this->RegisterAttributeString('HeartbeatHistoryJson', '[]');
 
         $this->RegisterVariableBoolean('OverallOK', 'Overall OK', '~Switch', 10);
         $this->RegisterVariableString('LastCheckText', 'Last Check', '', 20);
@@ -49,6 +50,7 @@ class AlarmHeartbeatWatchdog extends IPSModule
         $this->RegisterVariableInteger('Module1Counter', 'Module 1 Counter', '', 120);
         $this->RegisterVariableString('Module1LastPayload', 'Module 1 Last Payload', '', 130);
         $this->RegisterVariableString('AlarmStateJson', 'Alarm State JSON', '', 140);
+        $this->RegisterVariableString('HeartbeatHistoryJson', 'Heartbeat History JSON', '', 150);
 
         $this->RegisterTimer('HeartbeatTimer', 0, 'AHW_RunCycle($_IPS[\'TARGET\']);');
     }
@@ -138,6 +140,8 @@ class AlarmHeartbeatWatchdog extends IPSModule
         $this->WriteAttributeInteger('PendingSentAt', $timestamp);
         $this->WriteAttributeInteger('PendingDeadline', $timestamp + $timeout);
 
+        $this->AddHeartbeatToHistory($timestamp, $timestamp, $timestamp + $timeout);
+
         $this->SetValueSafe('LastSentTimestamp', $timestamp);
         $this->SetValueSafe('LastSentText', date('Y-m-d H:i:s', $timestamp));
         $this->SetValueSafe('PendingTimestamp', $timestamp);
@@ -168,6 +172,29 @@ class AlarmHeartbeatWatchdog extends IPSModule
         $this->SetValueSafe('Module1RuntimeSeconds', $runtime);
         $this->SetValueSafe('Module1LastPayload', $payloadJson);
 
+        if ($heartbeatTimestamp > 0) {
+            $historyEntry = $this->FindHeartbeatHistoryEntry($heartbeatTimestamp);
+            if (count($historyEntry) > 0) {
+                $deadline = (int)($historyEntry['deadline'] ?? 0);
+                $lateSeconds = ($deadline > 0 && $now > $deadline) ? ($now - $deadline) : -1;
+                $state = ($lateSeconds > 0) ? 'LATE' : 'OK';
+                $message = ($state === 'LATE')
+                    ? 'Module 1 callback arrived late by ' . $lateSeconds . ' seconds.'
+                    : 'OK';
+
+                $this->UpdateHeartbeatHistoryTarget(
+                    $heartbeatTimestamp,
+                    'Module 1 callback',
+                    $state,
+                    $heartbeatTimestamp,
+                    $now,
+                    $runtime,
+                    $lateSeconds,
+                    $message
+                );
+            }
+        }
+
         $this->LogDebug('ReceivePayload: heartbeat=' . $heartbeatTimestamp . ', runtime=' . $runtime . ', counter=' . $counter);
         $this->RebuildStatus();
         return true;
@@ -190,6 +217,7 @@ class AlarmHeartbeatWatchdog extends IPSModule
         $this->WriteAttributeBoolean('LastOverallOK', true);
         $this->WriteAttributeString('LastFailureText', '');
         $this->WriteAttributeString('LastCheckJson', '{}');
+        $this->WriteAttributeString('HeartbeatHistoryJson', '[]');
 
         foreach (
             [
@@ -198,7 +226,8 @@ class AlarmHeartbeatWatchdog extends IPSModule
                 'LastSentText',
                 'Module1LastSeenText',
                 'Module1LastPayload',
-                'AlarmStateJson'
+                'AlarmStateJson',
+                'HeartbeatHistoryJson'
             ] as $ident
         ) {
             $this->SetValueSafe($ident, '');
@@ -278,18 +307,82 @@ class AlarmHeartbeatWatchdog extends IPSModule
         $maxAge = max(5, $this->ReadPropertyInteger('Module1MaxAgeSeconds'));
 
         $seenAge = ($lastSeen > 0) ? $now - $lastSeen : PHP_INT_MAX;
-        $ok = ($lastHeartbeat === $pending) && ($seenAge <= $maxAge) && ($lastSeen <= $deadline || $now <= $deadline);
+        $state = 'UNKNOWN';
+        $message = 'Unknown Module 1 callback state.';
+        $lateSeconds = -1;
+
+        if ($lastHeartbeat === $pending) {
+            if ($lastSeen <= $deadline) {
+                if ($seenAge <= $maxAge) {
+                    $state = 'OK';
+                    $message = 'OK';
+                } else {
+                    $state = 'STALE';
+                    $message = 'Module 1 callback is stale.';
+                }
+            } else {
+                $state = 'LATE';
+                $lateSeconds = $lastSeen - $deadline;
+                $message = 'Module 1 callback arrived late by ' . $lateSeconds . ' seconds.';
+            }
+        } else {
+            if ($lastHeartbeat > 0) {
+                $historyEntry = $this->FindHeartbeatHistoryEntry($lastHeartbeat);
+                if (count($historyEntry) > 0) {
+                    $oldDeadline = (int)($historyEntry['deadline'] ?? 0);
+                    $oldLateSeconds = ($oldDeadline > 0 && $lastSeen > $oldDeadline) ? ($lastSeen - $oldDeadline) : -1;
+                    $oldState = ($oldLateSeconds > 0) ? 'LATE' : 'OK';
+                    $oldMessage = ($oldState === 'LATE')
+                        ? 'Module 1 callback arrived late by ' . $oldLateSeconds . ' seconds.'
+                        : 'OK';
+
+                    $this->UpdateHeartbeatHistoryTarget(
+                        $lastHeartbeat,
+                        'Module 1 callback',
+                        $oldState,
+                        $lastHeartbeat,
+                        $lastSeen,
+                        $runtime,
+                        $oldLateSeconds,
+                        $oldMessage
+                    );
+                }
+            }
+
+            if ($now > $deadline) {
+                $state = 'MISSING';
+                $message = 'Module 1 callback for expected heartbeat is missing.';
+            } else {
+                $state = 'WAITING';
+                $message = 'Waiting for Module 1 callback.';
+            }
+        }
+
+        $ok = ($state === 'OK');
+
+        $this->UpdateHeartbeatHistoryTarget(
+            $pending,
+            'Module 1 callback',
+            $state,
+            $lastHeartbeat,
+            $lastSeen,
+            $runtime,
+            $lateSeconds,
+            $message
+        );
 
         return [
             'name' => 'Module 1 callback',
             'ok' => $ok,
+            'state' => $state,
             'last_seen' => $lastSeen,
             'last_seen_text' => $lastSeen > 0 ? date('Y-m-d H:i:s', $lastSeen) : '-',
             'last_heartbeat' => $lastHeartbeat,
             'expected' => $pending,
             'runtime_seconds' => $runtime,
             'age_seconds' => $seenAge === PHP_INT_MAX ? -1 : $seenAge,
-            'message' => $ok ? 'OK' : 'Missing or stale Module 1 callback.'
+            'late_seconds' => $lateSeconds,
+            'message' => $message
         ];
     }
 
@@ -300,14 +393,27 @@ class AlarmHeartbeatWatchdog extends IPSModule
         $maxAge = max(5, (int)($watch['MaxAgeSeconds'] ?? 180));
 
         if ($varID <= 0 || !IPS_VariableExists($varID)) {
+            $this->UpdateHeartbeatHistoryTarget(
+                $pending,
+                $name,
+                'VARIABLE_MISSING',
+                0,
+                0,
+                -1,
+                -1,
+                'Output variable missing.'
+            );
+
             return [
                 'name' => $name,
                 'ok' => false,
+                'state' => 'VARIABLE_MISSING',
                 'variable_id' => $varID,
                 'value' => null,
                 'updated' => 0,
                 'runtime_seconds' => -1,
                 'age_seconds' => -1,
+                'late_seconds' => -1,
                 'message' => 'Output variable missing.'
             ];
         }
@@ -316,13 +422,75 @@ class AlarmHeartbeatWatchdog extends IPSModule
         $varInfo = IPS_GetVariable($varID);
         $updated = (int)($varInfo['VariableUpdated'] ?? 0);
         $age = ($updated > 0) ? $now - $updated : PHP_INT_MAX;
-        $runtime = ($updated > 0) ? max(0, $updated - $pending) : -1;
+        $runtime = ($updated > 0) ? max(0, $updated - $sentAt) : -1;
+        $state = 'UNKNOWN';
+        $message = 'Unknown heartbeat state.';
+        $lateSeconds = -1;
 
-        $ok = ($value === $pending) && ($age <= $maxAge) && ($updated <= $deadline || $now <= $deadline);
+        if ($value === $pending) {
+            if ($updated <= $deadline) {
+                if ($age <= $maxAge) {
+                    $state = 'OK';
+                    $message = 'OK';
+                } else {
+                    $state = 'STALE';
+                    $message = 'Expected timestamp present but stale.';
+                }
+            } else {
+                $state = 'LATE';
+                $lateSeconds = $updated - $deadline;
+                $message = 'Heartbeat arrived late by ' . $lateSeconds . ' seconds.';
+            }
+        } else {
+            if ($value > 0) {
+                $historyEntry = $this->FindHeartbeatHistoryEntry($value);
+                if (count($historyEntry) > 0) {
+                    $oldDeadline = (int)($historyEntry['deadline'] ?? 0);
+                    $oldLateSeconds = ($oldDeadline > 0 && $updated > $oldDeadline) ? ($updated - $oldDeadline) : -1;
+                    $oldState = ($oldLateSeconds > 0) ? 'LATE' : 'OK';
+                    $oldMessage = ($oldState === 'LATE')
+                        ? 'Heartbeat arrived late by ' . $oldLateSeconds . ' seconds.'
+                        : 'OK';
+
+                    $this->UpdateHeartbeatHistoryTarget(
+                        $value,
+                        $name,
+                        $oldState,
+                        $value,
+                        $updated,
+                        $updated > 0 ? max(0, $updated - (int)($historyEntry['sent_at'] ?? $value)) : -1,
+                        $oldLateSeconds,
+                        $oldMessage
+                    );
+                }
+            }
+
+            if ($now > $deadline) {
+                $state = 'MISSING';
+                $message = 'Expected heartbeat timestamp is missing.';
+            } else {
+                $state = 'WAITING';
+                $message = 'Waiting for expected heartbeat timestamp.';
+            }
+        }
+
+        $ok = ($state === 'OK');
+
+        $this->UpdateHeartbeatHistoryTarget(
+            $pending,
+            $name,
+            $state,
+            $value,
+            $updated,
+            $runtime,
+            $lateSeconds,
+            $message
+        );
 
         return [
             'name' => $name,
             'ok' => $ok,
+            'state' => $state,
             'variable_id' => $varID,
             'value' => $value,
             'expected' => $pending,
@@ -330,7 +498,8 @@ class AlarmHeartbeatWatchdog extends IPSModule
             'updated_text' => $updated > 0 ? date('Y-m-d H:i:s', $updated) : '-',
             'runtime_seconds' => $runtime,
             'age_seconds' => $age === PHP_INT_MAX ? -1 : $age,
-            'message' => $ok ? 'OK' : 'Expected timestamp not present or stale.'
+            'late_seconds' => $lateSeconds,
+            'message' => $message
         ];
     }
 
@@ -445,11 +614,13 @@ class AlarmHeartbeatWatchdog extends IPSModule
             if (is_array($module1) && count($module1) > 0) {
                 $html .= '<h3 style="color:#fff;margin-top:14px;">Module 1 callback</h3>';
                 $html .= '<table style="border-collapse:collapse;width:100%;">';
-                $html .= $this->HtmlRow('Status', !empty($module1['ok']) ? 'OK' : 'ERROR');
+                $html .= $this->HtmlRow('Status', (string)($module1['state'] ?? (!empty($module1['ok']) ? 'OK' : 'ERROR')));
                 $html .= $this->HtmlRow('Expected', (string)($module1['expected'] ?? '-'));
                 $html .= $this->HtmlRow('Received', (string)($module1['last_heartbeat'] ?? '-'));
                 $html .= $this->HtmlRow('Last seen', (string)($module1['last_seen_text'] ?? '-'));
                 $html .= $this->HtmlRow('Runtime', (string)($module1['runtime_seconds'] ?? '-') . ' s');
+                $html .= $this->HtmlRow('Late seconds', (string)($module1['late_seconds'] ?? '-'));
+                $html .= $this->HtmlRow('Message', (string)($module1['message'] ?? '-'));
                 $html .= '</table>';
             }
 
@@ -457,16 +628,17 @@ class AlarmHeartbeatWatchdog extends IPSModule
             if (is_array($targets) && count($targets) > 0) {
                 $html .= '<h3 style="color:#fff;margin-top:14px;">Module 3 targets</h3>';
                 $html .= '<table style="border-collapse:collapse;width:100%;">';
-                $html .= '<tr style="background:#333;"><th style="padding:6px;border:1px solid #555;text-align:left;">Target</th><th style="padding:6px;border:1px solid #555;text-align:left;">Status</th><th style="padding:6px;border:1px solid #555;text-align:left;">Expected</th><th style="padding:6px;border:1px solid #555;text-align:left;">Value</th><th style="padding:6px;border:1px solid #555;text-align:left;">Runtime</th><th style="padding:6px;border:1px solid #555;text-align:left;">Updated</th></tr>';
+                $html .= '<tr style="background:#333;"><th style="padding:6px;border:1px solid #555;text-align:left;">Target</th><th style="padding:6px;border:1px solid #555;text-align:left;">State</th><th style="padding:6px;border:1px solid #555;text-align:left;">Expected</th><th style="padding:6px;border:1px solid #555;text-align:left;">Value</th><th style="padding:6px;border:1px solid #555;text-align:left;">Runtime</th><th style="padding:6px;border:1px solid #555;text-align:left;">Updated</th><th style="padding:6px;border:1px solid #555;text-align:left;">Message</th></tr>';
                 foreach ($targets as $target) {
                     $ok = !empty($target['ok']);
                     $html .= '<tr>';
                     $html .= '<td style="padding:6px;border:1px solid #555;">' . htmlspecialchars((string)($target['name'] ?? '-'), ENT_QUOTES, 'UTF-8') . '</td>';
-                    $html .= '<td style="padding:6px;border:1px solid #555;color:' . ($ok ? '#81c784' : '#ef9a9a') . ';font-weight:bold;">' . ($ok ? 'OK' : 'ERROR') . '</td>';
+                    $html .= '<td style="padding:6px;border:1px solid #555;color:' . ($ok ? '#81c784' : '#ef9a9a') . ';font-weight:bold;">' . htmlspecialchars((string)($target['state'] ?? ($ok ? 'OK' : 'ERROR')), ENT_QUOTES, 'UTF-8') . '</td>';
                     $html .= '<td style="padding:6px;border:1px solid #555;">' . htmlspecialchars((string)($target['expected'] ?? '-'), ENT_QUOTES, 'UTF-8') . '</td>';
                     $html .= '<td style="padding:6px;border:1px solid #555;">' . htmlspecialchars((string)($target['value'] ?? '-'), ENT_QUOTES, 'UTF-8') . '</td>';
                     $html .= '<td style="padding:6px;border:1px solid #555;">' . htmlspecialchars((string)($target['runtime_seconds'] ?? '-'), ENT_QUOTES, 'UTF-8') . ' s</td>';
                     $html .= '<td style="padding:6px;border:1px solid #555;">' . htmlspecialchars((string)($target['updated_text'] ?? '-'), ENT_QUOTES, 'UTF-8') . '</td>';
+                    $html .= '<td style="padding:6px;border:1px solid #555;">' . htmlspecialchars((string)($target['message'] ?? '-'), ENT_QUOTES, 'UTF-8') . '</td>';
                     $html .= '</tr>';
                 }
                 $html .= '</table>';
@@ -552,6 +724,145 @@ class AlarmHeartbeatWatchdog extends IPSModule
             ];
         }
         return $result;
+    }
+
+    private function AddHeartbeatToHistory(int $timestamp, int $sentAt, int $deadline): void
+    {
+        $history = $this->ReadHeartbeatHistory();
+
+        $history[] = [
+            'timestamp' => $timestamp,
+            'sent_at' => $sentAt,
+            'sent_at_text' => date('Y-m-d H:i:s', $sentAt),
+            'deadline' => $deadline,
+            'deadline_text' => date('Y-m-d H:i:s', $deadline),
+            'overall_state' => 'SENT',
+            'targets' => []
+        ];
+
+        $history = array_slice($history, -10);
+        $this->WriteHeartbeatHistory($history);
+    }
+
+    private function UpdateHeartbeatHistoryTarget(
+        int $timestamp,
+        string $targetName,
+        string $state,
+        int $value,
+        int $updated,
+        int $runtime,
+        int $lateSeconds,
+        string $message
+    ): void {
+        $history = $this->ReadHeartbeatHistory();
+
+        foreach ($history as &$entry) {
+            if ((int)($entry['timestamp'] ?? 0) !== $timestamp) {
+                continue;
+            }
+
+            if (!isset($entry['targets']) || !is_array($entry['targets'])) {
+                $entry['targets'] = [];
+            }
+
+            $entry['targets'][$targetName] = [
+                'state' => $state,
+                'value' => $value,
+                'updated' => $updated,
+                'updated_text' => $updated > 0 ? date('Y-m-d H:i:s', $updated) : '-',
+                'runtime_seconds' => $runtime,
+                'late_seconds' => $lateSeconds,
+                'message' => $message
+            ];
+
+            $entry['overall_state'] = $this->CalculateHeartbeatHistoryOverallState($entry['targets']);
+            break;
+        }
+
+        unset($entry);
+        $this->WriteHeartbeatHistory($history);
+    }
+
+    private function CalculateHeartbeatHistoryOverallState(array $targets): string
+    {
+        if (count($targets) === 0) {
+            return 'SENT';
+        }
+
+        $hasMissing = false;
+        $hasLate = false;
+        $hasWaiting = false;
+        $hasError = false;
+
+        foreach ($targets as $target) {
+            $state = (string)($target['state'] ?? 'UNKNOWN');
+
+            if ($state === 'MISSING') {
+                $hasMissing = true;
+            } elseif ($state === 'LATE') {
+                $hasLate = true;
+            } elseif ($state === 'WAITING') {
+                $hasWaiting = true;
+            } elseif ($state !== 'OK') {
+                $hasError = true;
+            }
+        }
+
+        if ($hasMissing) {
+            return 'MISSING';
+        }
+
+        if ($hasLate) {
+            return 'LATE';
+        }
+
+        if ($hasError) {
+            return 'ERROR';
+        }
+
+        if ($hasWaiting) {
+            return 'WAITING';
+        }
+
+        return 'OK';
+    }
+
+    private function ReadHeartbeatHistory(): array
+    {
+        $raw = $this->ReadAttributeString('HeartbeatHistoryJson');
+        $decoded = json_decode($raw, true);
+
+        if (!is_array($decoded)) {
+            return [];
+        }
+
+        return $decoded;
+    }
+
+    private function FindHeartbeatHistoryEntry(int $timestamp): array
+    {
+        if ($timestamp <= 0) {
+            return [];
+        }
+
+        foreach ($this->ReadHeartbeatHistory() as $entry) {
+            if ((int)($entry['timestamp'] ?? 0) === $timestamp) {
+                return is_array($entry) ? $entry : [];
+            }
+        }
+
+        return [];
+    }
+
+    private function WriteHeartbeatHistory(array $history): void
+    {
+        $json = json_encode($history, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        if ($json === false) {
+            $json = '[]';
+        }
+
+        $this->WriteAttributeString('HeartbeatHistoryJson', $json);
+        $this->SetValueSafe('HeartbeatHistoryJson', $json);
     }
 
     private function SetValueSafe(string $ident, $value): void
