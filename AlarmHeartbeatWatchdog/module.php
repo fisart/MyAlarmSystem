@@ -108,6 +108,7 @@ class AlarmHeartbeatWatchdog extends IPSModule
 
     public function MessageSink($TimeStamp, $SenderID, $Message, $Data): void
     {
+        $this->LogMessage('MessageSink sender=' . $SenderID . ', message=' . $Message . ', data=' . json_encode($Data), KL_MESSAGE);
         if ($Message !== VM_UPDATE) {
             return;
         }
