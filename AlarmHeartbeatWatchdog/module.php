@@ -3,11 +3,11 @@
 declare(strict_types=1);
 
 // AlarmHeartbeatWatchdog module.php
-// Version: 1.5.0
+// Version: 1.5.1
 // Heartbeat token mode: milliseconds since midnight used as an integer correlation token
 // Pulse model: token is active only for PulseDurationMs/ResetDelayMs, then HeartbeatInputVariableID is reset to 0
 // Delivery confirmation mode: module-managed triggered events plus internal RegisterMessage/MessageSink fallback for Module 3 output variables
-// Notes: Adds module-managed output-variable events. VALUE_PRESENT_NO_EVENT is a warning state and does not trigger email notifications. Module 1 reset payloads with token 0 do not overwrite the last valid heartbeat token.
+// Notes: Adds module-managed output-variable events. Corrects generated event PHP code/action setup. VALUE_PRESENT_NO_EVENT is a warning state and does not trigger email notifications. Module 1 reset payloads with token 0 do not overwrite the last valid heartbeat token.
 
 class AlarmHeartbeatWatchdog extends IPSModule
 {
@@ -1234,21 +1234,22 @@ class AlarmHeartbeatWatchdog extends IPSModule
 
     private function ConfigureManagedOutputEvent(int $eventID, int $variableID): void
     {
-        $script = '<?php' . "\n" .
+        $script =
             '$watchdogID = ' . $this->InstanceID . ';' . "\n" .
             '$variableID = ' . $variableID . ';' . "\n" .
             '$value = isset($_IPS[\'VALUE\']) ? (int)$_IPS[\'VALUE\'] : (IPS_VariableExists($variableID) ? (int)GetValue($variableID) : 0);' . "\n" .
-            'AHW_NotifyOutputVariableChanged($watchdogID, $variableID, $value);' . "\n";
+            'AHW_NotifyOutputVariableChanged($watchdogID, $variableID, $value);';
 
         IPS_SetName($eventID, 'AHW Output Update ' . $variableID);
         IPS_SetParent($eventID, $this->InstanceID);
-        IPS_SetEventTrigger($eventID, 0, $variableID); // 0 = On Variable Update
-        IPS_SetEventScript($eventID, $script);
 
-        // Required by newer IP-Symcon versions for event automation execution.
-        if (function_exists('IPS_SetEventAction')) {
-            @IPS_SetEventAction($eventID, '{7938A5A2-0981-5FE0-BE6C-8AA610D654EB}', []);
-        }
+        // Trigger type 0 = On Variable Update / Bei Variablenaktualisierung.
+        // We want every Module 3 write to be observed, not only value changes.
+        IPS_SetEventTrigger($eventID, 0, $variableID);
+
+        // Important: IPS_SetEventScript expects the PHP code body only, without <?php tags.
+        // It also sets the event action to "Execute PHP Code".
+        IPS_SetEventScript($eventID, $script);
 
         IPS_SetEventActive($eventID, true);
     }
