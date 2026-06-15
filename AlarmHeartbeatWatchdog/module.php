@@ -7,7 +7,7 @@ class AlarmHeartbeatWatchdog extends IPSModule
     private const STATUS_ACTIVE = 102;
     private const STATUS_NO_INPUT = 201;
     private const STATUS_NO_WATCHES = 202;
-    // test
+
     public function Create()
     {
         parent::Create();

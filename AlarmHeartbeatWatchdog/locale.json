@@ -1,7 +1,7 @@
 {
   "translations": {
     "de": {
-      "Heartbeat function enabled": "Heartbeat-Funktion aktiviert"
+      "Heartbeat function enabled": "Heartbeat-Funktion aktiviert",
       "Alarm Heartbeat Watchdog": "Alarm Heartbeat Watchdog",
       "Heartbeat Sender": "Heartbeat-Sender",
       "Heartbeat input variable": "Heartbeat-Eingangsvariable",
