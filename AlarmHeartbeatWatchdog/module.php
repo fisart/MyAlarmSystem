@@ -3,10 +3,10 @@
 declare(strict_types=1);
 
 // AlarmHeartbeatWatchdog module.php
-// Version: 1.3.1
+// Version: 1.3.2-diagnostic
 // Heartbeat token mode: milliseconds since midnight
 // Delivery confirmation mode: internal RegisterMessage/MessageSink for Module 3 output variables
-// Notes: VALUE_PRESENT_NO_EVENT is a warning state and does not trigger email notifications.
+// Notes: Adds temporary AHW_MSGSINK_DIAG diagnostics for RegisterMessage/MessageSink verification.
 
 class AlarmHeartbeatWatchdog extends IPSModule
 {
@@ -108,22 +108,52 @@ class AlarmHeartbeatWatchdog extends IPSModule
 
     public function MessageSink($TimeStamp, $SenderID, $Message, $Data): void
     {
-        $this->LogMessage('MessageSink sender=' . $SenderID . ', message=' . $Message . ', data=' . json_encode($Data), KL_MESSAGE);
+        $this->LogMessage(
+            'AHW_MSGSINK_DIAG MessageSink received: TimeStamp=' . (string)$TimeStamp .
+                ', SenderID=' . (string)$SenderID .
+                ', Message=' . (string)$Message .
+                ', VM_UPDATE=' . (string)VM_UPDATE .
+                ', Data=' . json_encode($Data, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
+            KL_MESSAGE
+        );
+
         if ($Message !== VM_UPDATE) {
+            $this->LogMessage(
+                'AHW_MSGSINK_DIAG MessageSink ignored: message is not VM_UPDATE. SenderID=' . (string)$SenderID .
+                    ', Message=' . (string)$Message .
+                    ', expected VM_UPDATE=' . (string)VM_UPDATE,
+                KL_MESSAGE
+            );
             return;
         }
 
         $varID = (int)$SenderID;
         $watch = $this->FindWatchByOutputVariableID($varID);
         if (count($watch) === 0) {
+            $this->LogMessage(
+                'AHW_MSGSINK_DIAG MessageSink ignored: sender is not in active WatchList. SenderID=' . $varID,
+                KL_MESSAGE
+            );
             return;
         }
 
         if (!IPS_VariableExists($varID)) {
+            $this->LogMessage(
+                'AHW_MSGSINK_DIAG MessageSink ignored: variable no longer exists. SenderID=' . $varID,
+                KL_MESSAGE
+            );
             return;
         }
 
         $value = (int)GetValue($varID);
+
+        $this->LogMessage(
+            'AHW_MSGSINK_DIAG MessageSink accepted Module 3 heartbeat update: variable=' . $varID .
+                ', target=' . (string)($watch['Name'] ?? 'Unnamed target') .
+                ', value=' . $value,
+            KL_MESSAGE
+        );
+
         $this->HandleWatchedOutputUpdate($watch, $value);
     }
 
@@ -1098,11 +1128,41 @@ class AlarmHeartbeatWatchdog extends IPSModule
         $previous = $this->ReadRegisteredWatchVariableIDs();
         $current = [];
 
+        $this->LogMessage(
+            'AHW_MSGSINK_DIAG SyncWatchedOutputMessages started. Previous registered variables=' .
+                json_encode($previous, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
+            KL_MESSAGE
+        );
+
         foreach ($activeWatchList as $watch) {
             $varID = (int)($watch['OutputVariableID'] ?? 0);
-            if ($varID > 0 && IPS_VariableExists($varID)) {
-                $current[] = $varID;
+            $name = (string)($watch['Name'] ?? 'Unnamed target');
+
+            if ($varID <= 0) {
+                $this->LogMessage(
+                    'AHW_MSGSINK_DIAG SyncWatchedOutputMessages skipped invalid WatchList row: target=' . $name .
+                        ', OutputVariableID=' . $varID,
+                    KL_MESSAGE
+                );
+                continue;
             }
+
+            if (!IPS_VariableExists($varID)) {
+                $this->LogMessage(
+                    'AHW_MSGSINK_DIAG SyncWatchedOutputMessages skipped missing variable: target=' . $name .
+                        ', OutputVariableID=' . $varID,
+                    KL_MESSAGE
+                );
+                continue;
+            }
+
+            $current[] = $varID;
+
+            $this->LogMessage(
+                'AHW_MSGSINK_DIAG SyncWatchedOutputMessages active target found: target=' . $name .
+                    ', OutputVariableID=' . $varID,
+                KL_MESSAGE
+            );
         }
 
         $current = array_values(array_unique($current));
@@ -1110,18 +1170,33 @@ class AlarmHeartbeatWatchdog extends IPSModule
         foreach ($previous as $oldVarID) {
             if (!in_array($oldVarID, $current, true)) {
                 $this->UnregisterMessage($oldVarID, VM_UPDATE);
-                $this->LogDebug('Unregistered Module 3 output update message for variable ' . $oldVarID);
+                $this->LogMessage(
+                    'AHW_MSGSINK_DIAG Unregistered VM_UPDATE for old Module 3 output variable ' . $oldVarID,
+                    KL_MESSAGE
+                );
             }
         }
 
         foreach ($current as $newVarID) {
-            if (!in_array($newVarID, $previous, true)) {
-                $this->RegisterMessage($newVarID, VM_UPDATE);
-                $this->LogDebug('Registered Module 3 output update message for variable ' . $newVarID);
-            }
+            $this->RegisterMessage($newVarID, VM_UPDATE);
+            $this->LogMessage(
+                'AHW_MSGSINK_DIAG Registered VM_UPDATE for Module 3 output variable ' . $newVarID .
+                    ', VM_UPDATE=' . (string)VM_UPDATE,
+                KL_MESSAGE
+            );
         }
 
-        $this->WriteAttributeString('RegisteredWatchVariableIDsJson', json_encode($current, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+        $this->WriteAttributeString(
+            'RegisteredWatchVariableIDsJson',
+            json_encode($current, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)
+        );
+
+        $messageList = $this->GetMessageList();
+        $this->LogMessage(
+            'AHW_MSGSINK_DIAG Current module message list after registration: ' .
+                json_encode($messageList, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
+            KL_MESSAGE
+        );
     }
 
     private function ReadRegisteredWatchVariableIDs(): array
