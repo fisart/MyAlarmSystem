@@ -3,10 +3,10 @@
 declare(strict_types=1);
 
 // AlarmHeartbeatWatchdog module.php
-// Version: 1.3.0
+// Version: 1.3.1
 // Heartbeat token mode: milliseconds since midnight
 // Delivery confirmation mode: internal RegisterMessage/MessageSink for Module 3 output variables
-// Notes: Keeps the existing HeartbeatEnabled switch and records Module 3 arrivals event-driven with millisecond runtime.
+// Notes: VALUE_PRESENT_NO_EVENT is a warning state and does not trigger email notifications.
 
 class AlarmHeartbeatWatchdog extends IPSModule
 {
@@ -301,6 +301,7 @@ class AlarmHeartbeatWatchdog extends IPSModule
             return [
                 'checked' => false,
                 'overall_ok' => true,
+                'overall_warning' => false,
                 'summary' => 'No pending heartbeat to check.',
                 'pending' => 0,
                 'sent_at' => 0,
@@ -317,17 +318,24 @@ class AlarmHeartbeatWatchdog extends IPSModule
         }
 
         $overallOK = $module1['ok'];
+        $overallWarning = !empty($module1['warning']);
         foreach ($targets as $target) {
             $overallOK = $overallOK && $target['ok'];
+            $overallWarning = $overallWarning || !empty($target['warning']);
         }
 
-        $summary = $overallOK
-            ? 'OK: pending heartbeat delivered to all active targets.'
-            : 'ERROR: pending heartbeat missing, stale or delayed.';
+        if (!$overallOK) {
+            $summary = 'ERROR: pending heartbeat missing, stale or delayed.';
+        } elseif ($overallWarning) {
+            $summary = 'WARNING: heartbeat value present, but at least one update event was not recorded.';
+        } else {
+            $summary = 'OK: pending heartbeat delivered to all active targets.';
+        }
 
         return [
             'checked' => true,
             'overall_ok' => $overallOK,
+            'overall_warning' => $overallWarning,
             'summary' => $summary,
             'pending' => $pending,
             'sent_at' => $sentAt,
@@ -362,6 +370,7 @@ class AlarmHeartbeatWatchdog extends IPSModule
             return [
                 'name' => 'Module 1 callback',
                 'ok' => ($state === 'OK'),
+                'warning' => false,
                 'state' => $state,
                 'last_seen' => $lastSeen,
                 'last_seen_text' => $lastSeen > 0 ? date('Y-m-d H:i:s', $lastSeen) : '-',
@@ -398,6 +407,7 @@ class AlarmHeartbeatWatchdog extends IPSModule
         return [
             'name' => 'Module 1 callback',
             'ok' => false,
+            'warning' => false,
             'state' => $state,
             'last_seen' => $lastSeen,
             'last_seen_text' => $lastSeen > 0 ? date('Y-m-d H:i:s', $lastSeen) : '-',
@@ -432,6 +442,7 @@ class AlarmHeartbeatWatchdog extends IPSModule
             return [
                 'name' => $name,
                 'ok' => false,
+                'warning' => false,
                 'state' => 'VARIABLE_MISSING',
                 'variable_id' => $varID,
                 'value' => null,
@@ -461,7 +472,8 @@ class AlarmHeartbeatWatchdog extends IPSModule
 
             return [
                 'name' => $name,
-                'ok' => ($state === 'OK'),
+                'ok' => ($state === 'OK' || $state === 'VALUE_PRESENT_NO_EVENT'),
+                'warning' => ($state === 'VALUE_PRESENT_NO_EVENT'),
                 'state' => $state,
                 'variable_id' => $varID,
                 'value' => $value,
@@ -480,11 +492,13 @@ class AlarmHeartbeatWatchdog extends IPSModule
 
         // Fallback: if the value has changed but no MessageSink record exists, do not use VariableUpdated
         // for latency. Report the missing event subscription/arrival information explicitly.
+        $warning = false;
         if ($value === $pending) {
             if ($this->IsDeadlineExceeded($sentAt, $deadline, $nowMs)) {
-                $state = 'NO_EVENT';
-                $message = 'Expected token is present, but no Module 3 update event was recorded.';
-                $ok = false;
+                $state = 'VALUE_PRESENT_NO_EVENT';
+                $message = 'Expected token is present, but no Module 3 update event was recorded. Delivery succeeded, but precise runtime could not be measured.';
+                $ok = true;
+                $warning = true;
             } else {
                 $state = 'WAITING';
                 $message = 'Expected token is present, waiting for Module 3 update event.';
@@ -515,6 +529,7 @@ class AlarmHeartbeatWatchdog extends IPSModule
         return [
             'name' => $name,
             'ok' => $ok,
+            'warning' => $warning,
             'state' => $state,
             'variable_id' => $varID,
             'value' => $value,
@@ -555,6 +570,7 @@ class AlarmHeartbeatWatchdog extends IPSModule
     {
         $previous = $report['previous_check'] ?? [];
         $overallOK = (bool)($previous['overall_ok'] ?? true);
+        $overallWarning = (bool)($previous['overall_warning'] ?? false);
         $summary = (string)($previous['summary'] ?? 'No pending heartbeat checked yet.');
 
         $html = $this->BuildStatusHtml($report);
@@ -567,12 +583,17 @@ class AlarmHeartbeatWatchdog extends IPSModule
         $this->WriteAttributeString('LastCheckJson', $json ?: '{}');
 
         if ($sendNotifications) {
-            $this->HandleNotificationState($overallOK, $summary, $html);
+            $this->HandleNotificationState($overallOK, $overallWarning, $summary, $html);
         }
     }
 
-    private function HandleNotificationState(bool $overallOK, string $summary, string $html): void
+    private function HandleNotificationState(bool $overallOK, bool $overallWarning, string $summary, string $html): void
     {
+        // Warning-only states are diagnostic only. They must not trigger failure or recovery email.
+        if ($overallWarning) {
+            return;
+        }
+
         if (!$this->ReadPropertyBoolean('SendEmail')) {
             $this->WriteAttributeBoolean('LastOverallOK', $overallOK);
             $this->WriteAttributeString('LastFailureText', $overallOK ? '' : $summary);
@@ -618,9 +639,18 @@ class AlarmHeartbeatWatchdog extends IPSModule
     {
         $previous = $report['previous_check'] ?? [];
         $overallOK = (bool)($previous['overall_ok'] ?? true);
+        $overallWarning = (bool)($previous['overall_warning'] ?? false);
         $summary = htmlspecialchars((string)($previous['summary'] ?? 'No pending heartbeat checked yet.'), ENT_QUOTES, 'UTF-8');
-        $statusColor = $overallOK ? '#2e7d32' : '#c62828';
-        $statusText = $overallOK ? 'OK' : 'ERROR';
+        if (!$overallOK) {
+            $statusColor = '#c62828';
+            $statusText = 'ERROR';
+        } elseif ($overallWarning) {
+            $statusColor = '#ef6c00';
+            $statusText = 'WARNING';
+        } else {
+            $statusColor = '#2e7d32';
+            $statusText = 'OK';
+        }
 
         $html = '<div style="font-family:Segoe UI,Arial,sans-serif;background:#1e1e1e;color:#e0e0e0;padding:12px;border-radius:8px;">';
         $html .= '<h2 style="margin:0 0 8px 0;color:#fff;">Alarm Heartbeat Watchdog</h2>';
@@ -662,9 +692,11 @@ class AlarmHeartbeatWatchdog extends IPSModule
                 $html .= '<tr style="background:#333;"><th style="padding:6px;border:1px solid #555;text-align:left;">Target</th><th style="padding:6px;border:1px solid #555;text-align:left;">State</th><th style="padding:6px;border:1px solid #555;text-align:left;">Expected</th><th style="padding:6px;border:1px solid #555;text-align:left;">Value</th><th style="padding:6px;border:1px solid #555;text-align:left;">Runtime</th><th style="padding:6px;border:1px solid #555;text-align:left;">Late by</th><th style="padding:6px;border:1px solid #555;text-align:left;">Updated</th><th style="padding:6px;border:1px solid #555;text-align:left;">Message</th></tr>';
                 foreach ($targets as $target) {
                     $ok = !empty($target['ok']);
+                    $warning = !empty($target['warning']);
+                    $stateColor = $warning ? '#ffb74d' : ($ok ? '#81c784' : '#ef9a9a');
                     $html .= '<tr>';
                     $html .= '<td style="padding:6px;border:1px solid #555;">' . htmlspecialchars((string)($target['name'] ?? '-'), ENT_QUOTES, 'UTF-8') . '</td>';
-                    $html .= '<td style="padding:6px;border:1px solid #555;color:' . ($ok ? '#81c784' : '#ef9a9a') . ';font-weight:bold;">' . htmlspecialchars((string)($target['state'] ?? ($ok ? 'OK' : 'ERROR')), ENT_QUOTES, 'UTF-8') . '</td>';
+                    $html .= '<td style="padding:6px;border:1px solid #555;color:' . $stateColor . ';font-weight:bold;">' . htmlspecialchars((string)($target['state'] ?? ($ok ? 'OK' : 'ERROR')), ENT_QUOTES, 'UTF-8') . '</td>';
                     $html .= '<td style="padding:6px;border:1px solid #555;">' . htmlspecialchars((string)($target['expected'] ?? '-'), ENT_QUOTES, 'UTF-8') . '</td>';
                     $html .= '<td style="padding:6px;border:1px solid #555;">' . htmlspecialchars((string)($target['value'] ?? '-'), ENT_QUOTES, 'UTF-8') . '</td>';
                     $html .= '<td style="padding:6px;border:1px solid #555;">' . htmlspecialchars($this->FormatRuntimeMilliseconds((int)($target['runtime_ms'] ?? -1)), ENT_QUOTES, 'UTF-8') . '</td>';
@@ -832,6 +864,7 @@ class AlarmHeartbeatWatchdog extends IPSModule
         $hasMissing = false;
         $hasLate = false;
         $hasWaiting = false;
+        $hasWarning = false;
         $hasError = false;
 
         foreach ($targets as $target) {
@@ -843,6 +876,8 @@ class AlarmHeartbeatWatchdog extends IPSModule
                 $hasLate = true;
             } elseif ($state === 'WAITING') {
                 $hasWaiting = true;
+            } elseif ($state === 'VALUE_PRESENT_NO_EVENT') {
+                $hasWarning = true;
             } elseif ($state !== 'OK') {
                 $hasError = true;
             }
@@ -862,6 +897,10 @@ class AlarmHeartbeatWatchdog extends IPSModule
 
         if ($hasWaiting) {
             return 'WAITING';
+        }
+
+        if ($hasWarning) {
+            return 'WARNING';
         }
 
         return 'OK';
@@ -937,11 +976,13 @@ class AlarmHeartbeatWatchdog extends IPSModule
                 }
             }
 
+            $entryState = (string)($entry['overall_state'] ?? '-');
+            $entryStateColor = ($entryState === 'WARNING') ? '#ffb74d' : (($entryState === 'OK') ? '#81c784' : '#ef9a9a');
             $html .= '<tr>';
             $html .= '<td style="padding:6px;border:1px solid #555;">' . htmlspecialchars((string)($entry['timestamp'] ?? '-'), ENT_QUOTES, 'UTF-8') . '</td>';
             $html .= '<td style="padding:6px;border:1px solid #555;">' . htmlspecialchars((string)($entry['sent_at_text'] ?? '-'), ENT_QUOTES, 'UTF-8') . '</td>';
             $html .= '<td style="padding:6px;border:1px solid #555;">' . htmlspecialchars((string)($entry['deadline_text'] ?? '-'), ENT_QUOTES, 'UTF-8') . '</td>';
-            $html .= '<td style="padding:6px;border:1px solid #555;font-weight:bold;">' . htmlspecialchars((string)($entry['overall_state'] ?? '-'), ENT_QUOTES, 'UTF-8') . '</td>';
+            $html .= '<td style="padding:6px;border:1px solid #555;color:' . $entryStateColor . ';font-weight:bold;">' . htmlspecialchars($entryState, ENT_QUOTES, 'UTF-8') . '</td>';
             $html .= '<td style="padding:6px;border:1px solid #555;">' . htmlspecialchars($module1Text, ENT_QUOTES, 'UTF-8') . '</td>';
             $html .= '<td style="padding:6px;border:1px solid #555;">' . htmlspecialchars(count($targetTexts) > 0 ? implode(' | ', $targetTexts) : '-', ENT_QUOTES, 'UTF-8') . '</td>';
             $html .= '</tr>';
