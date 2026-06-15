@@ -7,7 +7,7 @@ declare(strict_types=1);
 // Heartbeat token mode: milliseconds since midnight used as an integer correlation token
 // Pulse model: token is active only for PulseDurationMs/ResetDelayMs, then HeartbeatInputVariableID is reset to 0
 // Delivery confirmation mode: module-managed triggered events plus internal RegisterMessage/MessageSink fallback for Module 3 output variables
-// Notes: Adds shared heartbeat-history semaphore protection, prevents OK confirmations from being overwritten by later WAITING/MISSING checks, and infers Module 1 OK when downstream Module 3 confirms the same token.
+// Notes: Adds module-managed output-variable events. Corrects generated event PHP code/action setup. VALUE_PRESENT_NO_EVENT is a warning state and does not trigger email notifications. Module 1 reset payloads with token 0 do not overwrite the last valid heartbeat token.
 
 class AlarmHeartbeatWatchdog extends IPSModule
 {
@@ -460,7 +460,6 @@ class AlarmHeartbeatWatchdog extends IPSModule
             $runtimeMs = (int)($recordedTarget['runtime_ms'] ?? -1);
             $lateMs = (int)($recordedTarget['late_ms'] ?? -1);
             $message = (string)($recordedTarget['message'] ?? '-');
-            $recordedValue = (int)($recordedTarget['value'] ?? $lastHeartbeat);
 
             if ($state === 'OK' && $seenAge > $maxAge) {
                 $state = 'STALE';
@@ -474,7 +473,7 @@ class AlarmHeartbeatWatchdog extends IPSModule
                 'state' => $state,
                 'last_seen' => $lastSeen,
                 'last_seen_text' => $lastSeen > 0 ? date('Y-m-d H:i:s', $lastSeen) : '-',
-                'last_heartbeat' => $recordedValue,
+                'last_heartbeat' => $lastHeartbeat,
                 'expected' => $pending,
                 'runtime_ms' => $runtimeMs,
                 'runtime_seconds' => $runtimeMs >= 0 ? (int)floor($runtimeMs / 1000) : -1,
@@ -482,68 +481,6 @@ class AlarmHeartbeatWatchdog extends IPSModule
                 'late_ms' => $lateMs,
                 'late_seconds' => $lateMs >= 0 ? (int)floor($lateMs / 1000) : -1,
                 'message' => $message
-            ];
-        }
-
-        if ($lastHeartbeat === $pending && $seenAge <= $maxAge) {
-            $runtimeMs = (int)$this->GetValueSafe('Module1RuntimeSeconds', -1);
-            $updatedMs = ($runtimeMs >= 0) ? $this->AddDayMilliseconds($sentAt, $runtimeMs) : 0;
-            $this->UpdateHeartbeatHistoryTarget(
-                $pending,
-                'Module 1 callback',
-                'OK',
-                $pending,
-                $updatedMs,
-                $runtimeMs,
-                -1,
-                'OK'
-            );
-
-            return [
-                'name' => 'Module 1 callback',
-                'ok' => true,
-                'warning' => false,
-                'state' => 'OK',
-                'last_seen' => $lastSeen,
-                'last_seen_text' => $lastSeen > 0 ? date('Y-m-d H:i:s', $lastSeen) : '-',
-                'last_heartbeat' => $pending,
-                'expected' => $pending,
-                'runtime_ms' => $runtimeMs,
-                'runtime_seconds' => $runtimeMs >= 0 ? (int)floor($runtimeMs / 1000) : -1,
-                'age_seconds' => $seenAge === PHP_INT_MAX ? -1 : $seenAge,
-                'late_ms' => -1,
-                'late_seconds' => -1,
-                'message' => 'OK'
-            ];
-        }
-
-        if ($this->HasAnyConfirmedModule3Target($pending)) {
-            $this->UpdateHeartbeatHistoryTarget(
-                $pending,
-                'Module 1 callback',
-                'OK',
-                $pending,
-                0,
-                -1,
-                -1,
-                'Module 1 callback inferred from downstream Module 3 confirmation.'
-            );
-
-            return [
-                'name' => 'Module 1 callback',
-                'ok' => true,
-                'warning' => false,
-                'state' => 'OK',
-                'last_seen' => $lastSeen,
-                'last_seen_text' => $lastSeen > 0 ? date('Y-m-d H:i:s', $lastSeen) : '-',
-                'last_heartbeat' => $pending,
-                'expected' => $pending,
-                'runtime_ms' => -1,
-                'runtime_seconds' => -1,
-                'age_seconds' => $seenAge === PHP_INT_MAX ? -1 : $seenAge,
-                'late_ms' => -1,
-                'late_seconds' => -1,
-                'message' => 'Module 1 callback inferred from downstream Module 3 confirmation.'
             ];
         }
 
@@ -960,29 +897,20 @@ class AlarmHeartbeatWatchdog extends IPSModule
 
     private function AddHeartbeatToHistory(int $timestamp, int $sentAt, int $deadline): void
     {
-        if (!$this->EnterHeartbeatHistorySemaphore()) {
-            $this->LogMessage('AddHeartbeatToHistory skipped: heartbeat history semaphore busy', KL_WARNING);
-            return;
-        }
+        $history = $this->ReadHeartbeatHistory();
 
-        try {
-            $history = $this->ReadHeartbeatHistoryUnlocked();
+        $history[] = [
+            'timestamp' => $timestamp,
+            'sent_at' => $sentAt,
+            'sent_at_text' => $this->FormatDayMilliseconds($sentAt),
+            'deadline' => $deadline,
+            'deadline_text' => $this->FormatDayMilliseconds($deadline),
+            'overall_state' => 'SENT',
+            'targets' => []
+        ];
 
-            $history[] = [
-                'timestamp' => $timestamp,
-                'sent_at' => $sentAt,
-                'sent_at_text' => $this->FormatDayMilliseconds($sentAt),
-                'deadline' => $deadline,
-                'deadline_text' => $this->FormatDayMilliseconds($deadline),
-                'overall_state' => 'SENT',
-                'targets' => []
-            ];
-
-            $history = array_slice($history, -10);
-            $this->WriteHeartbeatHistoryUnlocked($history);
-        } finally {
-            $this->LeaveHeartbeatHistorySemaphore();
-        }
+        $history = array_slice($history, -10);
+        $this->WriteHeartbeatHistory($history);
     }
 
     private function UpdateHeartbeatHistoryTarget(
@@ -995,89 +923,35 @@ class AlarmHeartbeatWatchdog extends IPSModule
         int $lateMs,
         string $message
     ): void {
-        if (!$this->EnterHeartbeatHistorySemaphore()) {
-            $this->LogMessage('UpdateHeartbeatHistoryTarget skipped: heartbeat history semaphore busy, token=' . $timestamp . ', target=' . $targetName, KL_WARNING);
-            return;
-        }
+        $history = $this->ReadHeartbeatHistory();
 
-        try {
-            $history = $this->ReadHeartbeatHistoryUnlocked();
-
-            foreach ($history as &$entry) {
-                if ((int)($entry['timestamp'] ?? 0) !== $timestamp) {
-                    continue;
-                }
-
-                if (!isset($entry['targets']) || !is_array($entry['targets'])) {
-                    $entry['targets'] = [];
-                }
-
-                $existingTarget = is_array($entry['targets'][$targetName] ?? null) ? $entry['targets'][$targetName] : [];
-                if ($this->ShouldPreserveExistingHistoryTargetState($existingTarget, $state)) {
-                    $entry['overall_state'] = $this->CalculateHeartbeatHistoryOverallState($entry['targets']);
-                    break;
-                }
-
-                $entry['targets'][$targetName] = [
-                    'state' => $state,
-                    'value' => $value,
-                    'updated' => $updated,
-                    'updated_text' => $updated > 0 ? $this->FormatDayMilliseconds($updated) : '-',
-                    'runtime_ms' => $runtime,
-                    'runtime_text' => $this->FormatRuntimeMilliseconds($runtime),
-                    'late_ms' => $lateMs,
-                    'late_text' => $this->FormatRuntimeMilliseconds($lateMs),
-                    'message' => $message
-                ];
-
-                $entry['overall_state'] = $this->CalculateHeartbeatHistoryOverallState($entry['targets']);
-                break;
-            }
-
-            unset($entry);
-            $this->WriteHeartbeatHistoryUnlocked($history);
-        } finally {
-            $this->LeaveHeartbeatHistorySemaphore();
-        }
-    }
-
-    private function ShouldPreserveExistingHistoryTargetState(array $existingTarget, string $newState): bool
-    {
-        $existingState = (string)($existingTarget['state'] ?? '');
-        if ($existingState === '') {
-            return false;
-        }
-
-        $downgradeStates = ['WAITING', 'MISSING', 'VALUE_PRESENT_NO_EVENT'];
-
-        if (in_array($existingState, ['OK', 'LATE'], true) && in_array($newState, $downgradeStates, true)) {
-            return true;
-        }
-
-        if ($existingState === 'VALUE_PRESENT_NO_EVENT' && in_array($newState, ['WAITING', 'MISSING'], true)) {
-            return true;
-        }
-
-        return false;
-    }
-
-    private function HasAnyConfirmedModule3Target(int $timestamp): bool
-    {
-        $entry = $this->FindHeartbeatHistoryEntry($timestamp);
-        $targets = is_array($entry['targets'] ?? null) ? $entry['targets'] : [];
-
-        foreach ($targets as $targetName => $target) {
-            if ($targetName === 'Module 1 callback' || !is_array($target)) {
+        foreach ($history as &$entry) {
+            if ((int)($entry['timestamp'] ?? 0) !== $timestamp) {
                 continue;
             }
 
-            $state = (string)($target['state'] ?? '');
-            if (in_array($state, ['OK', 'LATE', 'VALUE_PRESENT_NO_EVENT'], true)) {
-                return true;
+            if (!isset($entry['targets']) || !is_array($entry['targets'])) {
+                $entry['targets'] = [];
             }
+
+            $entry['targets'][$targetName] = [
+                'state' => $state,
+                'value' => $value,
+                'updated' => $updated,
+                'updated_text' => $updated > 0 ? $this->FormatDayMilliseconds($updated) : '-',
+                'runtime_ms' => $runtime,
+                'runtime_text' => $this->FormatRuntimeMilliseconds($runtime),
+                'late_ms' => $lateMs,
+                'late_text' => $this->FormatRuntimeMilliseconds($lateMs),
+                'message' => $message
+            ];
+
+            $entry['overall_state'] = $this->CalculateHeartbeatHistoryOverallState($entry['targets']);
+            break;
         }
 
-        return false;
+        unset($entry);
+        $this->WriteHeartbeatHistory($history);
     }
 
     private function CalculateHeartbeatHistoryOverallState(array $targets): string
@@ -1133,20 +1007,6 @@ class AlarmHeartbeatWatchdog extends IPSModule
 
     private function ReadHeartbeatHistory(): array
     {
-        if (!$this->EnterHeartbeatHistorySemaphore()) {
-            $this->LogMessage('ReadHeartbeatHistory: heartbeat history semaphore busy', KL_WARNING);
-            return $this->ReadHeartbeatHistoryUnlocked();
-        }
-
-        try {
-            return $this->ReadHeartbeatHistoryUnlocked();
-        } finally {
-            $this->LeaveHeartbeatHistorySemaphore();
-        }
-    }
-
-    private function ReadHeartbeatHistoryUnlocked(): array
-    {
         $raw = $this->ReadAttributeString('HeartbeatHistoryJson');
         $decoded = json_decode($raw, true);
 
@@ -1174,20 +1034,6 @@ class AlarmHeartbeatWatchdog extends IPSModule
 
     private function WriteHeartbeatHistory(array $history): void
     {
-        if (!$this->EnterHeartbeatHistorySemaphore()) {
-            $this->LogMessage('WriteHeartbeatHistory skipped: heartbeat history semaphore busy', KL_WARNING);
-            return;
-        }
-
-        try {
-            $this->WriteHeartbeatHistoryUnlocked($history);
-        } finally {
-            $this->LeaveHeartbeatHistorySemaphore();
-        }
-    }
-
-    private function WriteHeartbeatHistoryUnlocked(array $history): void
-    {
         $json = json_encode($history, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
         if ($json === false) {
             $json = '[]';
@@ -1195,16 +1041,6 @@ class AlarmHeartbeatWatchdog extends IPSModule
 
         $this->WriteAttributeString('HeartbeatHistoryJson', $json);
         $this->SetValueSafe('HeartbeatHistoryJson', $json);
-    }
-
-    private function EnterHeartbeatHistorySemaphore(): bool
-    {
-        return IPS_SemaphoreEnter('AHW_History_' . $this->InstanceID, 5000);
-    }
-
-    private function LeaveHeartbeatHistorySemaphore(): void
-    {
-        IPS_SemaphoreLeave('AHW_History_' . $this->InstanceID);
     }
 
 
@@ -1398,22 +1234,22 @@ class AlarmHeartbeatWatchdog extends IPSModule
 
     private function ConfigureManagedOutputEvent(int $eventID, int $variableID): void
     {
-        // IPS_SetEventScript expects the PHP code body only, without opening <?php tag.
         $script =
             '$watchdogID = ' . $this->InstanceID . ';' . "\n" .
             '$variableID = ' . $variableID . ';' . "\n" .
             '$value = isset($_IPS[\'VALUE\']) ? (int)$_IPS[\'VALUE\'] : (IPS_VariableExists($variableID) ? (int)GetValue($variableID) : 0);' . "\n" .
-            'AHW_NotifyOutputVariableChanged($watchdogID, $variableID, $value);' . "\n";
+            'AHW_NotifyOutputVariableChanged($watchdogID, $variableID, $value);';
 
         IPS_SetName($eventID, 'AHW Output Update ' . $variableID);
         IPS_SetParent($eventID, $this->InstanceID);
-        IPS_SetEventTrigger($eventID, 1, $variableID); // 1 = On Variable Change. Heartbeat tokens are unique, so change is sufficient.
-        IPS_SetEventScript($eventID, $script);
 
-        // Required by newer IP-Symcon versions for event automation execution.
-        if (function_exists('IPS_SetEventAction')) {
-            @IPS_SetEventAction($eventID, '{7938A5A2-0981-5FE0-BE6C-8AA610D654EB}', []);
-        }
+        // Trigger type 0 = On Variable Update / Bei Variablenaktualisierung.
+        // We want every Module 3 write to be observed, not only value changes.
+        IPS_SetEventTrigger($eventID, 0, $variableID);
+
+        // Important: IPS_SetEventScript expects the PHP code body only, without <?php tags.
+        // It also sets the event action to "Execute PHP Code".
+        IPS_SetEventScript($eventID, $script);
 
         IPS_SetEventActive($eventID, true);
     }
