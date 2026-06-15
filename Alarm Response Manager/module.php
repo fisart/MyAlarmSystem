@@ -1,7 +1,7 @@
 <?php
 
 declare(strict_types=1);
-// 7.3.1
+// 7.3.2
 class AlarmResponseManager extends IPSModule
 {
     private const HOUSE_STATES = [
@@ -336,7 +336,7 @@ class AlarmResponseManager extends IPSModule
         }
 
         $trigger = $payload['target_trigger_details'] ?? [];
-        if (is_array($trigger)) {
+        if (is_array($trigger) && $this->IsHeartbeatSensorDetail($trigger)) {
             $token = $this->ExtractContentValueFromSensorDetail($trigger);
             if ($token !== '') {
                 return $token;
@@ -344,52 +344,118 @@ class AlarmResponseManager extends IPSModule
         }
 
         $details = $payload['target_active_sensor_details'] ?? [];
-        if (is_array($details)) {
-            foreach ($details as $detail) {
-                if (!is_array($detail)) {
-                    continue;
-                }
+        if (!is_array($details)) {
+            return '';
+        }
 
-                $haystack = strtolower(json_encode($detail));
-                if (strpos($haystack, 'heartbeat') === false) {
-                    continue;
-                }
-
-                $token = $this->ExtractContentValueFromSensorDetail($detail);
-                if ($token !== '') {
-                    return $token;
-                }
+        foreach ($details as $detail) {
+            if (!is_array($detail)) {
+                continue;
             }
 
-            foreach ($details as $detail) {
-                if (!is_array($detail)) {
-                    continue;
-                }
+            if (!$this->IsHeartbeatSensorDetail($detail)) {
+                continue;
+            }
 
-                $token = $this->ExtractContentValueFromSensorDetail($detail);
-                if ($token !== '') {
-                    return $token;
-                }
+            $token = $this->ExtractContentValueFromSensorDetail($detail);
+            if ($token !== '') {
+                return $token;
             }
         }
 
         return '';
     }
 
+    private function IsHeartbeatSensorDetail(array $detail): bool
+    {
+        $heartbeatGroupKey = 'grp_98ed2ddcf5544c848df4d58d4d3485b9';
 
+        $fields = [
+            'smart_label',
+            'SensorName',
+            'sensor_name',
+            'Name',
+            'name',
+            'ClassName',
+            'class_name',
+            'GroupName',
+            'group_name',
+            'GroupKey',
+            'group_key',
+            'ParentName',
+            'parent_name',
+            'GrandParentName',
+            'grandparent_name',
+            'GrandparentName',
+            'VariableName',
+            'variable_name'
+        ];
+
+        foreach ($fields as $field) {
+            $value = trim((string) ($detail[$field] ?? ''));
+
+            if ($value === '') {
+                continue;
+            }
+
+            if ($value === $heartbeatGroupKey) {
+                return true;
+            }
+
+            if (stripos($value, 'heartbeat') !== false) {
+                return true;
+            }
+        }
+
+        $encoded = json_encode($detail, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        if (is_string($encoded)) {
+            if (stripos($encoded, 'heartbeat') !== false) {
+                return true;
+            }
+
+            if (strpos($encoded, $heartbeatGroupKey) !== false) {
+                return true;
+            }
+        }
+
+        return false;
+    }
     private function ExtractContentValueFromSensorDetail(array $detail): string
     {
-        $valueHuman = trim((string) ($detail['value_human'] ?? ''));
-        if ($valueHuman !== '') {
-            return $valueHuman;
+        $candidates = [];
+
+        if (array_key_exists('value_human', $detail)) {
+            $candidates[] = $detail['value_human'];
         }
 
         if (array_key_exists('value_raw', $detail)) {
-            return trim((string) $detail['value_raw']);
+            $candidates[] = $detail['value_raw'];
+        }
+
+        if (array_key_exists('value', $detail)) {
+            $candidates[] = $detail['value'];
         }
 
         if (array_key_exists('content', $detail)) {
-            return trim((string) $detail['content']);
+            $candidates[] = $detail['content'];
+        }
+
+        foreach ($candidates as $candidate) {
+            $value = trim((string) $candidate);
+
+            if ($value === '') {
+                continue;
+            }
+
+            if (!ctype_digit($value)) {
+                continue;
+            }
+
+            if ((int) $value <= 0) {
+                continue;
+            }
+
+            return $value;
         }
 
         return '';
@@ -3795,10 +3861,28 @@ document.addEventListener("DOMContentLoaded", () => {
         $value = $this->BuildRequestActionValue($resource, $payload, $house, $groupLabel, $valueMode);
 
         if ($this->IsHeartbeatOutputResource($resource)) {
+            $valueText = is_scalar($value) || $value === null ? trim((string) $value) : '';
+
+            if ($valueText === '' || !ctype_digit($valueText) || (int) $valueText <= 0) {
+                $this->AppendHeartbeatAuditForPayload($payload, 'NOT_WRITTEN', [
+                    'reason' => 'heartbeat_token_missing_or_not_numeric',
+                    'target_object_id' => $targetObjectID,
+                    'value_mode' => $valueMode,
+                    'value' => $valueText
+                ]);
+
+                $this->LogMessage(
+                    'SendRequestActionOutputResource: heartbeat output suppressed because token is missing or non-numeric',
+                    KL_MESSAGE
+                );
+
+                return false;
+            }
+
             $this->AppendHeartbeatAuditForPayload($payload, 'REQUESTACTION_VALUE_BUILT', [
                 'target_object_id' => $targetObjectID,
                 'value_mode' => $valueMode,
-                'value' => is_scalar($value) || $value === null ? (string) $value : json_encode($value)
+                'value' => $valueText
             ]);
         }
 
@@ -3814,14 +3898,15 @@ document.addEventListener("DOMContentLoaded", () => {
             $this->LogMessage('SendRequestActionOutputResource: RequestAction executed successfully', KL_MESSAGE);
 
             if ($this->IsHeartbeatOutputResource($resource)) {
+                $expected = is_scalar($value) || $value === null ? (string) $value : json_encode($value);
+
                 $this->AppendHeartbeatAuditForPayload($payload, 'REQUESTACTION_OK', [
                     'target_object_id' => $targetObjectID,
-                    'value' => is_scalar($value) || $value === null ? (string) $value : json_encode($value)
+                    'value' => $expected
                 ]);
 
                 if (@IPS_VariableExists($targetObjectID)) {
                     $actual = GetValue($targetObjectID);
-                    $expected = is_scalar($value) || $value === null ? (string) $value : json_encode($value);
                     $actualText = is_scalar($actual) || $actual === null ? (string) $actual : json_encode($actual);
 
                     $this->AppendHeartbeatAuditForPayload($payload, 'TARGET_VALUE_AFTER_REQUESTACTION', [
@@ -3857,6 +3942,16 @@ document.addEventListener("DOMContentLoaded", () => {
 
     private function BuildRequestActionValue(array $resource, array $payload, array $house, string $groupLabel, string $valueMode)
     {
+        if ($this->IsHeartbeatOutputResource($resource)) {
+            $token = $this->ExtractHeartbeatContentToken($payload);
+
+            if ($token !== '') {
+                return $token;
+            }
+
+            return '';
+        }
+
         switch ($valueMode) {
             case 'fixed_value':
                 return (string) ($resource['ActionFixedValue'] ?? '');
