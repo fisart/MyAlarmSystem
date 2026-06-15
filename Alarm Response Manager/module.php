@@ -3157,19 +3157,16 @@ document.addEventListener("DOMContentLoaded", () => {
             case 'op2':
             case 'op3':
             default:
-                return $this->BuildOutputMessageText($resource, $payload);
+                return $this->BuildOutputMessageText($resource, $payload, $groupLabel);
         }
     }
 
     private function BuildOutputContentSignature(array $resource, array $payload, array $house, string $groupLabel): string
     {
-        $typeID = trim((string) ($resource['TypeID'] ?? ''));
-        $outputID = trim((string) ($resource['OutputID'] ?? ''));
-        $targetObjectID = (int) ($resource['TargetObjectID'] ?? 0);
         $value = $this->BuildOutputComparableValue($resource, $payload, $house, $groupLabel);
 
         if (is_scalar($value) || $value === null) {
-            $normalizedValue = (string) $value;
+            $normalizedValue = trim((string) $value);
         } else {
             $normalizedValue = json_encode($value, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
             if ($normalizedValue === false) {
@@ -3177,14 +3174,8 @@ document.addEventListener("DOMContentLoaded", () => {
             }
         }
 
-        return hash('sha256', json_encode([
-            'type_id'          => $typeID,
-            'output_id'        => $outputID,
-            'target_object_id' => $targetObjectID,
-            'value'            => $normalizedValue
-        ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+        return hash('sha256', $normalizedValue);
     }
-
     public function ReceiveHouseStateSnapshot(string $snapshotJson): void
     {
         $data = json_decode($snapshotJson, true);
@@ -3861,23 +3852,7 @@ document.addEventListener("DOMContentLoaded", () => {
         $value = $this->BuildRequestActionValue($resource, $payload, $house, $groupLabel, $valueMode);
 
         if ($this->IsHeartbeatOutputResource($resource)) {
-            $valueText = is_scalar($value) || $value === null ? trim((string) $value) : '';
-
-            if ($valueText === '' || !ctype_digit($valueText) || (int) $valueText <= 0) {
-                $this->AppendHeartbeatAuditForPayload($payload, 'NOT_WRITTEN', [
-                    'reason' => 'heartbeat_token_missing_or_not_numeric',
-                    'target_object_id' => $targetObjectID,
-                    'value_mode' => $valueMode,
-                    'value' => $valueText
-                ]);
-
-                $this->LogMessage(
-                    'SendRequestActionOutputResource: heartbeat output suppressed because token is missing or non-numeric',
-                    KL_MESSAGE
-                );
-
-                return false;
-            }
+            $valueText = is_scalar($value) || $value === null ? trim((string) $value) : json_encode($value);
 
             $this->AppendHeartbeatAuditForPayload($payload, 'REQUESTACTION_VALUE_BUILT', [
                 'target_object_id' => $targetObjectID,
@@ -3942,16 +3917,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
     private function BuildRequestActionValue(array $resource, array $payload, array $house, string $groupLabel, string $valueMode)
     {
-        if ($this->IsHeartbeatOutputResource($resource)) {
-            $token = $this->ExtractHeartbeatContentToken($payload);
-
-            if ($token !== '') {
-                return $token;
-            }
-
-            return '';
-        }
-
         switch ($valueMode) {
             case 'fixed_value':
                 return (string) ($resource['ActionFixedValue'] ?? '');
@@ -3959,7 +3924,7 @@ document.addEventListener("DOMContentLoaded", () => {
             case 'json_payload':
                 $houseStateID = (string) ((int) ($house['system_state_id'] ?? 0));
                 $houseStateName = (string) ($house['system_state_name'] ?? $this->labelFromOptions(self::HOUSE_STATES, $houseStateID));
-                $message = $this->BuildOutputMessageText($resource, $payload);
+                $message = $this->BuildOutputMessageText($resource, $payload, $groupLabel);
 
                 return json_encode([
                     'group' => $groupLabel,
@@ -3973,7 +3938,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
             case 'message_text':
             default:
-                return $this->BuildOutputMessageText($resource, $payload);
+                return $this->BuildOutputMessageText($resource, $payload, $groupLabel);
         }
     }
 
@@ -4118,7 +4083,7 @@ document.addEventListener("DOMContentLoaded", () => {
         return implode("\n", $lines);
     }
 
-    private function BuildOutputMessageText(array $resource, array $payload): string
+    private function BuildOutputMessageText(array $resource, array $payload, string $groupLabel = ''): string
     {
         $prefix = trim((string) ($resource['PrefixText'] ?? ''));
         $suffix = trim((string) ($resource['SuffixText'] ?? ''));
@@ -4128,40 +4093,31 @@ document.addEventListener("DOMContentLoaded", () => {
         $grandparentName = '';
         $content = '';
 
-        $trigger = $payload['target_trigger_details'] ?? [];
-        if (is_array($trigger)) {
-            $sensorName = trim((string) ($trigger['smart_label'] ?? $trigger['SensorName'] ?? ''));
-            $parentName = trim((string) ($trigger['ParentName'] ?? $trigger['parent_name'] ?? ''));
-            $grandparentName = trim((string) ($trigger['GrandParentName'] ?? $trigger['grandparent_name'] ?? ''));
+        $details = $this->GetRelevantSensorDetailsForGroup($payload, $groupLabel);
 
-            $valueHuman = trim((string) ($trigger['value_human'] ?? ''));
-            if ($valueHuman !== '') {
-                $content = $valueHuman;
-            } elseif (array_key_exists('value_raw', $trigger)) {
-                $content = trim((string) $trigger['value_raw']);
+        foreach ($details as $detail) {
+            if (!is_array($detail)) {
+                continue;
             }
-        }
-
-        $sensorDetails = $payload['target_active_sensor_details'] ?? [];
-        if (is_array($sensorDetails) && count($sensorDetails) > 0 && is_array($sensorDetails[0])) {
-            $first = $sensorDetails[0];
 
             if ($sensorName === '') {
-                $sensorName = trim((string) ($first['smart_label'] ?? $first['SensorName'] ?? ''));
+                $sensorName = trim((string) ($detail['smart_label'] ?? $detail['SensorName'] ?? $detail['sensor_name'] ?? $detail['Name'] ?? $detail['name'] ?? ''));
             }
+
             if ($parentName === '') {
-                $parentName = trim((string) ($first['ParentName'] ?? $first['parent_name'] ?? ''));
+                $parentName = trim((string) ($detail['ParentName'] ?? $detail['parent_name'] ?? ''));
             }
+
             if ($grandparentName === '') {
-                $grandparentName = trim((string) ($first['GrandParentName'] ?? $first['grandparent_name'] ?? ''));
+                $grandparentName = trim((string) ($detail['GrandParentName'] ?? $detail['grandparent_name'] ?? $detail['GrandparentName'] ?? ''));
             }
+
             if ($content === '') {
-                $valueHuman = trim((string) ($first['value_human'] ?? ''));
-                if ($valueHuman !== '') {
-                    $content = $valueHuman;
-                } elseif (array_key_exists('value_raw', $first)) {
-                    $content = trim((string) $first['value_raw']);
-                }
+                $content = $this->ExtractOutputContentFromSensorDetail($detail);
+            }
+
+            if ($sensorName !== '' && $parentName !== '' && $grandparentName !== '' && $content !== '') {
+                break;
             }
         }
 
@@ -4213,10 +4169,12 @@ document.addEventListener("DOMContentLoaded", () => {
             if ($a['order'] === $b['order']) {
                 return 0;
             }
+
             return ($a['order'] < $b['order']) ? -1 : 1;
         });
 
         $textParts = [];
+
         foreach ($parts as $part) {
             $text = trim((string) ($part['text'] ?? ''));
             if ($text !== '') {
@@ -4231,6 +4189,111 @@ document.addEventListener("DOMContentLoaded", () => {
 
         return 'Alarm event detected';
     }
+
+
+    private function GetRelevantSensorDetailsForGroup(array $payload, string $groupLabel): array
+    {
+        $groupLabel = trim($groupLabel);
+        $groupKey = $groupLabel !== '' ? $this->MakeGroupKey($groupLabel) : '';
+
+        $allDetails = [];
+
+        $trigger = $payload['target_trigger_details'] ?? [];
+        if (is_array($trigger) && count($trigger) > 0) {
+            $allDetails[] = $trigger;
+        }
+
+        $sensorDetails = $payload['target_active_sensor_details'] ?? [];
+        if (is_array($sensorDetails)) {
+            foreach ($sensorDetails as $detail) {
+                if (is_array($detail)) {
+                    $allDetails[] = $detail;
+                }
+            }
+        }
+
+        if ($groupLabel === '' || $groupKey === '') {
+            return $allDetails;
+        }
+
+        $matching = [];
+
+        foreach ($allDetails as $detail) {
+            if ($this->DoesSensorDetailBelongToGroup($detail, $groupLabel, $groupKey)) {
+                $matching[] = $detail;
+            }
+        }
+
+        if (count($matching) > 0) {
+            return $matching;
+        }
+
+        return $allDetails;
+    }
+
+    private function DoesSensorDetailBelongToGroup(array $detail, string $groupLabel, string $groupKey): bool
+    {
+        $groupLabel = trim($groupLabel);
+        $groupKey = trim($groupKey);
+
+        $fields = [
+            'GroupName',
+            'group_name',
+            'GroupLabel',
+            'group_label',
+            'GroupKey',
+            'group_key',
+            'TargetGroupName',
+            'target_group_name',
+            'TargetGroupKey',
+            'target_group_key'
+        ];
+
+        foreach ($fields as $field) {
+            $value = trim((string) ($detail[$field] ?? ''));
+
+            if ($value === '') {
+                continue;
+            }
+
+            if ($groupKey !== '' && $value === $groupKey) {
+                return true;
+            }
+
+            if ($groupLabel !== '' && strcasecmp($value, $groupLabel) === 0) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function ExtractOutputContentFromSensorDetail(array $detail): string
+    {
+        $fields = [
+            'value_human',
+            'value_raw',
+            'value',
+            'content'
+        ];
+
+        foreach ($fields as $field) {
+            if (!array_key_exists($field, $detail)) {
+                continue;
+            }
+
+            $value = trim((string) $detail[$field]);
+
+            if ($value === '') {
+                continue;
+            }
+
+            return $value;
+        }
+
+        return '';
+    }
+
 
     private function readListProperty(string $propertyName): array
     {
