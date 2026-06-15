@@ -1,7 +1,7 @@
 <?php
 
 declare(strict_types=1);
-// 7.3.2
+// 7.3.0
 class AlarmResponseManager extends IPSModule
 {
     private const HOUSE_STATES = [
@@ -82,7 +82,6 @@ class AlarmResponseManager extends IPSModule
         $this->RegisterAttributeString('CachedTargetActiveSensorDetails', '[]');
 
         $this->RegisterAttributeString('ActiveOutputMatchKeys', '[]');
-        $this->RegisterAttributeString('ActiveOutputContentSignatures', '{}');
         $this->RegisterAttributeString('OutputThrottleHistory', '{}');
 
         $this->RegisterVariableString('OutputScreenHtml', 'Output Screen', '~HTMLBox', 0);
@@ -336,7 +335,7 @@ class AlarmResponseManager extends IPSModule
         }
 
         $trigger = $payload['target_trigger_details'] ?? [];
-        if (is_array($trigger) && $this->IsHeartbeatSensorDetail($trigger)) {
+        if (is_array($trigger)) {
             $token = $this->ExtractContentValueFromSensorDetail($trigger);
             if ($token !== '') {
                 return $token;
@@ -344,118 +343,52 @@ class AlarmResponseManager extends IPSModule
         }
 
         $details = $payload['target_active_sensor_details'] ?? [];
-        if (!is_array($details)) {
-            return '';
-        }
+        if (is_array($details)) {
+            foreach ($details as $detail) {
+                if (!is_array($detail)) {
+                    continue;
+                }
 
-        foreach ($details as $detail) {
-            if (!is_array($detail)) {
-                continue;
+                $haystack = strtolower(json_encode($detail));
+                if (strpos($haystack, 'heartbeat') === false) {
+                    continue;
+                }
+
+                $token = $this->ExtractContentValueFromSensorDetail($detail);
+                if ($token !== '') {
+                    return $token;
+                }
             }
 
-            if (!$this->IsHeartbeatSensorDetail($detail)) {
-                continue;
-            }
+            foreach ($details as $detail) {
+                if (!is_array($detail)) {
+                    continue;
+                }
 
-            $token = $this->ExtractContentValueFromSensorDetail($detail);
-            if ($token !== '') {
-                return $token;
+                $token = $this->ExtractContentValueFromSensorDetail($detail);
+                if ($token !== '') {
+                    return $token;
+                }
             }
         }
 
         return '';
     }
 
-    private function IsHeartbeatSensorDetail(array $detail): bool
-    {
-        $heartbeatGroupKey = 'grp_98ed2ddcf5544c848df4d58d4d3485b9';
 
-        $fields = [
-            'smart_label',
-            'SensorName',
-            'sensor_name',
-            'Name',
-            'name',
-            'ClassName',
-            'class_name',
-            'GroupName',
-            'group_name',
-            'GroupKey',
-            'group_key',
-            'ParentName',
-            'parent_name',
-            'GrandParentName',
-            'grandparent_name',
-            'GrandparentName',
-            'VariableName',
-            'variable_name'
-        ];
-
-        foreach ($fields as $field) {
-            $value = trim((string) ($detail[$field] ?? ''));
-
-            if ($value === '') {
-                continue;
-            }
-
-            if ($value === $heartbeatGroupKey) {
-                return true;
-            }
-
-            if (stripos($value, 'heartbeat') !== false) {
-                return true;
-            }
-        }
-
-        $encoded = json_encode($detail, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-        if (is_string($encoded)) {
-            if (stripos($encoded, 'heartbeat') !== false) {
-                return true;
-            }
-
-            if (strpos($encoded, $heartbeatGroupKey) !== false) {
-                return true;
-            }
-        }
-
-        return false;
-    }
     private function ExtractContentValueFromSensorDetail(array $detail): string
     {
-        $candidates = [];
-
-        if (array_key_exists('value_human', $detail)) {
-            $candidates[] = $detail['value_human'];
+        $valueHuman = trim((string) ($detail['value_human'] ?? ''));
+        if ($valueHuman !== '') {
+            return $valueHuman;
         }
 
         if (array_key_exists('value_raw', $detail)) {
-            $candidates[] = $detail['value_raw'];
-        }
-
-        if (array_key_exists('value', $detail)) {
-            $candidates[] = $detail['value'];
+            return trim((string) $detail['value_raw']);
         }
 
         if (array_key_exists('content', $detail)) {
-            $candidates[] = $detail['content'];
-        }
-
-        foreach ($candidates as $candidate) {
-            $value = trim((string) $candidate);
-
-            if ($value === '') {
-                continue;
-            }
-
-            if (!ctype_digit($value)) {
-                continue;
-            }
-
-            if ((int) $value <= 0) {
-                continue;
-            }
-
-            return $value;
+            return trim((string) $detail['content']);
         }
 
         return '';
@@ -2668,23 +2601,36 @@ document.addEventListener("DOMContentLoaded", () => {
     private function ReevaluateCurrentAlarmContext(array $payload, array $house): void
     {
         $targetGroups = $payload['target_active_groups'] ?? [];
-        if (!is_array($targetGroups)) {
-            $targetGroups = [];
+        if (!is_array($targetGroups) || count($targetGroups) === 0) {
+            $this->AppendHeartbeatAuditForPayload($payload, 'NOT_WRITTEN', [
+                'reason' => 'no_active_target_groups'
+            ]);
+
+            $this->WriteAttributeString('LastActiveGroups', '[]');
+            $this->WriteAttributeString('LastActiveRuleIDs', '[]');
+            $this->WriteAttributeString('LastActiveOutputIDs', '[]');
+            $this->WriteAttributeString('ActiveOutputMatchKeys', '[]');
+            $this->LogMessage('ReevaluateCurrentAlarmContext: no active target groups, live path and active output matches cleared', KL_MESSAGE);
+            return;
         }
 
-        $houseState = (int) ($house['system_state_id'] ?? 0);
+        $houseState = (string) ((int) ($house['system_state_id'] ?? 0));
         $this->LogMessage('ReevaluateCurrentAlarmContext: houseState=' . $houseState, KL_MESSAGE);
 
+        $this->AppendHeartbeatAuditForPayload($payload, 'REEVALUATE_ENTER', [
+            'house_state' => $houseState,
+            'groups' => $targetGroups
+        ]);
+
         $previousMatchKeys = $this->GetActiveOutputMatchKeySet();
-        $previousContentSignatures = $this->GetActiveOutputContentSignatureSet();
 
         $currentMatchKeys = [];
-        $currentContentSignatures = [];
         $activeGroupsForView = [];
         $activeRuleIDsForView = [];
         $activeOutputIDsForView = [];
         $candidatesByOutputID = [];
         $queueSeq = 0;
+        $heartbeatOutputCandidateCreated = false;
 
         foreach ($targetGroups as $groupLabelRaw) {
             $groupLabel = trim((string) $groupLabelRaw);
@@ -2698,6 +2644,24 @@ document.addEventListener("DOMContentLoaded", () => {
             $ruleIDs = $this->FindMatchingRuleIDsForGroupAndState($groupLabel, $houseState);
             $this->LogMessage('ReevaluateCurrentAlarmContext: group=' . $groupLabel . ' matched rules=' . json_encode($ruleIDs), KL_MESSAGE);
 
+            if ($this->IsHeartbeatGroupLabel($groupLabel)) {
+                $this->AppendHeartbeatAuditForPayload($payload, 'RULE_MATCH_CHECK', [
+                    'group' => $groupLabel,
+                    'group_key' => $groupKey,
+                    'house_state' => $houseState,
+                    'rule_count' => count($ruleIDs),
+                    'rule_ids' => $ruleIDs
+                ]);
+
+                if (count($ruleIDs) === 0) {
+                    $this->AppendHeartbeatAuditForPayload($payload, 'NOT_WRITTEN', [
+                        'reason' => 'no_matching_rule',
+                        'group' => $groupLabel,
+                        'house_state' => $houseState
+                    ]);
+                }
+            }
+
             foreach ($ruleIDs as $ruleID) {
                 $activeRuleIDsForView[$ruleID] = true;
 
@@ -2706,6 +2670,13 @@ document.addEventListener("DOMContentLoaded", () => {
                 $priority = $this->GetSeverityPriority($severity);
 
                 $assignments = $this->FindAssignmentsForRuleID($ruleID);
+
+                if ($this->IsHeartbeatGroupLabel($groupLabel)) {
+                    $this->AppendHeartbeatAuditForPayload($payload, 'ASSIGNMENT_CHECK', [
+                        'rule_id' => $ruleID,
+                        'assignment_count' => count($assignments)
+                    ]);
+                }
 
                 foreach ($assignments as $assignment) {
                     $outputID = trim((string) ($assignment['OutputID'] ?? ''));
@@ -2716,60 +2687,70 @@ document.addEventListener("DOMContentLoaded", () => {
                     $resource = $this->FindOutputResourceByID($outputID);
                     if ($resource === null) {
                         $this->LogMessage('ReevaluateCurrentAlarmContext: OutputID not found: ' . $outputID, KL_MESSAGE);
+
+                        if ($this->IsHeartbeatGroupLabel($groupLabel)) {
+                            $this->AppendHeartbeatAuditForPayload($payload, 'NOT_WRITTEN', [
+                                'reason' => 'output_resource_not_found',
+                                'output_id' => $outputID,
+                                'rule_id' => $ruleID
+                            ]);
+                        }
+
                         continue;
                     }
 
                     if (!(bool) ($resource['Active'] ?? false)) {
+                        if ($this->IsHeartbeatOutputResource($resource)) {
+                            $this->AppendHeartbeatAuditForPayload($payload, 'NOT_WRITTEN', [
+                                'reason' => 'heartbeat_output_inactive',
+                                'output_id' => $outputID,
+                                'rule_id' => $ruleID
+                            ]);
+                        }
+
                         continue;
                     }
 
                     $matchKey = $this->BuildOutputMatchKey($groupKey, $outputID);
-                    $contentSignature = $this->BuildOutputContentSignature($resource, $payload, $house, $groupLabel);
-
                     $currentMatchKeys[$matchKey] = true;
-                    $currentContentSignatures[$matchKey] = $contentSignature;
                     $activeOutputIDsForView[$outputID] = true;
 
-                    if (
-                        isset($previousMatchKeys[$matchKey])
-                        && isset($previousContentSignatures[$matchKey])
-                        && $previousContentSignatures[$matchKey] === $contentSignature
-                    ) {
-                        $this->LogMessage(
-                            'ReevaluateCurrentAlarmContext: suppressed unchanged output content'
-                                . ' match=' . $matchKey
-                                . ' OutputID=' . $outputID
-                                . ' rule=' . $ruleID
-                                . ' severity=' . $severity,
-                            KL_MESSAGE
-                        );
-                        continue;
-                    }
-
                     if (isset($previousMatchKeys[$matchKey])) {
-                        $this->LogMessage(
-                            'ReevaluateCurrentAlarmContext: output content changed; allowing repeated active match'
-                                . ' match=' . $matchKey
-                                . ' OutputID=' . $outputID
-                                . ' rule=' . $ruleID
-                                . ' severity=' . $severity,
-                            KL_MESSAGE
-                        );
+                        if ($this->IsHeartbeatOutputResource($resource)) {
+                            $this->AppendHeartbeatAuditForPayload($payload, 'NOT_WRITTEN', [
+                                'reason' => 'suppressed_already_active_match',
+                                'match_key' => $matchKey,
+                                'output_id' => $outputID,
+                                'rule_id' => $ruleID
+                            ]);
+                        }
+
+                        continue;
                     }
 
                     $queueSeq++;
                     $candidate = [
-                        'MatchKey'         => $matchKey,
-                        'ContentSignature' => $contentSignature,
-                        'OutputID'         => $outputID,
-                        'GroupLabel'       => $groupLabel,
-                        'GroupKey'         => $groupKey,
-                        'RuleID'           => $ruleID,
-                        'Severity'         => $severity,
-                        'Priority'         => $priority,
-                        'QueueSeq'         => $queueSeq,
-                        'Resource'         => $resource
+                        'MatchKey'   => $matchKey,
+                        'OutputID'   => $outputID,
+                        'GroupLabel' => $groupLabel,
+                        'GroupKey'   => $groupKey,
+                        'RuleID'     => $ruleID,
+                        'Severity'   => $severity,
+                        'Priority'   => $priority,
+                        'QueueSeq'   => $queueSeq,
+                        'Resource'   => $resource
                     ];
+
+                    if ($this->IsHeartbeatOutputResource($resource)) {
+                        $heartbeatOutputCandidateCreated = true;
+
+                        $this->AppendHeartbeatAuditForPayload($payload, 'OUTPUT_CANDIDATE', [
+                            'output_id' => $outputID,
+                            'match_key' => $matchKey,
+                            'rule_id' => $ruleID,
+                            'severity' => $severity
+                        ]);
+                    }
 
                     if (!isset($candidatesByOutputID[$outputID])) {
                         $candidatesByOutputID[$outputID] = [];
@@ -2794,6 +2775,12 @@ document.addEventListener("DOMContentLoaded", () => {
                     }
                 }
             }
+        }
+
+        if ($this->IsHeartbeatPayload($payload) && !$heartbeatOutputCandidateCreated) {
+            $this->AppendHeartbeatAuditForPayload($payload, 'NO_HEARTBEAT_OUTPUT_CANDIDATE', [
+                'note' => 'may_have_been_suppressed_or_no_assignment'
+            ]);
         }
 
         $now = time();
@@ -2845,6 +2832,16 @@ document.addEventListener("DOMContentLoaded", () => {
                 }
 
                 if ($throttlingEnabled && $remainingSlots <= 0) {
+                    if ($this->IsHeartbeatOutputResource($resource)) {
+                        $this->AppendHeartbeatAuditForPayload($payload, 'NOT_WRITTEN', [
+                            'reason' => 'throttled',
+                            'output_id' => $outputID,
+                            'match_key' => $matchKey,
+                            'rule_id' => $ruleID,
+                            'remaining_slots' => $remainingSlots
+                        ]);
+                    }
+
                     $this->LogMessage(
                         'ReevaluateCurrentAlarmContext: throttled OutputID=' . $outputID
                             . ' match=' . $matchKey
@@ -2856,6 +2853,15 @@ document.addEventListener("DOMContentLoaded", () => {
                 }
 
                 if ($this->IsOutputKillSwitchActive()) {
+                    if ($this->IsHeartbeatOutputResource($resource)) {
+                        $this->AppendHeartbeatAuditForPayload($payload, 'NOT_WRITTEN', [
+                            'reason' => 'output_kill_switch_active',
+                            'output_id' => $outputID,
+                            'match_key' => $matchKey,
+                            'rule_id' => $ruleID
+                        ]);
+                    }
+
                     $this->LogMessage(
                         'ReevaluateCurrentAlarmContext: output suppressed by OutputKillSwitch'
                             . ' match=' . $matchKey
@@ -2868,7 +2874,24 @@ document.addEventListener("DOMContentLoaded", () => {
                     continue;
                 }
 
+                if ($this->IsHeartbeatOutputResource($resource)) {
+                    $this->AppendHeartbeatAuditForPayload($payload, 'EXECUTE_ATTEMPT', [
+                        'output_id' => $outputID,
+                        'target_object_id' => (int) ($resource['TargetObjectID'] ?? 0),
+                        'match_key' => $matchKey,
+                        'rule_id' => $ruleID
+                    ]);
+                }
+
                 $ok = $this->ExecuteOutputResource($resource, $payload, $house, $groupLabel);
+
+                if ($this->IsHeartbeatOutputResource($resource)) {
+                    $this->AppendHeartbeatAuditForPayload($payload, 'EXECUTE_RESULT', [
+                        'output_id' => $outputID,
+                        'result' => $ok
+                    ]);
+                }
+
                 $this->LogMessage(
                     'ReevaluateCurrentAlarmContext: execute match=' . $matchKey
                         . ' OutputID=' . $outputID
@@ -2889,7 +2912,6 @@ document.addEventListener("DOMContentLoaded", () => {
         $this->WriteAttributeString('LastActiveRuleIDs', json_encode(array_values(array_keys($activeRuleIDsForView))));
         $this->WriteAttributeString('LastActiveOutputIDs', json_encode(array_values(array_keys($activeOutputIDsForView))));
         $this->WriteAttributeString('ActiveOutputMatchKeys', json_encode(array_values(array_keys($currentMatchKeys))));
-        $this->WriteActiveOutputContentSignatureSet($currentContentSignatures);
 
         $this->LogMessage(
             'ReevaluateCurrentAlarmContext: previousMatches=' . count($previousMatchKeys)
@@ -3087,95 +3109,8 @@ document.addEventListener("DOMContentLoaded", () => {
         return $result;
     }
 
-    private function GetActiveOutputContentSignatureSet(): array
-    {
-        $raw = $this->ReadAttributeString('ActiveOutputContentSignatures');
-        $data = json_decode($raw, true);
 
-        if (!is_array($data)) {
-            return [];
-        }
 
-        $result = [];
-
-        foreach ($data as $matchKeyRaw => $signatureRaw) {
-            $matchKey = trim((string) $matchKeyRaw);
-            $signature = (string) $signatureRaw;
-
-            if ($matchKey === '') {
-                continue;
-            }
-
-            $result[$matchKey] = $signature;
-        }
-
-        return $result;
-    }
-
-    private function WriteActiveOutputContentSignatureSet(array $signatures): void
-    {
-        $clean = [];
-
-        foreach ($signatures as $matchKeyRaw => $signatureRaw) {
-            $matchKey = trim((string) $matchKeyRaw);
-
-            if ($matchKey === '') {
-                continue;
-            }
-
-            $clean[$matchKey] = (string) $signatureRaw;
-        }
-
-        $this->WriteAttributeString('ActiveOutputContentSignatures', json_encode($clean));
-    }
-
-    private function BuildOutputComparableValue(array $resource, array $payload, array $house, string $groupLabel)
-    {
-        $typeID = trim((string) ($resource['TypeID'] ?? ''));
-
-        switch ($typeID) {
-            case 'request_action':
-                $valueMode = trim((string) ($resource['ActionValueMode'] ?? 'message_text'));
-                return $this->BuildRequestActionValue($resource, $payload, $house, $groupLabel, $valueMode);
-
-            case 'screen':
-            case 'voip':
-            case 'email_1':
-            case 'email_2':
-            case 'email_3':
-            case 'email_4':
-            case 'sms':
-            case 'notification':
-            case 'voice':
-            case 'remote_voice':
-            case 'script':
-            case 'external':
-            case 'bell':
-            case 'siren':
-            case 'remote_bell':
-            case 'op1':
-            case 'op2':
-            case 'op3':
-            default:
-                return $this->BuildOutputMessageText($resource, $payload, $groupLabel);
-        }
-    }
-
-    private function BuildOutputContentSignature(array $resource, array $payload, array $house, string $groupLabel): string
-    {
-        $value = $this->BuildOutputComparableValue($resource, $payload, $house, $groupLabel);
-
-        if (is_scalar($value) || $value === null) {
-            $normalizedValue = trim((string) $value);
-        } else {
-            $normalizedValue = json_encode($value, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-            if ($normalizedValue === false) {
-                $normalizedValue = '';
-            }
-        }
-
-        return hash('sha256', $normalizedValue);
-    }
     public function ReceiveHouseStateSnapshot(string $snapshotJson): void
     {
         $data = json_decode($snapshotJson, true);
@@ -3852,12 +3787,10 @@ document.addEventListener("DOMContentLoaded", () => {
         $value = $this->BuildRequestActionValue($resource, $payload, $house, $groupLabel, $valueMode);
 
         if ($this->IsHeartbeatOutputResource($resource)) {
-            $valueText = is_scalar($value) || $value === null ? trim((string) $value) : json_encode($value);
-
             $this->AppendHeartbeatAuditForPayload($payload, 'REQUESTACTION_VALUE_BUILT', [
                 'target_object_id' => $targetObjectID,
                 'value_mode' => $valueMode,
-                'value' => $valueText
+                'value' => is_scalar($value) || $value === null ? (string) $value : json_encode($value)
             ]);
         }
 
@@ -3873,15 +3806,14 @@ document.addEventListener("DOMContentLoaded", () => {
             $this->LogMessage('SendRequestActionOutputResource: RequestAction executed successfully', KL_MESSAGE);
 
             if ($this->IsHeartbeatOutputResource($resource)) {
-                $expected = is_scalar($value) || $value === null ? (string) $value : json_encode($value);
-
                 $this->AppendHeartbeatAuditForPayload($payload, 'REQUESTACTION_OK', [
                     'target_object_id' => $targetObjectID,
-                    'value' => $expected
+                    'value' => is_scalar($value) || $value === null ? (string) $value : json_encode($value)
                 ]);
 
                 if (@IPS_VariableExists($targetObjectID)) {
                     $actual = GetValue($targetObjectID);
+                    $expected = is_scalar($value) || $value === null ? (string) $value : json_encode($value);
                     $actualText = is_scalar($actual) || $actual === null ? (string) $actual : json_encode($actual);
 
                     $this->AppendHeartbeatAuditForPayload($payload, 'TARGET_VALUE_AFTER_REQUESTACTION', [
@@ -3924,7 +3856,7 @@ document.addEventListener("DOMContentLoaded", () => {
             case 'json_payload':
                 $houseStateID = (string) ((int) ($house['system_state_id'] ?? 0));
                 $houseStateName = (string) ($house['system_state_name'] ?? $this->labelFromOptions(self::HOUSE_STATES, $houseStateID));
-                $message = $this->BuildOutputMessageText($resource, $payload, $groupLabel);
+                $message = $this->BuildOutputMessageText($resource, $payload);
 
                 return json_encode([
                     'group' => $groupLabel,
@@ -3938,7 +3870,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
             case 'message_text':
             default:
-                return $this->BuildOutputMessageText($resource, $payload, $groupLabel);
+                return $this->BuildOutputMessageText($resource, $payload);
         }
     }
 
@@ -4083,7 +4015,7 @@ document.addEventListener("DOMContentLoaded", () => {
         return implode("\n", $lines);
     }
 
-    private function BuildOutputMessageText(array $resource, array $payload, string $groupLabel = ''): string
+    private function BuildOutputMessageText(array $resource, array $payload): string
     {
         $prefix = trim((string) ($resource['PrefixText'] ?? ''));
         $suffix = trim((string) ($resource['SuffixText'] ?? ''));
@@ -4093,31 +4025,40 @@ document.addEventListener("DOMContentLoaded", () => {
         $grandparentName = '';
         $content = '';
 
-        $details = $this->GetRelevantSensorDetailsForGroup($payload, $groupLabel);
+        $trigger = $payload['target_trigger_details'] ?? [];
+        if (is_array($trigger)) {
+            $sensorName = trim((string) ($trigger['smart_label'] ?? $trigger['SensorName'] ?? ''));
+            $parentName = trim((string) ($trigger['ParentName'] ?? $trigger['parent_name'] ?? ''));
+            $grandparentName = trim((string) ($trigger['GrandParentName'] ?? $trigger['grandparent_name'] ?? ''));
 
-        foreach ($details as $detail) {
-            if (!is_array($detail)) {
-                continue;
+            $valueHuman = trim((string) ($trigger['value_human'] ?? ''));
+            if ($valueHuman !== '') {
+                $content = $valueHuman;
+            } elseif (array_key_exists('value_raw', $trigger)) {
+                $content = trim((string) $trigger['value_raw']);
             }
+        }
+
+        $sensorDetails = $payload['target_active_sensor_details'] ?? [];
+        if (is_array($sensorDetails) && count($sensorDetails) > 0 && is_array($sensorDetails[0])) {
+            $first = $sensorDetails[0];
 
             if ($sensorName === '') {
-                $sensorName = trim((string) ($detail['smart_label'] ?? $detail['SensorName'] ?? $detail['sensor_name'] ?? $detail['Name'] ?? $detail['name'] ?? ''));
+                $sensorName = trim((string) ($first['smart_label'] ?? $first['SensorName'] ?? ''));
             }
-
             if ($parentName === '') {
-                $parentName = trim((string) ($detail['ParentName'] ?? $detail['parent_name'] ?? ''));
+                $parentName = trim((string) ($first['ParentName'] ?? $first['parent_name'] ?? ''));
             }
-
             if ($grandparentName === '') {
-                $grandparentName = trim((string) ($detail['GrandParentName'] ?? $detail['grandparent_name'] ?? $detail['GrandparentName'] ?? ''));
+                $grandparentName = trim((string) ($first['GrandParentName'] ?? $first['grandparent_name'] ?? ''));
             }
-
             if ($content === '') {
-                $content = $this->ExtractOutputContentFromSensorDetail($detail);
-            }
-
-            if ($sensorName !== '' && $parentName !== '' && $grandparentName !== '' && $content !== '') {
-                break;
+                $valueHuman = trim((string) ($first['value_human'] ?? ''));
+                if ($valueHuman !== '') {
+                    $content = $valueHuman;
+                } elseif (array_key_exists('value_raw', $first)) {
+                    $content = trim((string) $first['value_raw']);
+                }
             }
         }
 
@@ -4169,12 +4110,10 @@ document.addEventListener("DOMContentLoaded", () => {
             if ($a['order'] === $b['order']) {
                 return 0;
             }
-
             return ($a['order'] < $b['order']) ? -1 : 1;
         });
 
         $textParts = [];
-
         foreach ($parts as $part) {
             $text = trim((string) ($part['text'] ?? ''));
             if ($text !== '') {
@@ -4189,111 +4128,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
         return 'Alarm event detected';
     }
-
-
-    private function GetRelevantSensorDetailsForGroup(array $payload, string $groupLabel): array
-    {
-        $groupLabel = trim($groupLabel);
-        $groupKey = $groupLabel !== '' ? $this->MakeGroupKey($groupLabel) : '';
-
-        $allDetails = [];
-
-        $trigger = $payload['target_trigger_details'] ?? [];
-        if (is_array($trigger) && count($trigger) > 0) {
-            $allDetails[] = $trigger;
-        }
-
-        $sensorDetails = $payload['target_active_sensor_details'] ?? [];
-        if (is_array($sensorDetails)) {
-            foreach ($sensorDetails as $detail) {
-                if (is_array($detail)) {
-                    $allDetails[] = $detail;
-                }
-            }
-        }
-
-        if ($groupLabel === '' || $groupKey === '') {
-            return $allDetails;
-        }
-
-        $matching = [];
-
-        foreach ($allDetails as $detail) {
-            if ($this->DoesSensorDetailBelongToGroup($detail, $groupLabel, $groupKey)) {
-                $matching[] = $detail;
-            }
-        }
-
-        if (count($matching) > 0) {
-            return $matching;
-        }
-
-        return $allDetails;
-    }
-
-    private function DoesSensorDetailBelongToGroup(array $detail, string $groupLabel, string $groupKey): bool
-    {
-        $groupLabel = trim($groupLabel);
-        $groupKey = trim($groupKey);
-
-        $fields = [
-            'GroupName',
-            'group_name',
-            'GroupLabel',
-            'group_label',
-            'GroupKey',
-            'group_key',
-            'TargetGroupName',
-            'target_group_name',
-            'TargetGroupKey',
-            'target_group_key'
-        ];
-
-        foreach ($fields as $field) {
-            $value = trim((string) ($detail[$field] ?? ''));
-
-            if ($value === '') {
-                continue;
-            }
-
-            if ($groupKey !== '' && $value === $groupKey) {
-                return true;
-            }
-
-            if ($groupLabel !== '' && strcasecmp($value, $groupLabel) === 0) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    private function ExtractOutputContentFromSensorDetail(array $detail): string
-    {
-        $fields = [
-            'value_human',
-            'value_raw',
-            'value',
-            'content'
-        ];
-
-        foreach ($fields as $field) {
-            if (!array_key_exists($field, $detail)) {
-                continue;
-            }
-
-            $value = trim((string) $detail[$field]);
-
-            if ($value === '') {
-                continue;
-            }
-
-            return $value;
-        }
-
-        return '';
-    }
-
 
     private function readListProperty(string $propertyName): array
     {
