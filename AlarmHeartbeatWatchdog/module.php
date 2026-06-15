@@ -3,11 +3,11 @@
 declare(strict_types=1);
 
 // AlarmHeartbeatWatchdog module.php
-// Version: 1.4.0
+// Version: 1.4.1
 // Heartbeat token mode: milliseconds since midnight used as an integer correlation token
 // Pulse model: token is active only for PulseDurationMs/ResetDelayMs, then HeartbeatInputVariableID is reset to 0
 // Delivery confirmation mode: internal RegisterMessage/MessageSink for Module 3 output variables
-// Notes: VALUE_PRESENT_NO_EVENT is a warning state and does not trigger email notifications.
+// Notes: VALUE_PRESENT_NO_EVENT is a warning state and does not trigger email notifications. Module 1 reset payloads with token 0 do not overwrite the last valid heartbeat token.
 
 class AlarmHeartbeatWatchdog extends IPSModule
 {
@@ -207,38 +207,50 @@ class AlarmHeartbeatWatchdog extends IPSModule
 
         $inputID = $this->ReadPropertyInteger('HeartbeatInputVariableID');
         $heartbeatTokenMs = $this->ExtractHeartbeatTimestampFromPayload($payload, $inputID);
-        $runtimeMs = ($heartbeatTokenMs > 0) ? $this->GetElapsedMilliseconds($heartbeatTokenMs, $nowMs) : -1;
 
         $counter = (int)$this->GetValueSafe('Module1Counter', 0) + 1;
         $this->SetValueSafe('Module1Counter', $counter);
+        $this->SetValueSafe('Module1LastPayload', $payloadJson);
+
+        // Pulse model:
+        // Module 1 will normally report the active heartbeat token first and the reset value 0 shortly afterwards.
+        // The reset payload proves that the inactive phase reached Module 1, but it must not overwrite the
+        // last valid heartbeat-token result used by CheckModule1() and the status HTML.
+        if ($heartbeatTokenMs <= 0) {
+            $this->LogDebug('ReceivePayload: reset/inactive payload received, heartbeat token state not overwritten, counter=' . $counter);
+            $this->RebuildStatus();
+            return true;
+        }
+
+        $runtimeMs = $this->GetElapsedMilliseconds($heartbeatTokenMs, $nowMs);
+
         $this->SetValueSafe('Module1LastSeen', $nowSeconds);
         $this->SetValueSafe('Module1LastSeenText', date('Y-m-d H:i:s', $nowSeconds));
         $this->SetValueSafe('Module1LastHeartbeatTimestamp', $heartbeatTokenMs);
         $this->SetValueSafe('Module1RuntimeSeconds', $runtimeMs);
-        $this->SetValueSafe('Module1LastPayload', $payloadJson);
 
-        if ($heartbeatTokenMs > 0) {
-            $historyEntry = $this->FindHeartbeatHistoryEntry($heartbeatTokenMs);
-            if (count($historyEntry) > 0) {
-                $sentAtMs = (int)($historyEntry['sent_at'] ?? $heartbeatTokenMs);
-                $deadlineMs = (int)($historyEntry['deadline'] ?? 0);
-                $lateMs = $this->GetLateMilliseconds($sentAtMs, $deadlineMs, $nowMs);
-                $state = ($lateMs > 0) ? 'LATE' : 'OK';
-                $message = ($state === 'LATE')
-                    ? 'Module 1 callback arrived late by ' . $this->FormatRuntimeMilliseconds($lateMs) . '.'
-                    : 'OK';
+        $historyEntry = $this->FindHeartbeatHistoryEntry($heartbeatTokenMs);
+        if (count($historyEntry) > 0) {
+            $sentAtMs = (int)($historyEntry['sent_at'] ?? $heartbeatTokenMs);
+            $deadlineMs = (int)($historyEntry['deadline'] ?? 0);
+            $lateMs = $this->GetLateMilliseconds($sentAtMs, $deadlineMs, $nowMs);
+            $state = ($lateMs > 0) ? 'LATE' : 'OK';
+            $message = ($state === 'LATE')
+                ? 'Module 1 callback arrived late by ' . $this->FormatRuntimeMilliseconds($lateMs) . '.'
+                : 'OK';
 
-                $this->UpdateHeartbeatHistoryTarget(
-                    $heartbeatTokenMs,
-                    'Module 1 callback',
-                    $state,
-                    $heartbeatTokenMs,
-                    $nowMs,
-                    $runtimeMs,
-                    $lateMs,
-                    $message
-                );
-            }
+            $this->UpdateHeartbeatHistoryTarget(
+                $heartbeatTokenMs,
+                'Module 1 callback',
+                $state,
+                $heartbeatTokenMs,
+                $nowMs,
+                $runtimeMs,
+                $lateMs,
+                $message
+            );
+        } else {
+            $this->LogDebug('ReceivePayload: heartbeat token not found in retained history: token_ms=' . $heartbeatTokenMs);
         }
 
         $this->LogDebug('ReceivePayload: token_ms=' . $heartbeatTokenMs . ', runtime=' . $this->FormatRuntimeMilliseconds($runtimeMs) . ', counter=' . $counter);
