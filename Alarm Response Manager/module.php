@@ -1,7 +1,7 @@
 <?php
 
 declare(strict_types=1);
-// 7.3.0
+// 7.3.1
 class AlarmResponseManager extends IPSModule
 {
     private const HOUSE_STATES = [
@@ -82,6 +82,7 @@ class AlarmResponseManager extends IPSModule
         $this->RegisterAttributeString('CachedTargetActiveSensorDetails', '[]');
 
         $this->RegisterAttributeString('ActiveOutputMatchKeys', '[]');
+        $this->RegisterAttributeString('ActiveOutputInputContentSignatures', '{}');
         $this->RegisterAttributeString('OutputThrottleHistory', '{}');
 
         $this->RegisterVariableString('OutputScreenHtml', 'Output Screen', '~HTMLBox', 0);
@@ -2610,6 +2611,7 @@ document.addEventListener("DOMContentLoaded", () => {
             $this->WriteAttributeString('LastActiveRuleIDs', '[]');
             $this->WriteAttributeString('LastActiveOutputIDs', '[]');
             $this->WriteAttributeString('ActiveOutputMatchKeys', '[]');
+            $this->WriteActiveOutputInputContentSignatureSet([]);
             $this->LogMessage('ReevaluateCurrentAlarmContext: no active target groups, live path and active output matches cleared', KL_MESSAGE);
             return;
         }
@@ -2623,8 +2625,10 @@ document.addEventListener("DOMContentLoaded", () => {
         ]);
 
         $previousMatchKeys = $this->GetActiveOutputMatchKeySet();
+        $previousInputContentSignatures = $this->GetActiveOutputInputContentSignatureSet();
 
         $currentMatchKeys = [];
+        $currentInputContentSignatures = [];
         $activeGroupsForView = [];
         $activeRuleIDsForView = [];
         $activeOutputIDsForView = [];
@@ -2712,33 +2716,61 @@ document.addEventListener("DOMContentLoaded", () => {
                     }
 
                     $matchKey = $this->BuildOutputMatchKey($groupKey, $outputID);
+                    $inputContentSignature = $this->BuildInputContentSignatureForPayload($payload);
+
                     $currentMatchKeys[$matchKey] = true;
+                    $currentInputContentSignatures[$matchKey] = $inputContentSignature;
                     $activeOutputIDsForView[$outputID] = true;
 
-                    if (isset($previousMatchKeys[$matchKey])) {
+                    if (
+                        $inputContentSignature !== ''
+                        && isset($previousMatchKeys[$matchKey])
+                        && isset($previousInputContentSignatures[$matchKey])
+                        && $previousInputContentSignatures[$matchKey] === $inputContentSignature
+                    ) {
                         if ($this->IsHeartbeatOutputResource($resource)) {
                             $this->AppendHeartbeatAuditForPayload($payload, 'NOT_WRITTEN', [
-                                'reason' => 'suppressed_already_active_match',
+                                'reason' => 'suppressed_same_input_content',
                                 'match_key' => $matchKey,
                                 'output_id' => $outputID,
-                                'rule_id' => $ruleID
+                                'rule_id' => $ruleID,
+                                'input_content_signature' => $inputContentSignature
                             ]);
                         }
+
+                        $this->LogMessage(
+                            'ReevaluateCurrentAlarmContext: suppressed same input content'
+                                . ' match=' . $matchKey
+                                . ' OutputID=' . $outputID
+                                . ' rule=' . $ruleID,
+                            KL_MESSAGE
+                        );
 
                         continue;
                     }
 
+                    if (isset($previousMatchKeys[$matchKey])) {
+                        $this->LogMessage(
+                            'ReevaluateCurrentAlarmContext: input content changed; allowing repeated active match'
+                                . ' match=' . $matchKey
+                                . ' OutputID=' . $outputID
+                                . ' rule=' . $ruleID,
+                            KL_MESSAGE
+                        );
+                    }
+
                     $queueSeq++;
                     $candidate = [
-                        'MatchKey'   => $matchKey,
-                        'OutputID'   => $outputID,
-                        'GroupLabel' => $groupLabel,
-                        'GroupKey'   => $groupKey,
-                        'RuleID'     => $ruleID,
-                        'Severity'   => $severity,
-                        'Priority'   => $priority,
-                        'QueueSeq'   => $queueSeq,
-                        'Resource'   => $resource
+                        'MatchKey'              => $matchKey,
+                        'InputContentSignature' => $inputContentSignature,
+                        'OutputID'              => $outputID,
+                        'GroupLabel'            => $groupLabel,
+                        'GroupKey'              => $groupKey,
+                        'RuleID'                => $ruleID,
+                        'Severity'              => $severity,
+                        'Priority'              => $priority,
+                        'QueueSeq'              => $queueSeq,
+                        'Resource'              => $resource
                     ];
 
                     if ($this->IsHeartbeatOutputResource($resource)) {
@@ -2748,7 +2780,8 @@ document.addEventListener("DOMContentLoaded", () => {
                             'output_id' => $outputID,
                             'match_key' => $matchKey,
                             'rule_id' => $ruleID,
-                            'severity' => $severity
+                            'severity' => $severity,
+                            'input_content_signature' => $inputContentSignature
                         ]);
                     }
 
@@ -2912,6 +2945,7 @@ document.addEventListener("DOMContentLoaded", () => {
         $this->WriteAttributeString('LastActiveRuleIDs', json_encode(array_values(array_keys($activeRuleIDsForView))));
         $this->WriteAttributeString('LastActiveOutputIDs', json_encode(array_values(array_keys($activeOutputIDsForView))));
         $this->WriteAttributeString('ActiveOutputMatchKeys', json_encode(array_values(array_keys($currentMatchKeys))));
+        $this->WriteActiveOutputInputContentSignatureSet($currentInputContentSignatures);
 
         $this->LogMessage(
             'ReevaluateCurrentAlarmContext: previousMatches=' . count($previousMatchKeys)
@@ -2919,6 +2953,164 @@ document.addEventListener("DOMContentLoaded", () => {
                 . ' newCandidates=' . array_sum(array_map('count', $candidatesByOutputID)),
             KL_MESSAGE
         );
+    }
+
+    private function GetActiveOutputInputContentSignatureSet(): array
+    {
+        $raw = $this->ReadAttributeString('ActiveOutputInputContentSignatures');
+        $data = json_decode($raw, true);
+
+        if (!is_array($data)) {
+            return [];
+        }
+
+        $result = [];
+
+        foreach ($data as $matchKeyRaw => $signatureRaw) {
+            $matchKey = trim((string) $matchKeyRaw);
+            $signature = trim((string) $signatureRaw);
+
+            if ($matchKey === '' || $signature === '') {
+                continue;
+            }
+
+            $result[$matchKey] = $signature;
+        }
+
+        return $result;
+    }
+
+    private function WriteActiveOutputInputContentSignatureSet(array $signatures): void
+    {
+        $clean = [];
+
+        foreach ($signatures as $matchKeyRaw => $signatureRaw) {
+            $matchKey = trim((string) $matchKeyRaw);
+            $signature = trim((string) $signatureRaw);
+
+            if ($matchKey === '' || $signature === '') {
+                continue;
+            }
+
+            $clean[$matchKey] = $signature;
+        }
+
+        $this->WriteAttributeString('ActiveOutputInputContentSignatures', json_encode($clean));
+    }
+
+    private function BuildInputContentSignatureForPayload(array $payload): string
+    {
+        $pairs = $this->ExtractInputVariableContentPairs($payload);
+
+        if (count($pairs) === 0) {
+            return '';
+        }
+
+        usort($pairs, static function (array $a, array $b): int {
+            $ka = (string) ($a['variable_key'] ?? '');
+            $kb = (string) ($b['variable_key'] ?? '');
+
+            if ($ka !== $kb) {
+                return strnatcasecmp($ka, $kb);
+            }
+
+            return strnatcasecmp((string) ($a['content'] ?? ''), (string) ($b['content'] ?? ''));
+        });
+
+        return hash('sha256', json_encode($pairs, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+    }
+
+    private function ExtractInputVariableContentPairs(array $payload): array
+    {
+        $pairsByVariable = [];
+
+        $trigger = $payload['target_trigger_details'] ?? [];
+        if (is_array($trigger)) {
+            $pair = $this->ExtractInputVariableContentPairFromDetail($trigger);
+            if ($pair !== null) {
+                $pairsByVariable[$pair['variable_key']] = $pair;
+            }
+        }
+
+        $details = $payload['target_active_sensor_details'] ?? [];
+        if (is_array($details)) {
+            foreach ($details as $detail) {
+                if (!is_array($detail)) {
+                    continue;
+                }
+
+                $pair = $this->ExtractInputVariableContentPairFromDetail($detail);
+                if ($pair === null) {
+                    continue;
+                }
+
+                $pairsByVariable[$pair['variable_key']] = $pair;
+            }
+        }
+
+        return array_values($pairsByVariable);
+    }
+
+    private function ExtractInputVariableContentPairFromDetail(array $detail): ?array
+    {
+        $variableKey = $this->ExtractInputVariableKeyFromDetail($detail);
+        if ($variableKey === '') {
+            return null;
+        }
+
+        $content = $this->ExtractInputContentFromDetail($detail);
+        if ($content === '') {
+            return null;
+        }
+
+        return [
+            'variable_key' => $variableKey,
+            'content'      => $content
+        ];
+    }
+
+    private function ExtractInputVariableKeyFromDetail(array $detail): string
+    {
+        $fields = [
+            'VariableID',
+            'variable_id',
+            'VariableId',
+            'variableId',
+            'SensorVariableID',
+            'sensor_variable_id',
+            'ObjectID',
+            'object_id'
+        ];
+
+        foreach ($fields as $field) {
+            if (!array_key_exists($field, $detail)) {
+                continue;
+            }
+
+            $value = trim((string) $detail[$field]);
+            if ($value === '') {
+                continue;
+            }
+
+            return $field . ':' . $value;
+        }
+
+        return '';
+    }
+
+    private function ExtractInputContentFromDetail(array $detail): string
+    {
+        if (!array_key_exists('content', $detail)) {
+            return '';
+        }
+
+        $content = trim((string) $detail['content']);
+
+        if ($content === '') {
+            return '';
+        }
+
+        return $content;
     }
 
     private function FindRuleByID(string $ruleID): ?array
