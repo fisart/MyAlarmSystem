@@ -1,7 +1,7 @@
 <?php
 
 declare(strict_types=1);
-// 7.3.0
+// 7.3.1
 class AlarmResponseManager extends IPSModule
 {
     private const HOUSE_STATES = [
@@ -82,6 +82,7 @@ class AlarmResponseManager extends IPSModule
         $this->RegisterAttributeString('CachedTargetActiveSensorDetails', '[]');
 
         $this->RegisterAttributeString('ActiveOutputMatchKeys', '[]');
+        $this->RegisterAttributeString('ActiveOutputContentSignatures', '{}');
         $this->RegisterAttributeString('OutputThrottleHistory', '{}');
 
         $this->RegisterVariableString('OutputScreenHtml', 'Output Screen', '~HTMLBox', 0);
@@ -2601,36 +2602,23 @@ document.addEventListener("DOMContentLoaded", () => {
     private function ReevaluateCurrentAlarmContext(array $payload, array $house): void
     {
         $targetGroups = $payload['target_active_groups'] ?? [];
-        if (!is_array($targetGroups) || count($targetGroups) === 0) {
-            $this->AppendHeartbeatAuditForPayload($payload, 'NOT_WRITTEN', [
-                'reason' => 'no_active_target_groups'
-            ]);
-
-            $this->WriteAttributeString('LastActiveGroups', '[]');
-            $this->WriteAttributeString('LastActiveRuleIDs', '[]');
-            $this->WriteAttributeString('LastActiveOutputIDs', '[]');
-            $this->WriteAttributeString('ActiveOutputMatchKeys', '[]');
-            $this->LogMessage('ReevaluateCurrentAlarmContext: no active target groups, live path and active output matches cleared', KL_MESSAGE);
-            return;
+        if (!is_array($targetGroups)) {
+            $targetGroups = [];
         }
 
-        $houseState = (string) ((int) ($house['system_state_id'] ?? 0));
+        $houseState = (int) ($house['system_state_id'] ?? 0);
         $this->LogMessage('ReevaluateCurrentAlarmContext: houseState=' . $houseState, KL_MESSAGE);
 
-        $this->AppendHeartbeatAuditForPayload($payload, 'REEVALUATE_ENTER', [
-            'house_state' => $houseState,
-            'groups' => $targetGroups
-        ]);
-
         $previousMatchKeys = $this->GetActiveOutputMatchKeySet();
+        $previousContentSignatures = $this->GetActiveOutputContentSignatureSet();
 
         $currentMatchKeys = [];
+        $currentContentSignatures = [];
         $activeGroupsForView = [];
         $activeRuleIDsForView = [];
         $activeOutputIDsForView = [];
         $candidatesByOutputID = [];
         $queueSeq = 0;
-        $heartbeatOutputCandidateCreated = false;
 
         foreach ($targetGroups as $groupLabelRaw) {
             $groupLabel = trim((string) $groupLabelRaw);
@@ -2644,24 +2632,6 @@ document.addEventListener("DOMContentLoaded", () => {
             $ruleIDs = $this->FindMatchingRuleIDsForGroupAndState($groupLabel, $houseState);
             $this->LogMessage('ReevaluateCurrentAlarmContext: group=' . $groupLabel . ' matched rules=' . json_encode($ruleIDs), KL_MESSAGE);
 
-            if ($this->IsHeartbeatGroupLabel($groupLabel)) {
-                $this->AppendHeartbeatAuditForPayload($payload, 'RULE_MATCH_CHECK', [
-                    'group' => $groupLabel,
-                    'group_key' => $groupKey,
-                    'house_state' => $houseState,
-                    'rule_count' => count($ruleIDs),
-                    'rule_ids' => $ruleIDs
-                ]);
-
-                if (count($ruleIDs) === 0) {
-                    $this->AppendHeartbeatAuditForPayload($payload, 'NOT_WRITTEN', [
-                        'reason' => 'no_matching_rule',
-                        'group' => $groupLabel,
-                        'house_state' => $houseState
-                    ]);
-                }
-            }
-
             foreach ($ruleIDs as $ruleID) {
                 $activeRuleIDsForView[$ruleID] = true;
 
@@ -2670,13 +2640,6 @@ document.addEventListener("DOMContentLoaded", () => {
                 $priority = $this->GetSeverityPriority($severity);
 
                 $assignments = $this->FindAssignmentsForRuleID($ruleID);
-
-                if ($this->IsHeartbeatGroupLabel($groupLabel)) {
-                    $this->AppendHeartbeatAuditForPayload($payload, 'ASSIGNMENT_CHECK', [
-                        'rule_id' => $ruleID,
-                        'assignment_count' => count($assignments)
-                    ]);
-                }
 
                 foreach ($assignments as $assignment) {
                     $outputID = trim((string) ($assignment['OutputID'] ?? ''));
@@ -2687,70 +2650,60 @@ document.addEventListener("DOMContentLoaded", () => {
                     $resource = $this->FindOutputResourceByID($outputID);
                     if ($resource === null) {
                         $this->LogMessage('ReevaluateCurrentAlarmContext: OutputID not found: ' . $outputID, KL_MESSAGE);
-
-                        if ($this->IsHeartbeatGroupLabel($groupLabel)) {
-                            $this->AppendHeartbeatAuditForPayload($payload, 'NOT_WRITTEN', [
-                                'reason' => 'output_resource_not_found',
-                                'output_id' => $outputID,
-                                'rule_id' => $ruleID
-                            ]);
-                        }
-
                         continue;
                     }
 
                     if (!(bool) ($resource['Active'] ?? false)) {
-                        if ($this->IsHeartbeatOutputResource($resource)) {
-                            $this->AppendHeartbeatAuditForPayload($payload, 'NOT_WRITTEN', [
-                                'reason' => 'heartbeat_output_inactive',
-                                'output_id' => $outputID,
-                                'rule_id' => $ruleID
-                            ]);
-                        }
-
                         continue;
                     }
 
                     $matchKey = $this->BuildOutputMatchKey($groupKey, $outputID);
+                    $contentSignature = $this->BuildOutputContentSignature($resource, $payload, $house, $groupLabel);
+
                     $currentMatchKeys[$matchKey] = true;
+                    $currentContentSignatures[$matchKey] = $contentSignature;
                     $activeOutputIDsForView[$outputID] = true;
 
-                    if (isset($previousMatchKeys[$matchKey])) {
-                        if ($this->IsHeartbeatOutputResource($resource)) {
-                            $this->AppendHeartbeatAuditForPayload($payload, 'NOT_WRITTEN', [
-                                'reason' => 'suppressed_already_active_match',
-                                'match_key' => $matchKey,
-                                'output_id' => $outputID,
-                                'rule_id' => $ruleID
-                            ]);
-                        }
-
+                    if (
+                        isset($previousMatchKeys[$matchKey])
+                        && isset($previousContentSignatures[$matchKey])
+                        && $previousContentSignatures[$matchKey] === $contentSignature
+                    ) {
+                        $this->LogMessage(
+                            'ReevaluateCurrentAlarmContext: suppressed unchanged output content'
+                                . ' match=' . $matchKey
+                                . ' OutputID=' . $outputID
+                                . ' rule=' . $ruleID
+                                . ' severity=' . $severity,
+                            KL_MESSAGE
+                        );
                         continue;
+                    }
+
+                    if (isset($previousMatchKeys[$matchKey])) {
+                        $this->LogMessage(
+                            'ReevaluateCurrentAlarmContext: output content changed; allowing repeated active match'
+                                . ' match=' . $matchKey
+                                . ' OutputID=' . $outputID
+                                . ' rule=' . $ruleID
+                                . ' severity=' . $severity,
+                            KL_MESSAGE
+                        );
                     }
 
                     $queueSeq++;
                     $candidate = [
-                        'MatchKey'   => $matchKey,
-                        'OutputID'   => $outputID,
-                        'GroupLabel' => $groupLabel,
-                        'GroupKey'   => $groupKey,
-                        'RuleID'     => $ruleID,
-                        'Severity'   => $severity,
-                        'Priority'   => $priority,
-                        'QueueSeq'   => $queueSeq,
-                        'Resource'   => $resource
+                        'MatchKey'         => $matchKey,
+                        'ContentSignature' => $contentSignature,
+                        'OutputID'         => $outputID,
+                        'GroupLabel'       => $groupLabel,
+                        'GroupKey'         => $groupKey,
+                        'RuleID'           => $ruleID,
+                        'Severity'         => $severity,
+                        'Priority'         => $priority,
+                        'QueueSeq'         => $queueSeq,
+                        'Resource'         => $resource
                     ];
-
-                    if ($this->IsHeartbeatOutputResource($resource)) {
-                        $heartbeatOutputCandidateCreated = true;
-
-                        $this->AppendHeartbeatAuditForPayload($payload, 'OUTPUT_CANDIDATE', [
-                            'output_id' => $outputID,
-                            'match_key' => $matchKey,
-                            'rule_id' => $ruleID,
-                            'severity' => $severity
-                        ]);
-                    }
 
                     if (!isset($candidatesByOutputID[$outputID])) {
                         $candidatesByOutputID[$outputID] = [];
@@ -2775,12 +2728,6 @@ document.addEventListener("DOMContentLoaded", () => {
                     }
                 }
             }
-        }
-
-        if ($this->IsHeartbeatPayload($payload) && !$heartbeatOutputCandidateCreated) {
-            $this->AppendHeartbeatAuditForPayload($payload, 'NO_HEARTBEAT_OUTPUT_CANDIDATE', [
-                'note' => 'may_have_been_suppressed_or_no_assignment'
-            ]);
         }
 
         $now = time();
@@ -2832,16 +2779,6 @@ document.addEventListener("DOMContentLoaded", () => {
                 }
 
                 if ($throttlingEnabled && $remainingSlots <= 0) {
-                    if ($this->IsHeartbeatOutputResource($resource)) {
-                        $this->AppendHeartbeatAuditForPayload($payload, 'NOT_WRITTEN', [
-                            'reason' => 'throttled',
-                            'output_id' => $outputID,
-                            'match_key' => $matchKey,
-                            'rule_id' => $ruleID,
-                            'remaining_slots' => $remainingSlots
-                        ]);
-                    }
-
                     $this->LogMessage(
                         'ReevaluateCurrentAlarmContext: throttled OutputID=' . $outputID
                             . ' match=' . $matchKey
@@ -2853,15 +2790,6 @@ document.addEventListener("DOMContentLoaded", () => {
                 }
 
                 if ($this->IsOutputKillSwitchActive()) {
-                    if ($this->IsHeartbeatOutputResource($resource)) {
-                        $this->AppendHeartbeatAuditForPayload($payload, 'NOT_WRITTEN', [
-                            'reason' => 'output_kill_switch_active',
-                            'output_id' => $outputID,
-                            'match_key' => $matchKey,
-                            'rule_id' => $ruleID
-                        ]);
-                    }
-
                     $this->LogMessage(
                         'ReevaluateCurrentAlarmContext: output suppressed by OutputKillSwitch'
                             . ' match=' . $matchKey
@@ -2874,24 +2802,7 @@ document.addEventListener("DOMContentLoaded", () => {
                     continue;
                 }
 
-                if ($this->IsHeartbeatOutputResource($resource)) {
-                    $this->AppendHeartbeatAuditForPayload($payload, 'EXECUTE_ATTEMPT', [
-                        'output_id' => $outputID,
-                        'target_object_id' => (int) ($resource['TargetObjectID'] ?? 0),
-                        'match_key' => $matchKey,
-                        'rule_id' => $ruleID
-                    ]);
-                }
-
                 $ok = $this->ExecuteOutputResource($resource, $payload, $house, $groupLabel);
-
-                if ($this->IsHeartbeatOutputResource($resource)) {
-                    $this->AppendHeartbeatAuditForPayload($payload, 'EXECUTE_RESULT', [
-                        'output_id' => $outputID,
-                        'result' => $ok
-                    ]);
-                }
-
                 $this->LogMessage(
                     'ReevaluateCurrentAlarmContext: execute match=' . $matchKey
                         . ' OutputID=' . $outputID
@@ -2912,6 +2823,7 @@ document.addEventListener("DOMContentLoaded", () => {
         $this->WriteAttributeString('LastActiveRuleIDs', json_encode(array_values(array_keys($activeRuleIDsForView))));
         $this->WriteAttributeString('LastActiveOutputIDs', json_encode(array_values(array_keys($activeOutputIDsForView))));
         $this->WriteAttributeString('ActiveOutputMatchKeys', json_encode(array_values(array_keys($currentMatchKeys))));
+        $this->WriteActiveOutputContentSignatureSet($currentContentSignatures);
 
         $this->LogMessage(
             'ReevaluateCurrentAlarmContext: previousMatches=' . count($previousMatchKeys)
@@ -3109,7 +3021,103 @@ document.addEventListener("DOMContentLoaded", () => {
         return $result;
     }
 
+    private function GetActiveOutputContentSignatureSet(): array
+    {
+        $raw = $this->ReadAttributeString('ActiveOutputContentSignatures');
+        $data = json_decode($raw, true);
 
+        if (!is_array($data)) {
+            return [];
+        }
+
+        $result = [];
+
+        foreach ($data as $matchKeyRaw => $signatureRaw) {
+            $matchKey = trim((string) $matchKeyRaw);
+            $signature = (string) $signatureRaw;
+
+            if ($matchKey === '') {
+                continue;
+            }
+
+            $result[$matchKey] = $signature;
+        }
+
+        return $result;
+    }
+
+    private function WriteActiveOutputContentSignatureSet(array $signatures): void
+    {
+        $clean = [];
+
+        foreach ($signatures as $matchKeyRaw => $signatureRaw) {
+            $matchKey = trim((string) $matchKeyRaw);
+
+            if ($matchKey === '') {
+                continue;
+            }
+
+            $clean[$matchKey] = (string) $signatureRaw;
+        }
+
+        $this->WriteAttributeString('ActiveOutputContentSignatures', json_encode($clean));
+    }
+
+    private function BuildOutputComparableValue(array $resource, array $payload, array $house, string $groupLabel)
+    {
+        $typeID = trim((string) ($resource['TypeID'] ?? ''));
+
+        switch ($typeID) {
+            case 'request_action':
+                $valueMode = trim((string) ($resource['ActionValueMode'] ?? 'message_text'));
+                return $this->BuildRequestActionValue($resource, $payload, $house, $groupLabel, $valueMode);
+
+            case 'screen':
+            case 'voip':
+            case 'email_1':
+            case 'email_2':
+            case 'email_3':
+            case 'email_4':
+            case 'sms':
+            case 'notification':
+            case 'voice':
+            case 'remote_voice':
+            case 'script':
+            case 'external':
+            case 'bell':
+            case 'siren':
+            case 'remote_bell':
+            case 'op1':
+            case 'op2':
+            case 'op3':
+            default:
+                return $this->BuildOutputMessageText($resource, $payload);
+        }
+    }
+
+    private function BuildOutputContentSignature(array $resource, array $payload, array $house, string $groupLabel): string
+    {
+        $typeID = trim((string) ($resource['TypeID'] ?? ''));
+        $outputID = trim((string) ($resource['OutputID'] ?? ''));
+        $targetObjectID = (int) ($resource['TargetObjectID'] ?? 0);
+        $value = $this->BuildOutputComparableValue($resource, $payload, $house, $groupLabel);
+
+        if (is_scalar($value) || $value === null) {
+            $normalizedValue = (string) $value;
+        } else {
+            $normalizedValue = json_encode($value, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+            if ($normalizedValue === false) {
+                $normalizedValue = '';
+            }
+        }
+
+        return hash('sha256', json_encode([
+            'type_id'          => $typeID,
+            'output_id'        => $outputID,
+            'target_object_id' => $targetObjectID,
+            'value'            => $normalizedValue
+        ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+    }
 
     public function ReceiveHouseStateSnapshot(string $snapshotJson): void
     {
