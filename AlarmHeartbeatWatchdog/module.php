@@ -952,10 +952,17 @@ class AlarmHeartbeatWatchdog extends IPSModule
 
     private function GetDayMilliseconds(): int
     {
-        $milliseconds = (int)floor(microtime(true) * 1000) % 86400000;
-        return $milliseconds > 0 ? $milliseconds : 1;
-    }
+        $now = microtime(true);
 
+        $secondsToday =
+            ((int)date('G', (int)$now) * 3600) +
+            ((int)date('i', (int)$now) * 60) +
+            ((int)date('s', (int)$now));
+
+        $milliseconds = (int)floor(($now - floor($now)) * 1000);
+
+        return ($secondsToday * 1000) + $milliseconds;
+    }
     private function GetDayMillisecondsFromEpochSeconds(int $epochSeconds): int
     {
         if ($epochSeconds <= 0) {
@@ -1015,23 +1022,44 @@ class AlarmHeartbeatWatchdog extends IPSModule
         return max(0, $actualMs - $allowedMs);
     }
 
-    private function FormatDayMilliseconds(int $milliseconds): string
+
+    private function GetRuntimeFromTokenMs(int $tokenMs): int
     {
-        if ($milliseconds <= 0) {
+        if ($tokenMs <= 0 || $tokenMs > 86400000) {
+            return -1;
+        }
+
+        $nowMs = $this->GetDayMilliseconds();
+        $runtimeMs = $nowMs - $tokenMs;
+
+        if ($runtimeMs < 0) {
+            $runtimeMs += 86400000;
+        }
+
+        return $runtimeMs;
+    }
+
+    private function FormatDayMilliseconds(int $value): string
+    {
+        if ($value <= 0) {
             return '-';
         }
 
-        $milliseconds = $milliseconds % 86400000;
-        $hours = intdiv($milliseconds, 3600000);
-        $milliseconds %= 3600000;
-        $minutes = intdiv($milliseconds, 60000);
-        $milliseconds %= 60000;
-        $seconds = intdiv($milliseconds, 1000);
-        $ms = $milliseconds % 1000;
+        if ($value > 86400000) {
+            return date('Y-m-d H:i:s', $value);
+        }
 
-        return sprintf('%02d:%02d:%02d.%03d', $hours, $minutes, $seconds, $ms);
+        $hours = intdiv($value, 3600000);
+        $remainder = $value % 3600000;
+
+        $minutes = intdiv($remainder, 60000);
+        $remainder = $remainder % 60000;
+
+        $seconds = intdiv($remainder, 1000);
+        $milliseconds = $remainder % 1000;
+
+        return sprintf('%02d:%02d:%02d.%03d', $hours, $minutes, $seconds, $milliseconds);
     }
-
     private function FormatRuntimeMilliseconds(int $milliseconds): string
     {
         if ($milliseconds < 0) {
