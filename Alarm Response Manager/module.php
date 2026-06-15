@@ -1,7 +1,7 @@
 <?php
 
 declare(strict_types=1);
-
+// 7.3.0
 class AlarmResponseManager extends IPSModule
 {
     private const HOUSE_STATES = [
@@ -86,6 +86,8 @@ class AlarmResponseManager extends IPSModule
         $this->RegisterAttributeString('OutputThrottleHistory', '{}');
 
         $this->RegisterVariableString('OutputScreenHtml', 'Output Screen', '~HTMLBox', 0);
+        $this->RegisterVariableBoolean('OutputKillSwitch', 'Output Kill Switch', '~Switch', 10);
+        $this->EnableAction('OutputKillSwitch');
     }
 
     public function ApplyChanges()
@@ -95,6 +97,10 @@ class AlarmResponseManager extends IPSModule
         $this->RegisterHook('/hook/psm_output_' . $this->InstanceID);
 
         $this->SetStatus(102);
+        $this->LogMessage(
+            'OutputKillSwitch is currently ' . ($this->IsOutputKillSwitchActive() ? 'ON' : 'OFF'),
+            KL_MESSAGE
+        );
     }
 
     private function GetVisibleGraphGroupKeys(array $groups): array
@@ -204,6 +210,13 @@ class AlarmResponseManager extends IPSModule
     public function RequestAction($Ident, $Value)
     {
         switch ($Ident) {
+            case 'OutputKillSwitch':
+                SetValueBoolean($this->GetIDForIdent('OutputKillSwitch'), (bool) $Value);
+                $this->LogMessage(
+                    'OutputKillSwitch changed to ' . ((bool) $Value ? 'ON' : 'OFF'),
+                    KL_MESSAGE
+                );
+                break;
             case 'ReadModule1Configuration':
                 $this->ReadModule1Configuration();
                 break;
@@ -260,6 +273,16 @@ class AlarmResponseManager extends IPSModule
         }
     }
 
+    private function IsOutputKillSwitchActive(): bool
+    {
+        $varID = @$this->GetIDForIdent('OutputKillSwitch');
+
+        if ($varID === false || $varID <= 0) {
+            return false;
+        }
+
+        return (bool) GetValueBoolean($varID);
+    }
     private function BuildOutputScreenEntryHtml(array $resource, array $payload, array $house, string $groupLabel): string
     {
         $eventTimestamp = (int) ($payload['timestamp'] ?? time());
@@ -2560,6 +2583,19 @@ document.addEventListener("DOMContentLoaded", () => {
                             . ' severity=' . $severity,
                         KL_MESSAGE
                     );
+                    continue;
+                }
+
+                if ($this->IsOutputKillSwitchActive()) {
+                    $this->LogMessage(
+                        'ReevaluateCurrentAlarmContext: output suppressed by OutputKillSwitch'
+                            . ' match=' . $matchKey
+                            . ' OutputID=' . $outputID
+                            . ' rule=' . $ruleID
+                            . ' severity=' . $severity,
+                        KL_MESSAGE
+                    );
+
                     continue;
                 }
 
