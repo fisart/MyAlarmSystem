@@ -5,6 +5,11 @@
       "caption": "Heartbeat Sender",
       "items": [
         {
+          "type": "CheckBox",
+          "name": "HeartbeatEnabled",
+          "caption": "Heartbeat function enabled"
+        },
+        {
           "type": "SelectVariable",
           "name": "HeartbeatInputVariableID",
           "caption": "Heartbeat input variable",

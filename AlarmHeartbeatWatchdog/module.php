@@ -12,6 +12,7 @@ class AlarmHeartbeatWatchdog extends IPSModule
     {
         parent::Create();
 
+        $this->RegisterPropertyBoolean('HeartbeatEnabled', true);
         $this->RegisterPropertyInteger('HeartbeatInputVariableID', 0);
         $this->RegisterPropertyInteger('CycleIntervalSeconds', 60);
         $this->RegisterPropertyInteger('ResetDelayMs', 1500);
@@ -58,7 +59,13 @@ class AlarmHeartbeatWatchdog extends IPSModule
 
         $inputID = $this->ReadPropertyInteger('HeartbeatInputVariableID');
         $watchList = $this->GetActiveWatchList();
-
+        if (!$this->ReadPropertyBoolean('HeartbeatEnabled')) {
+            $this->SetStatus(self::STATUS_ACTIVE);
+            $this->SetTimerInterval('HeartbeatTimer', 0);
+            $this->SetValueSafe('LastCheckText', 'Heartbeat function disabled / ' . date('Y-m-d H:i:s'));
+            $this->RebuildStatus();
+            return;
+        }
         if ($inputID <= 0 || !IPS_VariableExists($inputID)) {
             $this->SetStatus(self::STATUS_NO_INPUT);
             $this->SetTimerInterval('HeartbeatTimer', 0);
@@ -89,6 +96,10 @@ class AlarmHeartbeatWatchdog extends IPSModule
 
     public function RunCycle(): void
     {
+        if (!$this->ReadPropertyBoolean('HeartbeatEnabled')) {
+            $this->LogDebug('RunCycle skipped: heartbeat function disabled');
+            return;
+        }
         $lockName = 'AHW_RunCycle_' . $this->InstanceID;
         if (!IPS_SemaphoreEnter($lockName, 1000)) {
             $this->LogDebug('RunCycle skipped: semaphore busy');
