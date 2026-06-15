@@ -3,10 +3,11 @@
 declare(strict_types=1);
 
 // AlarmHeartbeatWatchdog module.php
-// Version: 1.3.2-diagnostic
-// Heartbeat token mode: milliseconds since midnight
+// Version: 1.4.0
+// Heartbeat token mode: milliseconds since midnight used as an integer correlation token
+// Pulse model: token is active only for PulseDurationMs/ResetDelayMs, then HeartbeatInputVariableID is reset to 0
 // Delivery confirmation mode: internal RegisterMessage/MessageSink for Module 3 output variables
-// Notes: Adds temporary AHW_MSGSINK_DIAG diagnostics for RegisterMessage/MessageSink verification.
+// Notes: VALUE_PRESENT_NO_EVENT is a warning state and does not trigger email notifications.
 
 class AlarmHeartbeatWatchdog extends IPSModule
 {
@@ -21,7 +22,7 @@ class AlarmHeartbeatWatchdog extends IPSModule
         $this->RegisterPropertyBoolean('HeartbeatEnabled', true);
         $this->RegisterPropertyInteger('HeartbeatInputVariableID', 0);
         $this->RegisterPropertyInteger('CycleIntervalSeconds', 60);
-        $this->RegisterPropertyInteger('ResetDelayMs', 1500);
+        $this->RegisterPropertyInteger('ResetDelayMs', 2000);
         $this->RegisterPropertyInteger('DeliveryTimeoutSeconds', 60);
         $this->RegisterPropertyInteger('Module1MaxAgeSeconds', 180);
         $this->RegisterPropertyInteger('SmtpInstanceID', 0);
@@ -108,52 +109,21 @@ class AlarmHeartbeatWatchdog extends IPSModule
 
     public function MessageSink($TimeStamp, $SenderID, $Message, $Data): void
     {
-        $this->LogMessage(
-            'AHW_MSGSINK_DIAG MessageSink received: TimeStamp=' . (string)$TimeStamp .
-                ', SenderID=' . (string)$SenderID .
-                ', Message=' . (string)$Message .
-                ', VM_UPDATE=' . (string)VM_UPDATE .
-                ', Data=' . json_encode($Data, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
-            KL_MESSAGE
-        );
-
         if ($Message !== VM_UPDATE) {
-            $this->LogMessage(
-                'AHW_MSGSINK_DIAG MessageSink ignored: message is not VM_UPDATE. SenderID=' . (string)$SenderID .
-                    ', Message=' . (string)$Message .
-                    ', expected VM_UPDATE=' . (string)VM_UPDATE,
-                KL_MESSAGE
-            );
             return;
         }
 
         $varID = (int)$SenderID;
         $watch = $this->FindWatchByOutputVariableID($varID);
         if (count($watch) === 0) {
-            $this->LogMessage(
-                'AHW_MSGSINK_DIAG MessageSink ignored: sender is not in active WatchList. SenderID=' . $varID,
-                KL_MESSAGE
-            );
             return;
         }
 
         if (!IPS_VariableExists($varID)) {
-            $this->LogMessage(
-                'AHW_MSGSINK_DIAG MessageSink ignored: variable no longer exists. SenderID=' . $varID,
-                KL_MESSAGE
-            );
             return;
         }
 
         $value = (int)GetValue($varID);
-
-        $this->LogMessage(
-            'AHW_MSGSINK_DIAG MessageSink accepted Module 3 heartbeat update: variable=' . $varID .
-                ', target=' . (string)($watch['Name'] ?? 'Unnamed target') .
-                ', value=' . $value,
-            KL_MESSAGE
-        );
-
         $this->HandleWatchedOutputUpdate($watch, $value);
     }
 
@@ -190,17 +160,14 @@ class AlarmHeartbeatWatchdog extends IPSModule
             throw new Exception('Heartbeat function is disabled.');
         }
 
-        $resetDelayMs = max(0, $this->ReadPropertyInteger('ResetDelayMs'));
+        // Backward compatibility: the existing property ResetDelayMs is now interpreted as
+        // pulse duration. The heartbeat token is active only for this period, then the
+        // input variable is reset to 0 and remains inactive until the next cycle.
+        $pulseDurationMs = max(0, $this->ReadPropertyInteger('ResetDelayMs'));
         $timeoutMs = $this->GetDeliveryTimeoutMilliseconds();
-
-        SetValue($inputID, 0);
-        if ($resetDelayMs > 0) {
-            IPS_Sleep($resetDelayMs);
-        }
 
         $tokenMs = $this->GetDayMilliseconds();
         $deadlineMs = $this->AddDayMilliseconds($tokenMs, $timeoutMs);
-        SetValue($inputID, $tokenMs);
 
         $this->WriteAttributeInteger('PendingTimestamp', $tokenMs);
         $this->WriteAttributeInteger('PendingSentAt', $tokenMs);
@@ -213,7 +180,18 @@ class AlarmHeartbeatWatchdog extends IPSModule
         $this->SetValueSafe('PendingTimestamp', $tokenMs);
         $this->SetValueSafe('PendingDeadline', $deadlineMs);
 
-        $this->LogDebug('Heartbeat sent token_ms=' . $tokenMs . ' / ' . $this->FormatDayMilliseconds($tokenMs));
+        SetValue($inputID, $tokenMs);
+        if ($pulseDurationMs > 0) {
+            IPS_Sleep($pulseDurationMs);
+        }
+        SetValue($inputID, 0);
+
+        $this->LogDebug(
+            'Heartbeat pulse sent token_ms=' . $tokenMs .
+                ' / ' . $this->FormatDayMilliseconds($tokenMs) .
+                ', pulse_duration_ms=' . $pulseDurationMs .
+                ', then reset to 0'
+        );
         return $tokenMs;
     }
 
@@ -318,6 +296,51 @@ class AlarmHeartbeatWatchdog extends IPSModule
 
         $this->SetValueSafe('OverallOK', true);
         $this->RebuildStatus();
+    }
+
+    public function GetHeartbeatHistory(): string
+    {
+        $historyJson = $this->ReadAttributeString('HeartbeatHistoryJson');
+        $decoded = json_decode($historyJson, true);
+
+        if (!is_array($decoded)) {
+            return '[]';
+        }
+
+        return json_encode(
+            $decoded,
+            JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE
+        ) ?: '[]';
+    }
+
+    public function GetCurrentStatus(): string
+    {
+        $statusJson = $this->ReadAttributeString('LastCheckJson');
+        $decoded = json_decode($statusJson, true);
+
+        if (!is_array($decoded)) {
+            return '{}';
+        }
+
+        return json_encode(
+            $decoded,
+            JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE
+        ) ?: '{}';
+    }
+
+    public function GetDiagnosticSnapshot(): string
+    {
+        $snapshot = [
+            'generated_at' => time(),
+            'generated_at_text' => date('Y-m-d H:i:s'),
+            'current_status' => json_decode($this->GetCurrentStatus(), true),
+            'heartbeat_history' => json_decode($this->GetHeartbeatHistory(), true)
+        ];
+
+        return json_encode(
+            $snapshot,
+            JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE
+        ) ?: '{}';
     }
 
     private function CheckPendingHeartbeat(): array
@@ -590,7 +613,7 @@ class AlarmHeartbeatWatchdog extends IPSModule
             'config' => [
                 'heartbeat_input_variable_id' => $this->ReadPropertyInteger('HeartbeatInputVariableID'),
                 'cycle_interval_seconds' => $this->ReadPropertyInteger('CycleIntervalSeconds'),
-                'reset_delay_ms' => $this->ReadPropertyInteger('ResetDelayMs'),
+                'pulse_duration_ms' => $this->ReadPropertyInteger('ResetDelayMs'),
                 'delivery_timeout_seconds' => $this->ReadPropertyInteger('DeliveryTimeoutSeconds'),
                 'module1_max_age_seconds' => $this->ReadPropertyInteger('Module1MaxAgeSeconds')
             ]
@@ -691,7 +714,7 @@ class AlarmHeartbeatWatchdog extends IPSModule
         $html .= $this->HtmlRow('Token mode', 'milliseconds since midnight');
         $html .= $this->HtmlRow('New heartbeat token', (string)($report['new_heartbeat_timestamp'] ?? '-'));
         $html .= $this->HtmlRow('New heartbeat time', (string)($report['new_heartbeat_text'] ?? '-'));
-        $html .= $this->HtmlRow('Reset delay', (string)$this->ReadPropertyInteger('ResetDelayMs') . ' ms');
+        $html .= $this->HtmlRow('Pulse duration', (string)$this->ReadPropertyInteger('ResetDelayMs') . ' ms');
         $html .= '</table>';
 
         if (!empty($previous['checked'])) {
@@ -1128,41 +1151,11 @@ class AlarmHeartbeatWatchdog extends IPSModule
         $previous = $this->ReadRegisteredWatchVariableIDs();
         $current = [];
 
-        $this->LogMessage(
-            'AHW_MSGSINK_DIAG SyncWatchedOutputMessages started. Previous registered variables=' .
-                json_encode($previous, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
-            KL_MESSAGE
-        );
-
         foreach ($activeWatchList as $watch) {
             $varID = (int)($watch['OutputVariableID'] ?? 0);
-            $name = (string)($watch['Name'] ?? 'Unnamed target');
-
-            if ($varID <= 0) {
-                $this->LogMessage(
-                    'AHW_MSGSINK_DIAG SyncWatchedOutputMessages skipped invalid WatchList row: target=' . $name .
-                        ', OutputVariableID=' . $varID,
-                    KL_MESSAGE
-                );
-                continue;
+            if ($varID > 0 && IPS_VariableExists($varID)) {
+                $current[] = $varID;
             }
-
-            if (!IPS_VariableExists($varID)) {
-                $this->LogMessage(
-                    'AHW_MSGSINK_DIAG SyncWatchedOutputMessages skipped missing variable: target=' . $name .
-                        ', OutputVariableID=' . $varID,
-                    KL_MESSAGE
-                );
-                continue;
-            }
-
-            $current[] = $varID;
-
-            $this->LogMessage(
-                'AHW_MSGSINK_DIAG SyncWatchedOutputMessages active target found: target=' . $name .
-                    ', OutputVariableID=' . $varID,
-                KL_MESSAGE
-            );
         }
 
         $current = array_values(array_unique($current));
@@ -1170,33 +1163,18 @@ class AlarmHeartbeatWatchdog extends IPSModule
         foreach ($previous as $oldVarID) {
             if (!in_array($oldVarID, $current, true)) {
                 $this->UnregisterMessage($oldVarID, VM_UPDATE);
-                $this->LogMessage(
-                    'AHW_MSGSINK_DIAG Unregistered VM_UPDATE for old Module 3 output variable ' . $oldVarID,
-                    KL_MESSAGE
-                );
+                $this->LogDebug('Unregistered Module 3 output update message for variable ' . $oldVarID);
             }
         }
 
         foreach ($current as $newVarID) {
-            $this->RegisterMessage($newVarID, VM_UPDATE);
-            $this->LogMessage(
-                'AHW_MSGSINK_DIAG Registered VM_UPDATE for Module 3 output variable ' . $newVarID .
-                    ', VM_UPDATE=' . (string)VM_UPDATE,
-                KL_MESSAGE
-            );
+            if (!in_array($newVarID, $previous, true)) {
+                $this->RegisterMessage($newVarID, VM_UPDATE);
+                $this->LogDebug('Registered Module 3 output update message for variable ' . $newVarID);
+            }
         }
 
-        $this->WriteAttributeString(
-            'RegisteredWatchVariableIDsJson',
-            json_encode($current, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)
-        );
-
-        $messageList = $this->GetMessageList();
-        $this->LogMessage(
-            'AHW_MSGSINK_DIAG Current module message list after registration: ' .
-                json_encode($messageList, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
-            KL_MESSAGE
-        );
+        $this->WriteAttributeString('RegisteredWatchVariableIDsJson', json_encode($current, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
     }
 
     private function ReadRegisteredWatchVariableIDs(): array

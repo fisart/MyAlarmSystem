@@ -18,14 +18,14 @@
         {
           "type": "NumberSpinner",
           "name": "CycleIntervalSeconds",
-          "caption": "Cycle interval seconds",
+          "caption": "Heartbeat interval seconds",
           "minimum": 10,
           "maximum": 3600
         },
         {
           "type": "NumberSpinner",
           "name": "ResetDelayMs",
-          "caption": "Reset delay milliseconds",
+          "caption": "Pulse duration milliseconds",
           "minimum": 0,
           "maximum": 10000
         },
