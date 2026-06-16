@@ -1,7 +1,7 @@
 <?php
 
 declare(strict_types=1);
-// 7.5.4
+// 7.5.5
 class AlarmResponseManager extends IPSModule
 {
     private const HOUSE_STATES = [
@@ -4045,6 +4045,55 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     }
 
+    private function SendScriptOutputResource(array $resource, array $payload, array $house, string $groupLabel): bool
+    {
+        $typeID = trim((string) ($resource['TypeID'] ?? ''));
+        $targetObjectID = (int) ($resource['TargetObjectID'] ?? 0);
+        $message = $this->BuildOutputMessageText($resource, $payload);
+
+        $this->LogMessage('SendScriptOutputResource: TypeID=' . $typeID, KL_MESSAGE);
+        $this->LogMessage('SendScriptOutputResource: TargetObjectID=' . $targetObjectID, KL_MESSAGE);
+        $this->LogMessage('SendScriptOutputResource: GroupLabel=' . $groupLabel, KL_MESSAGE);
+        $this->LogMessage('SendScriptOutputResource: Message=' . $message, KL_MESSAGE);
+
+        if ($typeID !== 'script') {
+            $this->LogMessage('SendScriptOutputResource: invalid script type', KL_MESSAGE);
+            return false;
+        }
+
+        if ($targetObjectID <= 0 || !@IPS_ObjectExists($targetObjectID)) {
+            $this->LogMessage('SendScriptOutputResource: invalid target object', KL_MESSAGE);
+            return false;
+        }
+
+        $object = @IPS_GetObject($targetObjectID);
+        if (!is_array($object) || (int) ($object['ObjectType'] ?? -1) !== 3) {
+            $this->LogMessage('SendScriptOutputResource: target object is not a script', KL_MESSAGE);
+            return false;
+        }
+
+        $parameters = [
+            'OutputID'      => trim((string) ($resource['OutputID'] ?? '')),
+            'OutputName'    => trim((string) ($resource['Name'] ?? '')),
+            'GroupLabel'    => $groupLabel,
+            'Message'       => $message,
+            'HouseStateID'  => (string) ((int) ($house['system_state_id'] ?? 0)),
+            'HouseStateName' => (string) ($house['system_state_name'] ?? ''),
+            'EventEpoch'    => (string) ($payload['event_epoch'] ?? '0'),
+            'EventSeq'      => (int) ($payload['event_seq'] ?? 0),
+            'PayloadJson'   => json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)
+        ];
+
+        try {
+            IPS_RunScriptEx($targetObjectID, $parameters);
+            $this->LogMessage('SendScriptOutputResource: IPS_RunScriptEx executed successfully', KL_MESSAGE);
+            return true;
+        } catch (Throwable $e) {
+            $this->LogMessage('SendScriptOutputResource failed: ' . $e->getMessage(), KL_MESSAGE);
+            return false;
+        }
+    }
+
     private function SendVoipOutputResource(array $resource, array $payload, array $house, string $groupLabel): bool
     {
         $typeID = trim((string) ($resource['TypeID'] ?? ''));
@@ -4141,6 +4190,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
         if ($typeID === 'request_action') {
             return $this->SendRequestActionOutputResource($resource, $payload, $house, $groupLabel);
+        }
+
+        if ($typeID === 'script') {
+            return $this->SendScriptOutputResource($resource, $payload, $house, $groupLabel);
         }
 
         if ($typeID === 'voip') {
