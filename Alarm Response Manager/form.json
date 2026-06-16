@@ -38,6 +38,10 @@
           "caption": "Target Object ID must be a script or an instance."
         },
         {
+          "type": "Label",
+          "caption": "Use the Test Selected Output button in the row editor to execute an output directly without a Module 1 event. This really triggers the configured output."
+        },
+        {
           "type": "List",
           "name": "OutputResources",
           "caption": "Output Resources",
@@ -420,6 +424,11 @@
               "type": "NumberSpinner",
               "name": "SuffixOrder",
               "caption": "Suffix Order"
+            },
+            {
+              "type": "Button",
+              "caption": "Test Selected Output",
+              "onClick": "IPS_RequestAction($id, \"UI_TestOutputResource\", $OutputID);"
             }
           ],
           "values": []

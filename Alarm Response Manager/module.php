@@ -1,7 +1,7 @@
 <?php
 
 declare(strict_types=1);
-// 7.5.5
+// 7.6.0
 class AlarmResponseManager extends IPSModule
 {
     private const HOUSE_STATES = [
@@ -269,10 +269,196 @@ class AlarmResponseManager extends IPSModule
                     throw $e;
                 }
                 break;
+            case 'UI_TestOutputResource':
+                try {
+                    $this->HandleTestOutputResourceAction($Value);
+                } catch (Throwable $e) {
+                    $this->LogMessage('UI_TestOutputResource failed: ' . $e->getMessage(), KL_MESSAGE);
+                    throw $e;
+                }
+                break;
 
             default:
                 throw new Exception('Invalid Ident');
         }
+    }
+
+
+    private function HandleTestOutputResourceAction($value): void
+    {
+        $outputID = '';
+
+        if (is_array($value)) {
+            $outputID = trim((string) ($value['OutputID'] ?? $value['output_id'] ?? ''));
+        } else {
+            $raw = trim((string) $value);
+
+            if ($raw !== '' && ($raw[0] ?? '') === '{') {
+                $data = json_decode($raw, true);
+
+                if (is_array($data)) {
+                    $outputID = trim((string) ($data['OutputID'] ?? $data['output_id'] ?? ''));
+                }
+            } else {
+                $outputID = $raw;
+            }
+        }
+
+        if ($outputID === '') {
+            throw new Exception('Manual output test failed: OutputID is missing.');
+        }
+
+        $this->TestOutputResourceByID($outputID);
+    }
+
+
+    private function TestOutputResourceByID(string $outputID): void
+    {
+        $outputID = trim($outputID);
+
+        if ($outputID === '') {
+            throw new Exception('Manual output test failed: OutputID is empty.');
+        }
+
+        $resource = $this->FindOutputResourceByID($outputID);
+
+        if ($resource === null) {
+            throw new Exception('Manual output test failed: OutputID not found: ' . $outputID);
+        }
+
+        $resourceName = trim((string) ($resource['Name'] ?? ''));
+        $typeID = trim((string) ($resource['TypeID'] ?? ''));
+        $targetObjectID = (int) ($resource['TargetObjectID'] ?? 0);
+
+        if (!(bool) ($resource['Active'] ?? true)) {
+            $this->LogMessage(
+                'Manual output test warning: output is inactive but will be tested. OutputID=' . $outputID,
+                KL_MESSAGE
+            );
+        }
+
+        $payload = $this->BuildManualOutputTestPayload($resource);
+        $house = $this->BuildManualOutputTestHouseSnapshot();
+        $groupLabel = 'Manual Output Test';
+
+        $this->LogMessage(
+            'Manual output test started: OutputID=' . $outputID
+                . ' Name=' . ($resourceName !== '' ? $resourceName : '[unnamed]')
+                . ' TypeID=' . $typeID
+                . ' TargetObjectID=' . $targetObjectID,
+            KL_MESSAGE
+        );
+
+        $ok = $this->ExecuteOutputResource($resource, $payload, $house, $groupLabel);
+
+        if (!$ok) {
+            throw new Exception(
+                'Manual output test failed during ExecuteOutputResource. OutputID='
+                    . $outputID
+                    . ' TypeID='
+                    . $typeID
+            );
+        }
+
+        $this->LogMessage(
+            'Manual output test successful: OutputID=' . $outputID
+                . ' TypeID=' . $typeID
+                . ' TargetObjectID=' . $targetObjectID,
+            KL_MESSAGE
+        );
+    }
+
+
+    private function FindOutputResourceByID(string $outputID): ?array
+    {
+        $outputID = trim($outputID);
+
+        if ($outputID === '') {
+            return null;
+        }
+
+        foreach ($this->readListProperty('OutputResources') as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            if (trim((string) ($row['OutputID'] ?? '')) === $outputID) {
+                return $row;
+            }
+        }
+
+        return null;
+    }
+
+
+    private function BuildManualOutputTestHouseSnapshot(): array
+    {
+        return [
+            'system_state_id'   => 9,
+            'system_state_name' => 'Alarm',
+            'source'            => 'manual_output_test',
+            'is_test'           => true,
+            'received_at'       => time()
+        ];
+    }
+
+
+    private function BuildManualOutputTestPayload(array $resource): array
+    {
+        $outputID = trim((string) ($resource['OutputID'] ?? ''));
+        $outputName = trim((string) ($resource['Name'] ?? ''));
+        $typeID = trim((string) ($resource['TypeID'] ?? ''));
+
+        $eventEpoch = sprintf('%.0f', microtime(true) * 1000);
+        $message = 'Manual output test from ' . IPS_GetName($this->InstanceID);
+
+        if ($outputName !== '') {
+            $message .= ' for output "' . $outputName . '"';
+        } elseif ($outputID !== '') {
+            $message .= ' for output ' . $outputID;
+        }
+
+        $triggerDetail = [
+            'VariableID'       => 0,
+            'SensorName'       => 'Manual Test Sensor',
+            'ParentName'       => 'Manual Test Parent',
+            'GrandParentName'  => 'Manual Test Area',
+            'smart_label'      => 'Manual Test Sensor',
+            'value_human'      => $message,
+            'value_raw'        => $message,
+            'content'          => $message,
+            'is_test'          => true
+        ];
+
+        return [
+            'schema_version'                  => 1,
+            'payload_type'                    => 'ALARM',
+            'event_type'                      => 'MANUAL_OUTPUT_TEST',
+            'event_id'                        => 'manual_output_test_' . $eventEpoch,
+            'event_epoch'                     => $eventEpoch,
+            'event_seq'                       => 0,
+            'timestamp'                       => time(),
+            'source'                          => 'Module3ManualOutputTest',
+            'source_instance_id'              => $this->InstanceID,
+            'target_instance_id'              => $this->InstanceID,
+            'is_test'                         => true,
+
+            'active_groups'                   => ['Manual Output Test'],
+            'active_classes'                  => ['Manual Test Class'],
+            'active_sensor_details'           => [$triggerDetail],
+
+            'target_active_groups'            => ['Manual Output Test'],
+            'target_active_classes'           => ['Manual Test Class'],
+            'target_trigger_details'          => $triggerDetail,
+            'target_active_sensor_details'    => [$triggerDetail],
+
+            'manual_output_test'              => [
+                'output_id'        => $outputID,
+                'output_name'      => $outputName,
+                'type_id'          => $typeID,
+                'target_object_id' => (int) ($resource['TargetObjectID'] ?? 0)
+            ]
+        ];
     }
 
     private function IsOutputKillSwitchActive(): bool
