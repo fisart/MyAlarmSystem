@@ -1,7 +1,7 @@
 <?php
 
 declare(strict_types=1);
-// 7.4.0
+// 7.4.1
 class AlarmResponseManager extends IPSModule
 {
     private const HOUSE_STATES = [
@@ -2189,6 +2189,7 @@ svgEl.style.width = "100%";
 svgEl.style.height = "100%";
 svgEl.style.maxWidth = "none";
 svgEl.style.touchAction = "none";
+attachMermaidNodeSelectionHandlers(svgEl);
 
 pzInstance = svgPanZoom(svgEl, {
     zoomEnabled: true,
@@ -4923,8 +4924,67 @@ function extractMermaidNodeMetadata(graphString) {
 
     return result;
 }
+
+function cssEscapeCompat(value) {
+    if (window.CSS && typeof window.CSS.escape === "function") {
+        return window.CSS.escape(value);
+    }
+
+    return String(value).replace(/[^a-zA-Z0-9_-]/g, "\\$&");
+}
+
+function findRenderedMermaidNode(svgEl, nodeID) {
+    const escaped = cssEscapeCompat(nodeID);
+
+    const selectors = [
+        "#" + escaped,
+        "[id='" + nodeID + "']",
+        "[id^='flowchart-" + nodeID + "-']",
+        "[id*='" + nodeID + "']"
+    ];
+
+    for (const selector of selectors) {
+        try {
+            const found = svgEl.querySelector(selector);
+            if (found) {
+                return found;
+            }
+        } catch (err) {
+            // Ignore invalid selector attempts and continue.
+        }
+    }
+
+    return null;
+}
+
+function attachMermaidNodeSelectionHandlers(svgEl) {
+    if (!svgEl || !mermaidNodeMetadata) {
+        return;
+    }
+
+    Object.keys(mermaidNodeMetadata).forEach((nodeID) => {
+        const nodeEl = findRenderedMermaidNode(svgEl, nodeID);
+
+        if (!nodeEl) {
+            console.warn("Mermaid node element not found for metadata node", nodeID);
+            return;
+        }
+
+        nodeEl.style.cursor = "pointer";
+
+        nodeEl.addEventListener("click", function(ev) {
+            ev.preventDefault();
+            ev.stopPropagation();
+            window.selectMermaidNode(nodeID);
+        }, true);
+    });
+}
 JS;
     }
+
+
+
+
     private function BuildMappingGraph(): string
     {
         $depth = $this->GetGraphDepth();
