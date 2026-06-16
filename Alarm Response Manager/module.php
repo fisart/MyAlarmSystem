@@ -1,7 +1,7 @@
 <?php
 
 declare(strict_types=1);
-// 7.5.1
+// 7.5.2 
 class AlarmResponseManager extends IPSModule
 {
     private const HOUSE_STATES = [
@@ -1615,14 +1615,28 @@ class AlarmResponseManager extends IPSModule
     private function GetEffectiveRuleOutputAssignments(): array
     {
         $matrixRows = $this->readListProperty('AssignmentMatrixConfig');
+
         if (count($matrixRows) === 0) {
             return $this->readListProperty('RuleOutputAssignments');
         }
 
-        $groupStateRules = $this->readListProperty('GroupStateRules');
+        $importedGroups = $this->ExtractImportedGroupsFromConfig();
+        $matrixRows = $this->NormalizeAssignmentMatrixRows($matrixRows, $importedGroups);
+
+        /*
+     * Important:
+     * Use the effective rule set, not the legacy GroupStateRules property directly.
+     * The Mermaid chart and the matrix UI are both based on effective rules.
+     * If we use only GroupStateRules here, a newly updated AssignmentMatrixConfig
+     * cell can fail to become an effective runtime/chart assignment.
+     */
+        $groupStateRules = $this->GetEffectiveGroupStateRules();
+        $groupStateRules = $this->EnsureEffectiveRuleIDs($groupStateRules);
+
         $ruleMap = $this->BuildGroupStateRuleMap($groupStateRules);
 
         $result = [];
+
         foreach ($matrixRows as $row) {
             if (!is_array($row)) {
                 continue;
@@ -1632,6 +1646,7 @@ class AlarmResponseManager extends IPSModule
 
             $outputID = trim((string) ($row['OutputID'] ?? ''));
             $groupKey = trim((string) ($row['GroupKey'] ?? ''));
+
             if ($outputID === '' || $groupKey === '') {
                 continue;
             }
@@ -1642,7 +1657,17 @@ class AlarmResponseManager extends IPSModule
                 }
 
                 $ruleID = $ruleMap[$groupKey . '|' . $state] ?? '';
+
                 if ($ruleID === '') {
+                    $this->LogMessage(
+                        'GetEffectiveRuleOutputAssignments: no RuleID for GroupKey='
+                            . $groupKey
+                            . ' HouseState='
+                            . $state
+                            . ' OutputID='
+                            . $outputID,
+                        KL_MESSAGE
+                    );
                     continue;
                 }
 
@@ -1655,7 +1680,7 @@ class AlarmResponseManager extends IPSModule
             }
         }
 
-        return $result;
+        return array_values($result);
     }
 
     private function GetGraphStateFilter(): string
