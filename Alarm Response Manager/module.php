@@ -1,7 +1,7 @@
 <?php
 
 declare(strict_types=1);
-// 7.3.2
+// 7.3.3
 class AlarmResponseManager extends IPSModule
 {
     private const HOUSE_STATES = [
@@ -4191,7 +4191,7 @@ document.addEventListener("DOMContentLoaded", () => {
         $stateLabel = $this->labelFromOptions(self::HOUSE_STATES, $stateID);
 
         $lines = [];
-        $lines[] = 'Module 3 alarm notification';
+        $lines[] = IPS_GetName($this->InstanceID) . ' alarm notification';
         $lines[] = '';
         $lines[] = 'Group: ' . $groupLabel;
         $lines[] = 'House State: ' . ($stateLabel !== '' ? $stateLabel : $stateID);
