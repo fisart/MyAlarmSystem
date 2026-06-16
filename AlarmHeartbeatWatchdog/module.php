@@ -447,112 +447,131 @@ class AlarmHeartbeatWatchdog extends IPSModule
         ];
     }
 
-    private function CheckModule1(int $pending, int $sentAt, int $deadline, int $nowSeconds, int $nowMs): array
+    private function CheckModule1(int $pending, int $sentAt, int $deadline, int $now): array
     {
         $lastSeen = (int)$this->GetValueSafe('Module1LastSeen', 0);
         $lastHeartbeat = (int)$this->GetValueSafe('Module1LastHeartbeatTimestamp', 0);
+        $runtime = (int)$this->GetValueSafe('Module1RuntimeSeconds', -1);
         $maxAge = max(5, $this->ReadPropertyInteger('Module1MaxAgeSeconds'));
-        $seenAge = ($lastSeen > 0) ? $nowSeconds - $lastSeen : PHP_INT_MAX;
 
-        // Primary success path: ReceivePayload() records the Module 1 arrival immediately with millisecond precision.
-        $recordedTarget = $this->FindHeartbeatHistoryTarget($pending, 'Module 1 callback');
-        if (count($recordedTarget) > 0) {
-            $state = (string)($recordedTarget['state'] ?? 'UNKNOWN');
-            $runtimeMs = (int)($recordedTarget['runtime_ms'] ?? -1);
-            $lateMs = (int)($recordedTarget['late_ms'] ?? -1);
-            $message = (string)($recordedTarget['message'] ?? '-');
-            $recordedValue = (int)($recordedTarget['value'] ?? $pending);
+        $seenAge = ($lastSeen > 0) ? $now - $lastSeen : PHP_INT_MAX;
+        $state = 'UNKNOWN';
+        $message = 'Unknown Module 1 callback state.';
+        $lateSeconds = -1;
 
-            if ($state === 'OK' && $seenAge > $maxAge) {
-                $state = 'STALE';
-                $message = 'Module 1 callback is stale.';
+        /*
+     * Important for the short-pulse heartbeat model:
+     *
+     * A heartbeat token is valid once Module 1 has confirmed the expected token.
+     * The later reset-to-0 callback and the age of the last callback must not turn
+     * an already matched heartbeat token into MISSING or STALE.
+     */
+        $historyEntry = $this->FindHeartbeatHistoryEntry($pending);
+        $historyTargets = $historyEntry['targets'] ?? [];
+        $historyModule1 = [];
+
+        if (is_array($historyTargets) && isset($historyTargets['Module 1 callback']) && is_array($historyTargets['Module 1 callback'])) {
+            $historyModule1 = $historyTargets['Module 1 callback'];
+        }
+
+        if (count($historyModule1) > 0) {
+            $historyState = (string)($historyModule1['state'] ?? '');
+            $historyValue = (int)($historyModule1['value'] ?? 0);
+            $historyUpdated = (int)($historyModule1['updated'] ?? 0);
+            $historyRuntime = (int)($historyModule1['runtime_seconds'] ?? -1);
+            $historyLateSeconds = (int)($historyModule1['late_seconds'] ?? -1);
+            $historyMessage = (string)($historyModule1['message'] ?? 'OK');
+
+            if ($historyValue === $pending && ($historyState === 'OK' || $historyState === 'LATE')) {
+                return [
+                    'name' => 'Module 1 callback',
+                    'ok' => ($historyState === 'OK'),
+                    'state' => $historyState,
+                    'last_seen' => $historyUpdated,
+                    'last_seen_text' => $historyUpdated > 0 ? date('Y-m-d H:i:s', $historyUpdated) : '-',
+                    'last_heartbeat' => $historyValue,
+                    'expected' => $pending,
+                    'runtime_seconds' => $historyRuntime,
+                    'age_seconds' => $historyUpdated > 0 ? ($now - $historyUpdated) : -1,
+                    'late_seconds' => $historyLateSeconds,
+                    'message' => $historyMessage
+                ];
+            }
+        }
+
+        if ($lastHeartbeat === $pending) {
+            if ($lastSeen > $deadline) {
+                $state = 'LATE';
+                $lateSeconds = $lastSeen - $deadline;
+                $message = 'Module 1 callback arrived late by ' . $lateSeconds . ' seconds.';
+            } else {
+                /*
+             * Corrected:
+             * Do not mark the expected token as STALE merely because the check
+             * happens after the callback is older than Module1MaxAgeSeconds.
+             *
+             * For this specific pending token, equality is the decisive proof.
+             */
+                $state = 'OK';
+                $message = 'OK';
+            }
+        } else {
+            if ($lastHeartbeat > 0) {
+                $oldHistoryEntry = $this->FindHeartbeatHistoryEntry($lastHeartbeat);
+                if (count($oldHistoryEntry) > 0) {
+                    $oldDeadline = (int)($oldHistoryEntry['deadline'] ?? 0);
+                    $oldLateSeconds = ($oldDeadline > 0 && $lastSeen > $oldDeadline) ? ($lastSeen - $oldDeadline) : -1;
+                    $oldState = ($oldLateSeconds > 0) ? 'LATE' : 'OK';
+                    $oldMessage = ($oldState === 'LATE')
+                        ? 'Module 1 callback arrived late by ' . $oldLateSeconds . ' seconds.'
+                        : 'OK';
+
+                    $this->UpdateHeartbeatHistoryTarget(
+                        $lastHeartbeat,
+                        'Module 1 callback',
+                        $oldState,
+                        $lastHeartbeat,
+                        $lastSeen,
+                        $runtime,
+                        $oldLateSeconds,
+                        $oldMessage
+                    );
+                }
             }
 
-            return [
-                'name' => 'Module 1 callback',
-                'ok' => ($state === 'OK'),
-                'warning' => false,
-                'state' => $state,
-                'last_seen' => $lastSeen,
-                'last_seen_text' => $lastSeen > 0 ? date('Y-m-d H:i:s', $lastSeen) : '-',
-                'last_heartbeat' => $recordedValue,
-                'expected' => $pending,
-                'runtime_ms' => $runtimeMs,
-                'runtime_seconds' => $runtimeMs >= 0 ? (int)floor($runtimeMs / 1000) : -1,
-                'age_seconds' => $seenAge === PHP_INT_MAX ? -1 : $seenAge,
-                'late_ms' => $lateMs,
-                'late_seconds' => $lateMs >= 0 ? (int)floor($lateMs / 1000) : -1,
-                'message' => $message
-            ];
+            if ($now > $deadline) {
+                $state = 'MISSING';
+                $message = 'Module 1 callback for expected heartbeat is missing.';
+            } else {
+                $state = 'WAITING';
+                $message = 'Waiting for Module 1 callback.';
+            }
         }
 
-        $downstreamConfirmation = $this->FindDownstreamHeartbeatConfirmation($pending);
-        if (count($downstreamConfirmation) > 0) {
-            $state = 'OK';
-            $message = 'OK inferred from downstream Module 3 confirmation.';
-
-            $this->UpdateHeartbeatHistoryTarget(
-                $pending,
-                'Module 1 callback',
-                $state,
-                $pending,
-                0,
-                -1,
-                -1,
-                $message
-            );
-
-            return [
-                'name' => 'Module 1 callback',
-                'ok' => true,
-                'warning' => false,
-                'state' => $state,
-                'last_seen' => $lastSeen,
-                'last_seen_text' => $lastSeen > 0 ? date('Y-m-d H:i:s', $lastSeen) : '-',
-                'last_heartbeat' => $pending,
-                'expected' => $pending,
-                'runtime_ms' => -1,
-                'runtime_seconds' => -1,
-                'age_seconds' => $seenAge === PHP_INT_MAX ? -1 : $seenAge,
-                'late_ms' => -1,
-                'late_seconds' => -1,
-                'message' => $message
-            ];
-        }
-
-        if ($this->IsDeadlineExceeded($sentAt, $deadline, $nowMs)) {
-            $state = 'MISSING';
-            $message = 'Module 1 callback for expected heartbeat is missing.';
-        } else {
-            $state = 'WAITING';
-            $message = 'Waiting for Module 1 callback.';
-        }
+        $ok = ($state === 'OK');
 
         $this->UpdateHeartbeatHistoryTarget(
             $pending,
             'Module 1 callback',
             $state,
             $lastHeartbeat,
-            0,
-            -1,
-            -1,
+            $lastSeen,
+            $runtime,
+            $lateSeconds,
             $message
         );
 
         return [
             'name' => 'Module 1 callback',
-            'ok' => false,
-            'warning' => false,
+            'ok' => $ok,
             'state' => $state,
             'last_seen' => $lastSeen,
             'last_seen_text' => $lastSeen > 0 ? date('Y-m-d H:i:s', $lastSeen) : '-',
             'last_heartbeat' => $lastHeartbeat,
             'expected' => $pending,
-            'runtime_ms' => -1,
-            'runtime_seconds' => -1,
+            'runtime_seconds' => $runtime,
             'age_seconds' => $seenAge === PHP_INT_MAX ? -1 : $seenAge,
-            'late_ms' => -1,
-            'late_seconds' => -1,
+            'late_seconds' => $lateSeconds,
             'message' => $message
         ];
     }
