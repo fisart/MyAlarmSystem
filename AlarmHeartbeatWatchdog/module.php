@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 // AlarmHeartbeatWatchdog module.php
-// Version: 1.5.2
+// Version: 1.5.3
 // Heartbeat token mode: milliseconds since midnight used as an integer correlation token
 // Pulse model: token is active only for PulseDurationMs/ResetDelayMs, then HeartbeatInputVariableID is reset to 0
 // Delivery confirmation mode: module-managed triggered events plus internal RegisterMessage/MessageSink fallback for Module 3 output variables
@@ -44,7 +44,13 @@ class AlarmHeartbeatWatchdog extends IPSModule
         $this->RegisterAttributeString('LastCheckJson', '{}');
         $this->RegisterAttributeString('HeartbeatHistoryJson', '[]');
         $this->RegisterAttributeString('RegisteredWatchVariableIDsJson', '[]');
-        $this->RegisterAttributeString('ManagedOutputEventsJson', '{}');
+        $this->RegisterAttributeString('HeartbeatHistoryJson', '[]');
+        $this->RegisterAttributeBoolean('HeartbeatActiveInitialized', false);
+        $this->RegisterAttributeBoolean('LastPropertyHeartbeatEnabled', true);
+        $this->RegisterAttributeBoolean('LastEffectiveHeartbeatActive', false);
+
+        $this->RegisterVariableBoolean('HeartbeatActive', 'Heartbeat Active', '~Switch', 5);
+        $this->EnableAction('HeartbeatActive');
 
         $this->RegisterVariableBoolean('OverallOK', 'Overall OK', '~Switch', 10);
         $this->RegisterVariableString('LastCheckText', 'Last Check', '', 20);
@@ -69,19 +75,11 @@ class AlarmHeartbeatWatchdog extends IPSModule
     {
         parent::ApplyChanges();
 
+        $this->InitializeHeartbeatActiveVariable();
+
         $inputID = $this->ReadPropertyInteger('HeartbeatInputVariableID');
         $watchList = $this->GetActiveWatchList();
 
-        $this->SyncWatchedOutputMessages($watchList);
-        $this->SyncManagedOutputEvents($watchList);
-
-        if (!$this->ReadPropertyBoolean('HeartbeatEnabled')) {
-            $this->SetStatus(self::STATUS_ACTIVE);
-            $this->SetTimerInterval('HeartbeatTimer', 0);
-            $this->SetValueSafe('LastCheckText', 'Heartbeat function disabled / ' . date('Y-m-d H:i:s'));
-            $this->RebuildStatus();
-            return;
-        }
         if ($inputID <= 0 || !IPS_VariableExists($inputID)) {
             $this->SetStatus(self::STATUS_NO_INPUT);
             $this->SetTimerInterval('HeartbeatTimer', 0);
@@ -94,14 +92,16 @@ class AlarmHeartbeatWatchdog extends IPSModule
             $this->SetStatus(self::STATUS_ACTIVE);
         }
 
-        $interval = max(10, $this->ReadPropertyInteger('CycleIntervalSeconds')) * 1000;
-        $this->SetTimerInterval('HeartbeatTimer', $interval);
-        $this->RebuildStatus();
+        $this->ApplyHeartbeatActivationState(true);
     }
 
     public function RequestAction($Ident, $Value)
     {
         switch ($Ident) {
+            case 'HeartbeatActive':
+                $this->SetHeartbeatActive((bool)$Value);
+                return;
+
             case 'ReceivePayload':
                 $this->ReceivePayload((string)$Value);
                 return;
@@ -126,7 +126,7 @@ class AlarmHeartbeatWatchdog extends IPSModule
 
     public function RunCycle(): void
     {
-        if (!$this->ReadPropertyBoolean('HeartbeatEnabled')) {
+        if (!$this->IsHeartbeatEffectivelyActive()) {
             $this->LogDebug('RunCycle skipped: heartbeat function disabled');
             return;
         }
@@ -386,6 +386,104 @@ class AlarmHeartbeatWatchdog extends IPSModule
             return true;
         } finally {
             IPS_SemaphoreLeave($lockName);
+        }
+    }
+
+    public function SetHeartbeatActive(bool $active): void
+    {
+        $this->SetValueSafe('HeartbeatActive', $active);
+        $this->ApplyHeartbeatActivationState(true);
+    }
+
+
+
+    private function InitializeHeartbeatActiveVariable(): void
+    {
+        $propertyEnabled = $this->ReadPropertyBoolean('HeartbeatEnabled');
+
+        if (!$this->ReadAttributeBoolean('HeartbeatActiveInitialized')) {
+            $this->SetValueSafe('HeartbeatActive', $propertyEnabled);
+            $this->WriteAttributeBoolean('HeartbeatActiveInitialized', true);
+            $this->WriteAttributeBoolean('LastPropertyHeartbeatEnabled', $propertyEnabled);
+            return;
+        }
+
+        $lastPropertyEnabled = $this->ReadAttributeBoolean('LastPropertyHeartbeatEnabled');
+        if ($propertyEnabled !== $lastPropertyEnabled) {
+            $this->SetValueSafe('HeartbeatActive', $propertyEnabled);
+            $this->WriteAttributeBoolean('LastPropertyHeartbeatEnabled', $propertyEnabled);
+        }
+    }
+
+    private function IsHeartbeatEffectivelyActive(): bool
+    {
+        return $this->ReadPropertyBoolean('HeartbeatEnabled') && (bool)$this->GetValueSafe('HeartbeatActive', false);
+    }
+
+    private function ApplyHeartbeatActivationState(bool $initializeWhenActivated): void
+    {
+        $active = $this->IsHeartbeatEffectivelyActive();
+        $wasActive = $this->ReadAttributeBoolean('LastEffectiveHeartbeatActive');
+
+        if (!$active) {
+            $this->SetTimerInterval('HeartbeatTimer', 0);
+            $this->ResetHeartbeatInputVariable();
+
+            $this->WriteAttributeInteger('PendingTimestamp', 0);
+            $this->WriteAttributeInteger('PendingSentAt', 0);
+            $this->WriteAttributeInteger('PendingDeadline', 0);
+
+            $this->SetValueSafe('PendingTimestamp', 0);
+            $this->SetValueSafe('PendingDeadline', 0);
+            $this->SetValueSafe('OverallOK', true);
+            $this->SetValueSafe('LastCheckText', 'Heartbeat disabled / ' . date('Y-m-d H:i:s'));
+
+            $this->WriteAttributeBoolean('LastEffectiveHeartbeatActive', false);
+            $this->RebuildStatus();
+            return;
+        }
+
+        $interval = max(10, $this->ReadPropertyInteger('CycleIntervalSeconds')) * 1000;
+        $this->SetTimerInterval('HeartbeatTimer', $interval);
+
+        if (!$wasActive && $initializeWhenActivated) {
+            $this->WriteAttributeBoolean('LastEffectiveHeartbeatActive', true);
+            $this->InitializeHeartbeatFromScratch();
+            return;
+        }
+
+        $this->WriteAttributeBoolean('LastEffectiveHeartbeatActive', true);
+        $this->RebuildStatus();
+    }
+
+    private function InitializeHeartbeatFromScratch(): void
+    {
+        $lockName = 'AHW_Initialize_' . $this->InstanceID;
+        if (!IPS_SemaphoreEnter($lockName, 3000)) {
+            $this->LogDebug('InitializeHeartbeatFromScratch skipped: semaphore busy');
+            return;
+        }
+
+        try {
+            $this->SetTimerInterval('HeartbeatTimer', 0);
+            $this->ResetHeartbeatInputVariable();
+
+            $this->ClearRuntime();
+
+            $interval = max(10, $this->ReadPropertyInteger('CycleIntervalSeconds')) * 1000;
+            $this->SetTimerInterval('HeartbeatTimer', $interval);
+
+            $this->RunCycle();
+        } finally {
+            IPS_SemaphoreLeave($lockName);
+        }
+    }
+
+    private function ResetHeartbeatInputVariable(): void
+    {
+        $inputID = $this->ReadPropertyInteger('HeartbeatInputVariableID');
+        if ($inputID > 0 && IPS_VariableExists($inputID)) {
+            SetValue($inputID, 0);
         }
     }
 
