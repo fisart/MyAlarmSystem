@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 // AlarmHeartbeatWatchdog module.php
-// Version: 1.5.3
+// Version: 1.5.4
 // Heartbeat token mode: milliseconds since midnight used as an integer correlation token
 // Pulse model: token is active only for PulseDurationMs/ResetDelayMs, then HeartbeatInputVariableID is reset to 0
 // Delivery confirmation mode: module-managed triggered events plus internal RegisterMessage/MessageSink fallback for Module 3 output variables
@@ -892,6 +892,7 @@ class AlarmHeartbeatWatchdog extends IPSModule
         $overallOK = (bool)($previous['overall_ok'] ?? true);
         $overallWarning = (bool)($previous['overall_warning'] ?? false);
         $summary = htmlspecialchars((string)($previous['summary'] ?? 'No pending heartbeat checked yet.'), ENT_QUOTES, 'UTF-8');
+
         if (!$overallOK) {
             $statusColor = '#c62828';
             $statusText = 'ERROR';
@@ -903,10 +904,30 @@ class AlarmHeartbeatWatchdog extends IPSModule
             $statusText = 'OK';
         }
 
+        $propertyEnabled = $this->ReadPropertyBoolean('HeartbeatEnabled');
+        $runtimeActive = (bool)$this->GetValueSafe('HeartbeatActive', false);
+        $effectiveActive = $propertyEnabled && $runtimeActive;
+
+        $heartbeatStateText = $effectiveActive ? 'ENABLED' : 'DISABLED';
+        $heartbeatStateColor = $effectiveActive ? '#81c784' : '#ef9a9a';
+
+        $heartbeatDetailText =
+            'Form setting: ' . ($propertyEnabled ? 'enabled' : 'disabled') .
+            ' | Runtime switch: ' . ($runtimeActive ? 'active' : 'inactive');
+
         $html = '<div style="font-family:Segoe UI,Arial,sans-serif;background:#1e1e1e;color:#e0e0e0;padding:12px;border-radius:8px;">';
         $html .= '<h2 style="margin:0 0 8px 0;color:#fff;">Alarm Heartbeat Watchdog</h2>';
         $html .= '<div style="padding:8px;border-radius:6px;background:' . $statusColor . ';color:#fff;font-weight:bold;">' . $statusText . ' - ' . $summary . '</div>';
+
         $html .= '<table style="margin-top:12px;border-collapse:collapse;width:100%;">';
+
+        $html .= '<tr>';
+        $html .= '<td style="padding:6px;border:1px solid #555;background:#2b2b2b;width:260px;font-weight:bold;">Heartbeat state</td>';
+        $html .= '<td style="padding:6px;border:1px solid #555;color:' . $heartbeatStateColor . ';font-weight:bold;">' .
+            htmlspecialchars($heartbeatStateText . ' — ' . $heartbeatDetailText, ENT_QUOTES, 'UTF-8') .
+            '</td>';
+        $html .= '</tr>';
+
         $html .= $this->HtmlRow('Generated at', (string)($report['generated_at_text'] ?? '-'));
         $html .= $this->HtmlRow('Token mode', 'milliseconds since midnight');
         $html .= $this->HtmlRow('New heartbeat token', (string)($report['new_heartbeat_timestamp'] ?? '-'));
@@ -941,10 +962,12 @@ class AlarmHeartbeatWatchdog extends IPSModule
                 $html .= '<h3 style="color:#fff;margin-top:14px;">Module 3 targets</h3>';
                 $html .= '<table style="border-collapse:collapse;width:100%;">';
                 $html .= '<tr style="background:#333;"><th style="padding:6px;border:1px solid #555;text-align:left;">Target</th><th style="padding:6px;border:1px solid #555;text-align:left;">State</th><th style="padding:6px;border:1px solid #555;text-align:left;">Expected</th><th style="padding:6px;border:1px solid #555;text-align:left;">Value</th><th style="padding:6px;border:1px solid #555;text-align:left;">Runtime</th><th style="padding:6px;border:1px solid #555;text-align:left;">Late by</th><th style="padding:6px;border:1px solid #555;text-align:left;">Updated</th><th style="padding:6px;border:1px solid #555;text-align:left;">Message</th></tr>';
+
                 foreach ($targets as $target) {
                     $ok = !empty($target['ok']);
                     $warning = !empty($target['warning']);
                     $stateColor = $warning ? '#ffb74d' : ($ok ? '#81c784' : '#ef9a9a');
+
                     $html .= '<tr>';
                     $html .= '<td style="padding:6px;border:1px solid #555;">' . htmlspecialchars((string)($target['name'] ?? '-'), ENT_QUOTES, 'UTF-8') . '</td>';
                     $html .= '<td style="padding:6px;border:1px solid #555;color:' . $stateColor . ';font-weight:bold;">' . htmlspecialchars((string)($target['state'] ?? ($ok ? 'OK' : 'ERROR')), ENT_QUOTES, 'UTF-8') . '</td>';
@@ -956,12 +979,14 @@ class AlarmHeartbeatWatchdog extends IPSModule
                     $html .= '<td style="padding:6px;border:1px solid #555;">' . htmlspecialchars((string)($target['message'] ?? '-'), ENT_QUOTES, 'UTF-8') . '</td>';
                     $html .= '</tr>';
                 }
+
                 $html .= '</table>';
             }
         }
 
         $html .= $this->BuildHeartbeatHistoryHtml();
         $html .= '</div>';
+
         return $html;
     }
 
