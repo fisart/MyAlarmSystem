@@ -1,7 +1,7 @@
 <?php
 
 declare(strict_types=1);
-// 7.6.0
+// 7.6.1
 class AlarmResponseManager extends IPSModule
 {
     private const HOUSE_STATES = [
@@ -369,26 +369,7 @@ class AlarmResponseManager extends IPSModule
     }
 
 
-    private function FindOutputResourceByID(string $outputID): ?array
-    {
-        $outputID = trim($outputID);
 
-        if ($outputID === '') {
-            return null;
-        }
-
-        foreach ($this->readListProperty('OutputResources') as $row) {
-            if (!is_array($row)) {
-                continue;
-            }
-
-            if (trim((string) ($row['OutputID'] ?? '')) === $outputID) {
-                return $row;
-            }
-        }
-
-        return null;
-    }
 
 
     private function BuildManualOutputTestHouseSnapshot(): array
