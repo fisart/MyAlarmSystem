@@ -45,6 +45,7 @@ class SensorGroup extends IPSModule
         $this->RegisterAttributeString('LastTargetProjectionState', '{}');
         $this->RegisterAttributeString('LastSensorValueMap', '{}');
         $this->RegisterAttributeString('SensorPulseUntilMap', '{}');
+        $this->RegisterAttributeString('SensorConditionStateMap', '{}');
         $this->RegisterTimer('PulseExpireTimer', 0, 'MYALARM_CheckPulseExpiry($_IPS[\'TARGET\']);');
         $this->RegisterAttributeString('LastMainStatus', '0');
         IPS_SetHidden($this->GetIDForIdent('EventData'), true);
@@ -2243,7 +2244,7 @@ class SensorGroup extends IPSModule
                 // Check if this sensor is in CHANGE mode
                 foreach ($sensorList as $s) {
                     if ((int)($s['VariableID'] ?? 0) === $triggerVid) {
-                        if ((int)($s['TriggerMode'] ?? 0) === 1) {
+                        if (in_array((int)($s['TriggerMode'] ?? 0), [1, 2], true)) {
                             $isPulseTrigger = true;
                         }
                         break;
@@ -2348,6 +2349,17 @@ class SensorGroup extends IPSModule
         $this->WriteAttributeString('SensorPulseUntilMap', json_encode($map));
     }
 
+    private function ReadSensorConditionStateMap(): array
+    {
+        $data = json_decode($this->ReadAttributeString('SensorConditionStateMap'), true);
+        return is_array($data) ? $data : [];
+    }
+
+    private function WriteSensorConditionStateMap(array $map): void
+    {
+        $this->WriteAttributeString('SensorConditionStateMap', json_encode($map));
+    }
+
     private function GetVariableTypeName($value): string
     {
         if (is_bool($value)) {
@@ -2401,6 +2413,77 @@ class SensorGroup extends IPSModule
                 return $row['Invert'] ? !$val : $val;
             }
             return $this->EvaluateRule($val, $row['Operator'], $row['ComparisonValue']);
+        }
+
+        // ONCE = pulse once on false->true condition edge, then block until condition clears
+        if ($triggerMode === 2) {
+            $conditionActive = isset($row['Invert'])
+                ? (bool)($row['Invert'] ? !$val : $val)
+                : $this->EvaluateRule($val, $row['Operator'], $row['ComparisonValue']);
+
+            $conditionStateMap = $this->ReadSensorConditionStateMap();
+            $pulseUntilMap = $this->ReadSensorPulseUntilMap();
+            $now = time();
+            $key = (string)$id;
+            $hadPreviousState = array_key_exists($key, $conditionStateMap);
+            $wasActive = $hadPreviousState ? (bool)$conditionStateMap[$key] : false;
+
+            if (!$hadPreviousState) {
+                $conditionStateMap[$key] = $conditionActive;
+                $this->WriteSensorConditionStateMap($conditionStateMap);
+
+                if (isset($pulseUntilMap[$key]) && (int)$pulseUntilMap[$key] <= $now) {
+                    unset($pulseUntilMap[$key]);
+                    $this->WriteSensorPulseUntilMap($pulseUntilMap);
+                    $this->UpdatePulseExpireTimer();
+                }
+
+                return false;
+            }
+
+            if ($conditionActive !== $wasActive) {
+                $conditionStateMap[$key] = $conditionActive;
+                $this->WriteSensorConditionStateMap($conditionStateMap);
+            }
+
+            if (!$conditionActive) {
+                if (isset($pulseUntilMap[$key])) {
+                    unset($pulseUntilMap[$key]);
+                    $this->WriteSensorPulseUntilMap($pulseUntilMap);
+                    $this->UpdatePulseExpireTimer();
+                }
+
+                return false;
+            }
+
+            if (!$wasActive) {
+                $pulseUntilMap[$key] = $now + $pulseSeconds;
+                $this->WriteSensorPulseUntilMap($pulseUntilMap);
+                $this->UpdatePulseExpireTimer();
+
+                if ($this->ReadPropertyBoolean('DebugMode')) {
+                    $this->LogMessage(
+                        "DEBUG: ONCE sensor triggered VariableID={$id} pulseUntil=" . $pulseUntilMap[$key],
+                        KL_MESSAGE
+                    );
+                }
+
+                return true;
+            }
+
+            $pulseUntil = isset($pulseUntilMap[$key]) ? (int)$pulseUntilMap[$key] : 0;
+
+            if ($pulseUntil > $now) {
+                return true;
+            }
+
+            if ($pulseUntil > 0) {
+                unset($pulseUntilMap[$key]);
+                $this->WriteSensorPulseUntilMap($pulseUntilMap);
+                $this->UpdatePulseExpireTimer();
+            }
+
+            return false;
         }
 
         // CHANGE = pulse on typed value change
@@ -3568,7 +3651,7 @@ class SensorGroup extends IPSModule
                                     ["caption" => "Area (GP)", "name" => "GrandParentName", "width" => "100px"],
                                     ["caption" => "Op", "name" => "Operator", "width" => "100px", "edit" => ["type" => "Select", "options" => [["caption" => "=", "value" => 0], ["caption" => "!=", "value" => 1], ["caption" => ">", "value" => 2], ["caption" => "<", "value" => 3], ["caption" => ">=", "value" => 4], ["caption" => "<=", "value" => 5]]]],
                                     ["caption" => "Value", "name" => "ComparisonValue", "width" => "100px", "edit" => ["type" => "ValidationTextBox"]],
-                                    ["caption" => "Mode", "name" => "TriggerMode", "width" => "100px", "edit" => ["type" => "Select", "options" => [["caption" => "LEVEL", "value" => 0], ["caption" => "CHANGE", "value" => 1]]]],
+                                    ["caption" => "Mode", "name" => "TriggerMode", "width" => "100px", "edit" => ["type" => "Select", "options" => [["caption" => "LEVEL", "value" => 0], ["caption" => "CHANGE", "value" => 1], ["caption" => "ONCE", "value" => 2]]]],
                                     ["caption" => "Pulse Width in Seconds", "name" => "PulseSeconds", "width" => "80px", "edit" => ["type" => "ValidationTextBox"]],
                                     ["caption" => "Action", "name" => "Action", "width" => "80px", "edit" => ["type" => "Button", "caption" => "Delete", "onClick" => "IPS_RequestAction(\$id, 'DEL_SENS_$safeID', \$VariableID);"]]
                                 ],
