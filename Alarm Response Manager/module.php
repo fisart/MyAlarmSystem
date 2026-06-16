@@ -1,7 +1,7 @@
 <?php
 
 declare(strict_types=1);
-// 7.5.3 
+// 7.5.4
 class AlarmResponseManager extends IPSModule
 {
     private const HOUSE_STATES = [
@@ -4872,10 +4872,6 @@ document.addEventListener("DOMContentLoaded", () => {
             throw new Exception('OutputID is not available in OutputResources: ' . $outputID);
         }
 
-        /*
-     * Build from the current matrix/form model, not only from the raw property.
-     * This preserves existing rows and also makes sure missing output/group rows exist.
-     */
         $effectiveRules = $this->GetEffectiveGroupStateRules();
         $effectiveRules = $this->EnsureEffectiveRuleIDs($effectiveRules);
 
@@ -4898,7 +4894,17 @@ document.addEventListener("DOMContentLoaded", () => {
 
             $row['OutputLabel'] = $outputLabels[$outputID];
             $row['GroupLabel'] = $groupLabels[$groupKey];
+
+            /*
+         * Important:
+         * Clear aggregate toggles before changing one individual state.
+         * Otherwise NormalizeAssignmentMatrixRow() may overwrite the individual
+         * HS_* value again when NoneStates or AllStates is still true.
+         */
+            $row['AllStates'] = false;
+            $row['NoneStates'] = false;
             $row[$stateField] = $enabled;
+
             $row = $this->NormalizeAssignmentMatrixRow($row);
 
             $found = true;
@@ -4930,10 +4936,6 @@ document.addEventListener("DOMContentLoaded", () => {
         IPS_SetProperty($this->InstanceID, 'AssignmentMatrixConfig', json_encode($rows));
         IPS_ApplyChanges($this->InstanceID);
 
-        /*
-     * Verify against the rows we have just written.
-     * Do not rely on a delayed UI refresh for correctness.
-     */
         $ruleMap = $this->BuildGroupStateRuleMap($effectiveRules);
         $expectedRuleID = $ruleMap[$groupKey . '|' . $houseState] ?? '';
 
