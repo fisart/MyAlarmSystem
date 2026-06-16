@@ -1,7 +1,7 @@
 <?php
 
 declare(strict_types=1);
-// 7.5.0
+// 7.5.1
 class AlarmResponseManager extends IPSModule
 {
     private const HOUSE_STATES = [
@@ -5374,6 +5374,73 @@ JS;
     }
 
 
+    private function AppendMermaidOutputNode(
+        array &$lines,
+        string $outputID,
+        array $output,
+        array $typeLabels,
+        bool $isActive,
+        bool $isEligible,
+        ?string $parentNode,
+        int &$linkCounter,
+        string $edgeStyle = ''
+    ): void {
+        $outputNode = 'O_' . substr(md5($outputID), 0, 10);
+
+        $typeID = trim((string) ($output['TypeID'] ?? ''));
+        $typeLabel = $typeLabels[$typeID] ?? '[missing type]';
+        $targetObjectID = (int) ($output['TargetObjectID'] ?? 0);
+        $outputName = trim((string) ($output['Name'] ?? ''));
+
+        $parts = [];
+        $parts[] = $outputName !== '' ? $outputName : $outputID;
+        $parts[] = 'Type: ' . $typeLabel;
+
+        if ($targetObjectID > 0) {
+            $parts[] = 'ObjID: ' . $targetObjectID;
+        }
+
+        $outputClass = 'green';
+        if ($isActive) {
+            $outputClass = 'red';
+        } elseif ($isEligible) {
+            $outputClass = 'blue';
+        } elseif ($parentNode !== null && $edgeStyle === 'available') {
+            $outputClass = 'grey';
+        }
+
+        $lines[] = $this->BuildMermaidNodeMetadataComment($outputNode, 'output', [
+            'output_id'        => $outputID,
+            'output_name'      => $outputName !== '' ? $outputName : $outputID,
+            'type_id'          => $typeID,
+            'type_label'       => $typeLabel,
+            'target_object_id' => $targetObjectID
+        ]);
+
+        $lines[] = $outputNode . '["' . $this->MermaidEscape(implode("\n", $parts)) . '"]';
+        $lines[] = 'class ' . $outputNode . ' ' . $outputClass . ';';
+        $lines[] = $this->BuildMermaidClickLine($outputNode);
+
+        if ($parentNode !== null && $parentNode !== '') {
+            $lines[] = $parentNode . ' --> ' . $outputNode;
+
+            if ($edgeStyle === 'available') {
+                $lines[] = 'linkStyle ' . $linkCounter . ' stroke:#546e7a,stroke-width:1px,stroke-dasharray: 6 4;';
+            } else {
+                $outputStroke = '#a5d6a7';
+                if ($isActive) {
+                    $outputStroke = '#ff8a80';
+                } elseif ($isEligible) {
+                    $outputStroke = '#90caf9';
+                }
+
+                $lines[] = 'linkStyle ' . $linkCounter . ' stroke:' . $outputStroke . ',stroke-width:2px;';
+            }
+
+            $linkCounter++;
+        }
+    }
+
     private function BuildMappingGraph(): string
     {
         $depth = $this->GetGraphDepth();
@@ -5719,6 +5786,7 @@ JS;
         }
 
         $linkCounter = 0;
+        $renderedOutputNodes = [];
 
         foreach ($groups as $group) {
             $groupKey = trim((string) ($group['GroupKey'] ?? ''));
@@ -5902,9 +5970,9 @@ JS;
                     continue;
                 }
 
-                $outputNode = 'O_' . substr(md5($outputID), 0, 10);
-
                 if (!isset($outputsByID[$outputID])) {
+                    $outputNode = 'O_' . substr(md5($outputID), 0, 10);
+
                     $lines[] = $outputNode . '["' . $this->MermaidEscape('[missing output]' . "\n" . $outputID) . '"]';
                     $lines[] = $assignmentNode . ' --> ' . $outputNode;
                     $lines[] = 'class ' . $outputNode . ' grey;';
@@ -5914,47 +5982,71 @@ JS;
                 }
 
                 $output = $outputsByID[$outputID];
-                $typeID = trim((string) ($output['TypeID'] ?? ''));
-                $typeLabel = $typeLabels[$typeID] ?? '[missing type]';
-                $targetObjectID = (int) ($output['TargetObjectID'] ?? 0);
-                $outputName = trim((string) ($output['Name'] ?? ''));
                 $outputNodeActive = isset($activeOutputIDs[$outputID]);
                 $outputNodeEligible = isset($eligibleOutputIDs[$outputID]);
 
-                $parts = [];
-                $parts[] = $outputName !== '' ? $outputName : $outputID;
-                $parts[] = 'Type: ' . $typeLabel;
-                if ($targetObjectID > 0) {
-                    $parts[] = 'ObjID: ' . $targetObjectID;
+                $this->AppendMermaidOutputNode(
+                    $lines,
+                    $outputID,
+                    $output,
+                    $typeLabels,
+                    $outputNodeActive,
+                    $outputNodeEligible,
+                    $assignmentNode,
+                    $linkCounter
+                );
+
+                $renderedOutputNodes[$outputID] = true;
+            }
+            $availableOutputIDs = [];
+
+            foreach ($outputsByID as $availableOutputID => $availableOutput) {
+                $availableOutputID = trim((string) $availableOutputID);
+
+                if ($availableOutputID === '') {
+                    continue;
                 }
 
-                $lines[] = $this->BuildMermaidNodeMetadataComment($outputNode, 'output', [
-                    'output_id'        => $outputID,
-                    'output_name'      => $outputName !== '' ? $outputName : $outputID,
-                    'type_id'          => $typeID,
-                    'type_label'       => $typeLabel,
-                    'target_object_id' => $targetObjectID
-                ]);
-                $lines[] = $outputNode . '["' . $this->MermaidEscape(implode("\n", $parts)) . '"]';
-                $lines[] = $assignmentNode . ' --> ' . $outputNode;
-                $lines[] = $this->BuildMermaidClickLine($outputNode);
-
-                $outputClass = 'green';
-                if ($outputNodeActive) {
-                    $outputClass = 'red';
-                } elseif ($outputNodeEligible) {
-                    $outputClass = 'blue';
+                if (isset($renderedOutputNodes[$availableOutputID])) {
+                    continue;
                 }
-                $lines[] = 'class ' . $outputNode . ' ' . $outputClass . ';';
 
-                $outputStroke = '#a5d6a7';
-                if ($outputNodeActive) {
-                    $outputStroke = '#ff8a80';
-                } elseif ($outputNodeEligible) {
-                    $outputStroke = '#90caf9';
+                if ($hasOutputFilter && !isset($selectedOutputIDs[$availableOutputID])) {
+                    continue;
                 }
-                $lines[] = 'linkStyle ' . $linkCounter . ' stroke:' . $outputStroke . ',stroke-width:2px;';
-                $linkCounter++;
+
+                $availableOutputIDs[] = $availableOutputID;
+            }
+
+            if (count($availableOutputIDs) > 0) {
+                usort($availableOutputIDs, static function (string $a, string $b) use ($outputsByID): int {
+                    $nameA = trim((string) ($outputsByID[$a]['Name'] ?? $a));
+                    $nameB = trim((string) ($outputsByID[$b]['Name'] ?? $b));
+
+                    return strnatcasecmp($nameA, $nameB);
+                });
+
+                $availableNode = 'AVAILABLE_OUTPUTS_' . substr(md5((string) $this->InstanceID), 0, 10);
+                $lines[] = $availableNode . '["' . $this->MermaidEscape("Available Outputs\nnot yet shown in current mapping") . '"]';
+                $lines[] = 'class ' . $availableNode . ' grey;';
+
+                foreach ($availableOutputIDs as $availableOutputID) {
+                    $availableOutput = $outputsByID[$availableOutputID];
+
+                    $this->AppendMermaidOutputNode(
+                        $lines,
+                        $availableOutputID,
+                        $availableOutput,
+                        $typeLabels,
+                        false,
+                        false,
+                        $availableNode,
+                        $linkCounter,
+                        'available'
+                    );
+
+                    $renderedOutputNodes[$availableOutputID] = true;
+                }
             }
         }
 
