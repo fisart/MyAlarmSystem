@@ -1,7 +1,7 @@
 <?php
 
 declare(strict_types=1);
-// 7.3.3
+// 7.4.0
 class AlarmResponseManager extends IPSModule
 {
     private const HOUSE_STATES = [
@@ -1978,6 +1978,7 @@ import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.mi
 
 mermaid.initialize({
     startOnLoad:false,
+    securityLevel:"loose",
     theme:"dark",
     flowchart:{ curve:"basis", nodeSpacing:60, rankSpacing:120 }
 });
@@ -1985,6 +1986,7 @@ mermaid.initialize({
 let isRendering = false;
 let lastGraphString = "";
 let pzInstance = null;
+' . $this->BuildMermaidSelectionJavascript() . '
 function attachTouchPinchZoom(svgEl, gestureEl, panZoomInstance) {
     if (!svgEl || !panZoomInstance) {
         return;
@@ -2158,6 +2160,7 @@ async function fetchAndUpdateGraph() {
             { credentials: "same-origin" }
         );
         const graphString = await response.text();
+        mermaidNodeMetadata = extractMermaidNodeMetadata(graphString);
 
         if (!graphString.trim().startsWith("graph ")) return;
 
@@ -2392,8 +2395,11 @@ document.addEventListener("DOMContentLoaded", () => {
         </div>
     </div>
 </div>
-<div class="container">
-    <div id="mermaid-container">Initializing Live View...</div>
+<div style="display:flex;gap:12px;flex-grow:1;min-height:0;">
+    <div class="container" style="flex:1 1 auto;">
+        <div id="mermaid-container">Initializing Live View...</div>
+    </div>
+    ' . $this->BuildMermaidSelectionPanelHtml() . '
 </div>
 </body>
 </html>';
@@ -4787,7 +4793,138 @@ document.addEventListener("DOMContentLoaded", () => {
         return false;
     }
 
+    private function BuildMermaidNodeMetadataComment(string $nodeID, string $type, array $data): string
+    {
+        $payload = [
+            'node_id' => $nodeID,
+            'type'    => $type,
+            'data'    => $data
+        ];
 
+        return '%%NODE_META ' . json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+    }
+
+
+    private function BuildMermaidClickLine(string $nodeID): string
+    {
+        return 'click ' . $nodeID . ' call selectMermaidNode()';
+    }
+
+
+    private function BuildMermaidSelectionPanelHtml(): string
+    {
+        return '
+<div style="width:320px;flex:0 0 320px;background:#252526;border:1px solid #444;border-radius:8px;padding:12px;overflow:auto;">
+    <h3 style="margin:0 0 10px 0;color:#4CAF50;">Selected Node</h3>
+
+    <div style="font-size:12px;color:#999;margin-bottom:6px;">Type</div>
+    <div id="selected-node-type" style="font-weight:bold;margin-bottom:12px;">None</div>
+
+    <div style="font-size:12px;color:#999;margin-bottom:6px;">Name</div>
+    <div id="selected-node-title" style="font-weight:bold;margin-bottom:12px;">Click a group, rule, assignment, or output node.</div>
+
+    <div style="font-size:12px;color:#999;margin-bottom:6px;">Details</div>
+    <pre id="selected-node-detail" style="white-space:pre-wrap;background:#1e1e1e;border:1px solid #333;border-radius:6px;padding:8px;color:#cfcfcf;font-family:Consolas,monospace;font-size:12px;">No node selected.</pre>
+</div>';
+    }
+
+
+    private function BuildMermaidSelectionJavascript(): string
+    {
+        return <<<'JS'
+let mermaidNodeMetadata = {};
+let selectedMermaidNodeID = "";
+
+window.selectMermaidNode = function(nodeID) {
+    selectedMermaidNodeID = String(nodeID || "");
+
+    const meta = mermaidNodeMetadata[selectedMermaidNodeID] || null;
+    const typeEl = document.getElementById("selected-node-type");
+    const titleEl = document.getElementById("selected-node-title");
+    const detailEl = document.getElementById("selected-node-detail");
+
+    if (!typeEl || !titleEl || !detailEl) {
+        return;
+    }
+
+    if (!meta) {
+        typeEl.textContent = "Unknown";
+        titleEl.textContent = selectedMermaidNodeID;
+        detailEl.textContent = "No metadata available for this node.";
+        return;
+    }
+
+    const data = meta.data || {};
+    typeEl.textContent = meta.type || "";
+
+    if (meta.type === "group") {
+        titleEl.textContent = data.group_label || data.group_key || selectedMermaidNodeID;
+        detailEl.textContent = "GroupKey: " + (data.group_key || "");
+        return;
+    }
+
+    if (meta.type === "rule") {
+        titleEl.textContent = data.rule_label || data.rule_id || selectedMermaidNodeID;
+        detailEl.textContent =
+            "RuleID: " + (data.rule_id || "") + "\n"
+            + "GroupKey: " + (data.group_key || "") + "\n"
+            + "HouseState: " + (data.house_state || "") + "\n"
+            + "Severity: " + (data.severity || "");
+        return;
+    }
+
+    if (meta.type === "assignment") {
+        titleEl.textContent = data.output_label || data.assignment_id || selectedMermaidNodeID;
+        detailEl.textContent =
+            "AssignmentID: " + (data.assignment_id || "") + "\n"
+            + "RuleID: " + (data.rule_id || "") + "\n"
+            + "OutputID: " + (data.output_id || "");
+        return;
+    }
+
+    if (meta.type === "output") {
+        titleEl.textContent = data.output_name || data.output_id || selectedMermaidNodeID;
+        detailEl.textContent =
+            "OutputID: " + (data.output_id || "") + "\n"
+            + "TypeID: " + (data.type_id || "") + "\n"
+            + "Type: " + (data.type_label || "") + "\n"
+            + "TargetObjectID: " + (data.target_object_id || "");
+        return;
+    }
+
+    titleEl.textContent = selectedMermaidNodeID;
+    detailEl.textContent = JSON.stringify(data, null, 2);
+};
+
+function extractMermaidNodeMetadata(graphString) {
+    const result = {};
+    const lines = String(graphString || "").split(/\r?\n/);
+
+    for (const line of lines) {
+        const trimmed = line.trim();
+
+        if (!trimmed.startsWith("%%NODE_META ")) {
+            continue;
+        }
+
+        const jsonText = trimmed.substring("%%NODE_META ".length);
+
+        try {
+            const meta = JSON.parse(jsonText);
+            const nodeID = String(meta.node_id || "");
+
+            if (nodeID !== "") {
+                result[nodeID] = meta;
+            }
+        } catch (err) {
+            console.warn("Invalid Mermaid node metadata", err, trimmed);
+        }
+    }
+
+    return result;
+}
+JS;
+    }
     private function BuildMappingGraph(): string
     {
         $depth = $this->GetGraphDepth();
@@ -5163,8 +5300,13 @@ document.addEventListener("DOMContentLoaded", () => {
                 $groupClass = 'blue';
             }
 
+            $lines[] = $this->BuildMermaidNodeMetadataComment($groupNode, 'group', [
+                'group_key'   => $groupKey,
+                'group_label' => $groupLabel
+            ]);
             $lines[] = $groupNode . '["' . $this->MermaidEscape($groupLabel) . '"]';
             $lines[] = 'class ' . $groupNode . ' ' . $groupClass . ';';
+            $lines[] = $this->BuildMermaidClickLine($groupNode);
         }
 
         foreach ($visibleRules as $rule) {
@@ -5194,8 +5336,16 @@ document.addEventListener("DOMContentLoaded", () => {
                 $parts[] = $conditionText;
             }
 
+            $lines[] = $this->BuildMermaidNodeMetadataComment($ruleNode, 'rule', [
+                'rule_id'     => $ruleID,
+                'group_key'   => $groupKey,
+                'rule_label'  => $ruleLabel,
+                'house_state' => trim((string) ($rule['HouseState'] ?? '')),
+                'severity'    => $severity
+            ]);
             $lines[] = $ruleNode . '["' . $this->MermaidEscape(implode("\n", $parts)) . '"]';
             $lines[] = $groupNode . ' --> ' . $ruleNode;
+            $lines[] = $this->BuildMermaidClickLine($ruleNode);
 
             $ruleClass = 'green';
             if ($ruleActive) {
@@ -5262,8 +5412,15 @@ document.addEventListener("DOMContentLoaded", () => {
                     $assignmentLabel .= "\n" . $outputID;
                 }
 
+                $lines[] = $this->BuildMermaidNodeMetadataComment($assignmentNode, 'assignment', [
+                    'assignment_id' => $assignmentID,
+                    'rule_id'       => $ruleID,
+                    'output_id'     => $outputID,
+                    'output_label'  => $assignmentLabel
+                ]);
                 $lines[] = $assignmentNode . '["' . $this->MermaidEscape($assignmentLabel) . '"]';
                 $lines[] = $ruleNode . ' --> ' . $assignmentNode;
+                $lines[] = $this->BuildMermaidClickLine($assignmentNode);
 
                 $assignmentClass = 'green';
                 if ($assignmentActive) {
@@ -5312,8 +5469,16 @@ document.addEventListener("DOMContentLoaded", () => {
                     $parts[] = 'ObjID: ' . $targetObjectID;
                 }
 
+                $lines[] = $this->BuildMermaidNodeMetadataComment($outputNode, 'output', [
+                    'output_id'        => $outputID,
+                    'output_name'      => $outputName !== '' ? $outputName : $outputID,
+                    'type_id'          => $typeID,
+                    'type_label'       => $typeLabel,
+                    'target_object_id' => $targetObjectID
+                ]);
                 $lines[] = $outputNode . '["' . $this->MermaidEscape(implode("\n", $parts)) . '"]';
                 $lines[] = $assignmentNode . ' --> ' . $outputNode;
+                $lines[] = $this->BuildMermaidClickLine($outputNode);
 
                 $outputClass = 'green';
                 if ($outputNodeActive) {
