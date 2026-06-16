@@ -1,7 +1,7 @@
 <?php
 
 declare(strict_types=1);
-// 7.4.1
+// 7.5.0
 class AlarmResponseManager extends IPSModule
 {
     private const HOUSE_STATES = [
@@ -1772,6 +1772,12 @@ class AlarmResponseManager extends IPSModule
 
             header('Content-Type: application/json; charset=utf-8');
             echo json_encode(['ok' => true]);
+            return;
+        }
+
+        // 2b. Assignment matrix API
+        if (isset($_GET['assignment_api'])) {
+            $this->HandleAssignmentMatrixApi();
             return;
         }
 
@@ -4794,6 +4800,176 @@ document.addEventListener("DOMContentLoaded", () => {
         return false;
     }
 
+
+
+    private function HandleAssignmentMatrixApi(): void
+    {
+        header('Content-Type: application/json; charset=utf-8');
+
+        try {
+            $raw = file_get_contents('php://input');
+            $data = json_decode((string) $raw, true);
+
+            if (!is_array($data)) {
+                throw new Exception('Invalid JSON payload.');
+            }
+
+            $action = strtolower(trim((string) ($data['action'] ?? '')));
+            $outputID = trim((string) ($data['output_id'] ?? ''));
+            $groupKey = trim((string) ($data['group_key'] ?? ''));
+            $houseState = trim((string) ($data['house_state'] ?? ''));
+
+            if (!in_array($action, ['assign', 'remove'], true)) {
+                throw new Exception('Invalid action. Expected assign or remove.');
+            }
+
+            $enabled = ($action === 'assign');
+
+            $result = $this->UpdateAssignmentMatrixConfigCell($outputID, $groupKey, $houseState, $enabled);
+
+            echo json_encode([
+                'ok'      => true,
+                'action'  => $action,
+                'message' => $enabled ? 'Assignment enabled.' : 'Assignment removed.',
+                'result'  => $result
+            ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        } catch (Throwable $e) {
+            echo json_encode([
+                'ok'      => false,
+                'message' => $e->getMessage()
+            ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        }
+    }
+
+
+    private function UpdateAssignmentMatrixConfigCell(string $outputID, string $groupKey, string $houseState, bool $enabled): array
+    {
+        $outputID = trim($outputID);
+        $groupKey = trim($groupKey);
+        $houseState = trim($houseState);
+
+        if ($outputID === '') {
+            throw new Exception('OutputID is missing.');
+        }
+
+        if ($groupKey === '') {
+            throw new Exception('GroupKey is missing.');
+        }
+
+        if (!in_array($houseState, ['0', '2', '3', '6', '9'], true)) {
+            throw new Exception('Invalid HouseState: ' . $houseState);
+        }
+
+        $importedGroups = $this->ExtractImportedGroupsFromConfig();
+        $groupLabels = [];
+
+        foreach ($importedGroups as $group) {
+            if (!is_array($group)) {
+                continue;
+            }
+
+            $key = trim((string) ($group['GroupKey'] ?? ''));
+            $label = trim((string) ($group['GroupLabel'] ?? $key));
+
+            if ($key !== '') {
+                $groupLabels[$key] = $label !== '' ? $label : $key;
+            }
+        }
+
+        if (!isset($groupLabels[$groupKey])) {
+            throw new Exception('GroupKey is not available for this Module 3 instance: ' . $groupKey);
+        }
+
+        $outputLabels = [];
+
+        foreach ($this->readListProperty('OutputResources') as $outputRow) {
+            if (!is_array($outputRow)) {
+                continue;
+            }
+
+            $id = trim((string) ($outputRow['OutputID'] ?? ''));
+            $label = trim((string) ($outputRow['Name'] ?? $id));
+
+            if ($id !== '') {
+                $outputLabels[$id] = $label !== '' ? $label : $id;
+            }
+        }
+
+        if (!isset($outputLabels[$outputID])) {
+            throw new Exception('OutputID is not available in OutputResources: ' . $outputID);
+        }
+
+        $effectiveRules = $this->GetEffectiveGroupStateRules();
+        $rows = $this->BuildAssignmentMatrixPropertyValues($importedGroups, $effectiveRules);
+
+        $found = false;
+        $stateField = 'HS_' . $houseState;
+
+        foreach ($rows as &$row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $rowOutputID = trim((string) ($row['OutputID'] ?? ''));
+            $rowGroupKey = trim((string) ($row['GroupKey'] ?? ''));
+
+            if ($rowOutputID !== $outputID || $rowGroupKey !== $groupKey) {
+                continue;
+            }
+
+            $row['OutputLabel'] = $outputLabels[$outputID];
+            $row['GroupLabel'] = $groupLabels[$groupKey];
+            $row[$stateField] = $enabled;
+            $row = $this->NormalizeAssignmentMatrixRow($row);
+
+            $found = true;
+            break;
+        }
+        unset($row);
+
+        if (!$found) {
+            $row = [
+                'OutputID'    => $outputID,
+                'OutputLabel' => $outputLabels[$outputID],
+                'GroupKey'    => $groupKey,
+                'GroupLabel'  => $groupLabels[$groupKey],
+                'AllStates'   => false,
+                'NoneStates'  => false,
+                'HS_0'        => false,
+                'HS_2'        => false,
+                'HS_3'        => false,
+                'HS_6'        => false,
+                'HS_9'        => false
+            ];
+
+            $row[$stateField] = $enabled;
+            $rows[] = $this->NormalizeAssignmentMatrixRow($row);
+        }
+
+        IPS_SetProperty($this->InstanceID, 'AssignmentMatrixConfig', json_encode(array_values($rows)));
+        IPS_ApplyChanges($this->InstanceID);
+
+        $this->LogMessage(
+            'UpdateAssignmentMatrixConfigCell: '
+                . ($enabled ? 'assigned' : 'removed')
+                . ' OutputID=' . $outputID
+                . ' GroupKey=' . $groupKey
+                . ' HouseState=' . $houseState,
+            KL_MESSAGE
+        );
+
+        return [
+            'output_id'    => $outputID,
+            'output_label' => $outputLabels[$outputID],
+            'group_key'    => $groupKey,
+            'group_label'  => $groupLabels[$groupKey],
+            'house_state'  => $houseState,
+            'enabled'      => $enabled
+        ];
+    }
+
+
+
     private function BuildMermaidNodeMetadataComment(string $nodeID, string $type, array $data): string
     {
         $payload = [
@@ -4815,7 +4991,7 @@ document.addEventListener("DOMContentLoaded", () => {
     private function BuildMermaidSelectionPanelHtml(): string
     {
         return '
-<div style="width:320px;flex:0 0 320px;background:#252526;border:1px solid #444;border-radius:8px;padding:12px;overflow:auto;">
+<div style="width:340px;flex:0 0 340px;background:#252526;border:1px solid #444;border-radius:8px;padding:12px;overflow:auto;">
     <h3 style="margin:0 0 10px 0;color:#4CAF50;">Selected Node</h3>
 
     <div style="font-size:12px;color:#999;margin-bottom:6px;">Type</div>
@@ -4826,15 +5002,33 @@ document.addEventListener("DOMContentLoaded", () => {
 
     <div style="font-size:12px;color:#999;margin-bottom:6px;">Details</div>
     <pre id="selected-node-detail" style="white-space:pre-wrap;background:#1e1e1e;border:1px solid #333;border-radius:6px;padding:8px;color:#cfcfcf;font-family:Consolas,monospace;font-size:12px;">No node selected.</pre>
+
+    <hr style="border:0;border-top:1px solid #444;margin:14px 0;">
+
+    <h3 style="margin:0 0 10px 0;color:#4CAF50;">Output Assignment</h3>
+
+    <div style="font-size:12px;color:#999;margin-bottom:6px;">Selected Rule</div>
+    <pre id="selected-rule-summary" style="white-space:pre-wrap;background:#1e1e1e;border:1px solid #333;border-radius:6px;padding:8px;color:#cfcfcf;font-family:Consolas,monospace;font-size:12px;">No rule selected.</pre>
+
+    <div style="font-size:12px;color:#999;margin-bottom:6px;">Selected Output</div>
+    <pre id="selected-output-summary" style="white-space:pre-wrap;background:#1e1e1e;border:1px solid #333;border-radius:6px;padding:8px;color:#cfcfcf;font-family:Consolas,monospace;font-size:12px;">No output selected.</pre>
+
+    <div style="display:flex;gap:8px;margin-top:10px;">
+        <button id="assign-output-button" type="button" disabled style="flex:1;background:#2e7d32;color:white;border:1px solid #66bb6a;border-radius:4px;padding:7px;cursor:pointer;">Assign</button>
+        <button id="remove-output-button" type="button" disabled style="flex:1;background:#8e2424;color:white;border:1px solid #ef5350;border-radius:4px;padding:7px;cursor:pointer;">Remove</button>
+    </div>
+
+    <div id="assignment-action-status" style="margin-top:10px;color:#aaa;font-size:12px;">Select one rule and one output.</div>
 </div>';
     }
-
 
     private function BuildMermaidSelectionJavascript(): string
     {
         return <<<'JS'
 let mermaidNodeMetadata = {};
 let selectedMermaidNodeID = "";
+let selectedAssignmentRule = null;
+let selectedAssignmentOutput = null;
 
 window.selectMermaidNode = function(nodeID) {
     selectedMermaidNodeID = String(nodeID || "");
@@ -4861,40 +5055,82 @@ window.selectMermaidNode = function(nodeID) {
     if (meta.type === "group") {
         titleEl.textContent = data.group_label || data.group_key || selectedMermaidNodeID;
         detailEl.textContent = "GroupKey: " + (data.group_key || "");
+        updateAssignmentSelectionPanel();
         return;
     }
 
     if (meta.type === "rule") {
+        selectedAssignmentRule = {
+            rule_id: data.rule_id || "",
+            group_key: data.group_key || "",
+            rule_label: data.rule_label || "",
+            house_state: data.house_state || "",
+            severity: data.severity || ""
+        };
+
         titleEl.textContent = data.rule_label || data.rule_id || selectedMermaidNodeID;
         detailEl.textContent =
             "RuleID: " + (data.rule_id || "") + "\n"
             + "GroupKey: " + (data.group_key || "") + "\n"
             + "HouseState: " + (data.house_state || "") + "\n"
             + "Severity: " + (data.severity || "");
+
+        updateAssignmentSelectionPanel();
         return;
     }
 
     if (meta.type === "assignment") {
+        selectedAssignmentRule = {
+            rule_id: data.rule_id || "",
+            group_key: data.group_key || "",
+            rule_label: data.rule_label || "",
+            house_state: data.house_state || "",
+            severity: data.severity || ""
+        };
+
+        selectedAssignmentOutput = {
+            output_id: data.output_id || "",
+            output_name: data.output_label || data.output_id || "",
+            type_id: "",
+            type_label: "",
+            target_object_id: ""
+        };
+
         titleEl.textContent = data.output_label || data.assignment_id || selectedMermaidNodeID;
         detailEl.textContent =
             "AssignmentID: " + (data.assignment_id || "") + "\n"
             + "RuleID: " + (data.rule_id || "") + "\n"
+            + "GroupKey: " + (data.group_key || "") + "\n"
+            + "HouseState: " + (data.house_state || "") + "\n"
             + "OutputID: " + (data.output_id || "");
+
+        updateAssignmentSelectionPanel();
         return;
     }
 
     if (meta.type === "output") {
+        selectedAssignmentOutput = {
+            output_id: data.output_id || "",
+            output_name: data.output_name || data.output_id || "",
+            type_id: data.type_id || "",
+            type_label: data.type_label || "",
+            target_object_id: data.target_object_id || ""
+        };
+
         titleEl.textContent = data.output_name || data.output_id || selectedMermaidNodeID;
         detailEl.textContent =
             "OutputID: " + (data.output_id || "") + "\n"
             + "TypeID: " + (data.type_id || "") + "\n"
             + "Type: " + (data.type_label || "") + "\n"
             + "TargetObjectID: " + (data.target_object_id || "");
+
+        updateAssignmentSelectionPanel();
         return;
     }
 
     titleEl.textContent = selectedMermaidNodeID;
     detailEl.textContent = JSON.stringify(data, null, 2);
+    updateAssignmentSelectionPanel();
 };
 
 function extractMermaidNodeMetadata(graphString) {
@@ -4979,10 +5215,163 @@ function attachMermaidNodeSelectionHandlers(svgEl) {
         }, true);
     });
 }
-JS;
+
+function updateAssignmentSelectionPanel() {
+    const ruleEl = document.getElementById("selected-rule-summary");
+    const outputEl = document.getElementById("selected-output-summary");
+    const assignButton = document.getElementById("assign-output-button");
+    const removeButton = document.getElementById("remove-output-button");
+    const statusEl = document.getElementById("assignment-action-status");
+
+    const hasRule =
+        selectedAssignmentRule
+        && selectedAssignmentRule.group_key
+        && selectedAssignmentRule.house_state;
+
+    const hasOutput =
+        selectedAssignmentOutput
+        && selectedAssignmentOutput.output_id;
+
+    if (ruleEl) {
+        if (hasRule) {
+            ruleEl.textContent =
+                "Rule: " + (selectedAssignmentRule.rule_label || selectedAssignmentRule.rule_id || "") + "\n"
+                + "RuleID: " + (selectedAssignmentRule.rule_id || "") + "\n"
+                + "GroupKey: " + (selectedAssignmentRule.group_key || "") + "\n"
+                + "HouseState: " + (selectedAssignmentRule.house_state || "") + "\n"
+                + "Severity: " + (selectedAssignmentRule.severity || "");
+        } else {
+            ruleEl.textContent = "No rule selected.";
+        }
     }
 
+    if (outputEl) {
+        if (hasOutput) {
+            outputEl.textContent =
+                "Output: " + (selectedAssignmentOutput.output_name || selectedAssignmentOutput.output_id || "") + "\n"
+                + "OutputID: " + (selectedAssignmentOutput.output_id || "") + "\n"
+                + "TypeID: " + (selectedAssignmentOutput.type_id || "") + "\n"
+                + "TargetObjectID: " + (selectedAssignmentOutput.target_object_id || "");
+        } else {
+            outputEl.textContent = "No output selected.";
+        }
+    }
 
+    const ready = !!(hasRule && hasOutput);
+
+    if (assignButton) {
+        assignButton.disabled = !ready;
+        assignButton.style.opacity = ready ? "1" : "0.45";
+    }
+
+    if (removeButton) {
+        removeButton.disabled = !ready;
+        removeButton.style.opacity = ready ? "1" : "0.45";
+    }
+
+    if (statusEl) {
+        statusEl.textContent = ready
+            ? "Ready: assign or remove selected output for selected rule."
+            : "Select one rule and one output.";
+    }
+}
+
+async function sendAssignmentMatrixAction(action) {
+    const statusEl = document.getElementById("assignment-action-status");
+
+    if (!selectedAssignmentRule || !selectedAssignmentOutput) {
+        if (statusEl) {
+            statusEl.textContent = "Select one rule and one output first.";
+        }
+        return;
+    }
+
+    const groupKey = String(selectedAssignmentRule.group_key || "");
+    const houseState = String(selectedAssignmentRule.house_state || "");
+    const outputID = String(selectedAssignmentOutput.output_id || "");
+
+    if (groupKey === "" || houseState === "" || outputID === "") {
+        if (statusEl) {
+            statusEl.textContent = "Selection is incomplete.";
+        }
+        return;
+    }
+
+    if (action === "remove") {
+        const label =
+            (selectedAssignmentOutput.output_name || outputID)
+            + " from "
+            + (selectedAssignmentRule.rule_label || selectedAssignmentRule.rule_id || groupKey);
+
+        if (!confirm("Remove this output assignment?\n\n" + label)) {
+            return;
+        }
+    }
+
+    if (statusEl) {
+        statusEl.textContent = action === "assign" ? "Assigning..." : "Removing...";
+    }
+
+    try {
+        const response = await fetch("?assignment_api=1&t=" + Date.now(), {
+            method: "POST",
+            credentials: "same-origin",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                action: action,
+                group_key: groupKey,
+                house_state: houseState,
+                output_id: outputID
+            })
+        });
+
+        const result = await response.json();
+
+        if (!result || result.ok !== true) {
+            throw new Error(result && result.message ? result.message : "Assignment API failed.");
+        }
+
+        if (statusEl) {
+            statusEl.textContent = result.message || "Assignment updated.";
+        }
+
+        lastGraphString = "";
+        await fetchAndUpdateGraph();
+    } catch (err) {
+        console.error("Assignment update failed", err);
+
+        if (statusEl) {
+            statusEl.textContent = "Error: " + err.message;
+        }
+    }
+}
+
+function attachAssignmentButtonHandlers() {
+    const assignButton = document.getElementById("assign-output-button");
+    const removeButton = document.getElementById("remove-output-button");
+
+    if (assignButton) {
+        assignButton.addEventListener("click", async function(ev) {
+            ev.preventDefault();
+            await sendAssignmentMatrixAction("assign");
+        });
+    }
+
+    if (removeButton) {
+        removeButton.addEventListener("click", async function(ev) {
+            ev.preventDefault();
+            await sendAssignmentMatrixAction("remove");
+        });
+    }
+
+    updateAssignmentSelectionPanel();
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+    attachAssignmentButtonHandlers();
+});
+JS;
+    }
 
 
     private function BuildMappingGraph(): string
@@ -5472,9 +5861,19 @@ JS;
                     $assignmentLabel .= "\n" . $outputID;
                 }
 
+                $assignmentRule = $this->FindRuleByID($ruleID);
+                $assignmentGroupKey = is_array($assignmentRule) ? trim((string) ($assignmentRule['GroupKey'] ?? '')) : '';
+                $assignmentHouseState = is_array($assignmentRule) ? trim((string) ($assignmentRule['HouseState'] ?? '')) : '';
+                $assignmentSeverity = is_array($assignmentRule) ? trim((string) ($assignmentRule['Severity'] ?? '')) : '';
+                $assignmentRuleLabel = is_array($assignmentRule) ? $this->buildRuleLabel($assignmentRule, $groupLabels) : $ruleID;
+
                 $lines[] = $this->BuildMermaidNodeMetadataComment($assignmentNode, 'assignment', [
                     'assignment_id' => $assignmentID,
                     'rule_id'       => $ruleID,
+                    'group_key'     => $assignmentGroupKey,
+                    'house_state'   => $assignmentHouseState,
+                    'severity'      => $assignmentSeverity,
+                    'rule_label'    => $assignmentRuleLabel,
                     'output_id'     => $outputID,
                     'output_label'  => $assignmentLabel
                 ]);
