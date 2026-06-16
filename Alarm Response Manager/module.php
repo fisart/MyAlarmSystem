@@ -1,7 +1,7 @@
 <?php
 
 declare(strict_types=1);
-// 7.3.1
+// 7.3.2
 class AlarmResponseManager extends IPSModule
 {
     private const HOUSE_STATES = [
@@ -3000,24 +3000,19 @@ document.addEventListener("DOMContentLoaded", () => {
 
     private function BuildInputContentSignatureForPayload(array $payload): string
     {
-        $pairs = $this->ExtractInputVariableContentPairs($payload);
+        $messageData = $this->ExtractOutputMessageDataFromPayload($payload);
 
-        if (count($pairs) === 0) {
+        $variableKey = trim((string) ($messageData['variable_key'] ?? ''));
+        $content = trim((string) ($messageData['content'] ?? ''));
+
+        if ($variableKey === '' || $content === '') {
             return '';
         }
 
-        usort($pairs, static function (array $a, array $b): int {
-            $ka = (string) ($a['variable_key'] ?? '');
-            $kb = (string) ($b['variable_key'] ?? '');
-
-            if ($ka !== $kb) {
-                return strnatcasecmp($ka, $kb);
-            }
-
-            return strnatcasecmp((string) ($a['content'] ?? ''), (string) ($b['content'] ?? ''));
-        });
-
-        return hash('sha256', json_encode($pairs, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+        return hash('sha256', json_encode([
+            'variable_key' => $variableKey,
+            'content'      => $content
+        ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
     }
 
     private function ExtractInputVariableContentPairs(array $payload): array
@@ -4212,47 +4207,12 @@ document.addEventListener("DOMContentLoaded", () => {
         $prefix = trim((string) ($resource['PrefixText'] ?? ''));
         $suffix = trim((string) ($resource['SuffixText'] ?? ''));
 
-        $sensorName = '';
-        $parentName = '';
-        $grandparentName = '';
-        $content = '';
+        $messageData = $this->ExtractOutputMessageDataFromPayload($payload);
 
-        $trigger = $payload['target_trigger_details'] ?? [];
-        if (is_array($trigger)) {
-            $sensorName = trim((string) ($trigger['smart_label'] ?? $trigger['SensorName'] ?? ''));
-            $parentName = trim((string) ($trigger['ParentName'] ?? $trigger['parent_name'] ?? ''));
-            $grandparentName = trim((string) ($trigger['GrandParentName'] ?? $trigger['grandparent_name'] ?? ''));
-
-            $valueHuman = trim((string) ($trigger['value_human'] ?? ''));
-            if ($valueHuman !== '') {
-                $content = $valueHuman;
-            } elseif (array_key_exists('value_raw', $trigger)) {
-                $content = trim((string) $trigger['value_raw']);
-            }
-        }
-
-        $sensorDetails = $payload['target_active_sensor_details'] ?? [];
-        if (is_array($sensorDetails) && count($sensorDetails) > 0 && is_array($sensorDetails[0])) {
-            $first = $sensorDetails[0];
-
-            if ($sensorName === '') {
-                $sensorName = trim((string) ($first['smart_label'] ?? $first['SensorName'] ?? ''));
-            }
-            if ($parentName === '') {
-                $parentName = trim((string) ($first['ParentName'] ?? $first['parent_name'] ?? ''));
-            }
-            if ($grandparentName === '') {
-                $grandparentName = trim((string) ($first['GrandParentName'] ?? $first['grandparent_name'] ?? ''));
-            }
-            if ($content === '') {
-                $valueHuman = trim((string) ($first['value_human'] ?? ''));
-                if ($valueHuman !== '') {
-                    $content = $valueHuman;
-                } elseif (array_key_exists('value_raw', $first)) {
-                    $content = trim((string) $first['value_raw']);
-                }
-            }
-        }
+        $sensorName = (string) ($messageData['sensor_name'] ?? '');
+        $parentName = (string) ($messageData['parent_name'] ?? '');
+        $grandparentName = (string) ($messageData['grandparent_name'] ?? '');
+        $content = (string) ($messageData['content'] ?? '');
 
         $parts = [];
 
@@ -4302,10 +4262,12 @@ document.addEventListener("DOMContentLoaded", () => {
             if ($a['order'] === $b['order']) {
                 return 0;
             }
+
             return ($a['order'] < $b['order']) ? -1 : 1;
         });
 
         $textParts = [];
+
         foreach ($parts as $part) {
             $text = trim((string) ($part['text'] ?? ''));
             if ($text !== '') {
@@ -4319,6 +4281,67 @@ document.addEventListener("DOMContentLoaded", () => {
         }
 
         return 'Alarm event detected';
+    }
+
+
+    private function ExtractOutputMessageDataFromPayload(array $payload): array
+    {
+        $result = [
+            'variable_key'      => '',
+            'sensor_name'       => '',
+            'parent_name'       => '',
+            'grandparent_name'  => '',
+            'content'           => ''
+        ];
+
+        $trigger = $payload['target_trigger_details'] ?? [];
+        if (is_array($trigger)) {
+            $this->MergeOutputMessageDataFromDetail($result, $trigger);
+        }
+
+        $sensorDetails = $payload['target_active_sensor_details'] ?? [];
+        if (is_array($sensorDetails) && count($sensorDetails) > 0 && is_array($sensorDetails[0])) {
+            $this->MergeOutputMessageDataFromDetail($result, $sensorDetails[0]);
+        }
+
+        return $result;
+    }
+
+    private function MergeOutputMessageDataFromDetail(array &$result, array $detail): void
+    {
+        if ($result['variable_key'] === '') {
+            $result['variable_key'] = $this->ExtractInputVariableKeyFromDetail($detail);
+        }
+
+        if ($result['sensor_name'] === '') {
+            $result['sensor_name'] = trim((string) ($detail['smart_label'] ?? $detail['SensorName'] ?? ''));
+        }
+
+        if ($result['parent_name'] === '') {
+            $result['parent_name'] = trim((string) ($detail['ParentName'] ?? $detail['parent_name'] ?? ''));
+        }
+
+        if ($result['grandparent_name'] === '') {
+            $result['grandparent_name'] = trim((string) ($detail['GrandParentName'] ?? $detail['grandparent_name'] ?? ''));
+        }
+
+        if ($result['content'] === '') {
+            $result['content'] = $this->ExtractOutputMessageContentFromDetail($detail);
+        }
+    }
+
+    private function ExtractOutputMessageContentFromDetail(array $detail): string
+    {
+        $valueHuman = trim((string) ($detail['value_human'] ?? ''));
+        if ($valueHuman !== '') {
+            return $valueHuman;
+        }
+
+        if (array_key_exists('value_raw', $detail)) {
+            return trim((string) $detail['value_raw']);
+        }
+
+        return '';
     }
 
     private function readListProperty(string $propertyName): array
