@@ -42,7 +42,6 @@ class AlarmHeartbeatWatchdog extends IPSModule
         $this->RegisterAttributeBoolean('LastOverallOK', true);
         $this->RegisterAttributeString('LastFailureText', '');
         $this->RegisterAttributeString('LastCheckJson', '{}');
-        $this->RegisterAttributeString('HeartbeatHistoryJson', '[]');
         $this->RegisterAttributeString('RegisteredWatchVariableIDsJson', '[]');
         $this->RegisterAttributeString('HeartbeatHistoryJson', '[]');
         $this->RegisterAttributeBoolean('HeartbeatActiveInitialized', false);
