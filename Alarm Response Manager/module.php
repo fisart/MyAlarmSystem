@@ -1,7 +1,7 @@
 <?php
 
 declare(strict_types=1);
-// 7.5.2 
+// 7.5.3 
 class AlarmResponseManager extends IPSModule
 {
     private const HOUSE_STATES = [
@@ -1623,64 +1623,10 @@ class AlarmResponseManager extends IPSModule
         $importedGroups = $this->ExtractImportedGroupsFromConfig();
         $matrixRows = $this->NormalizeAssignmentMatrixRows($matrixRows, $importedGroups);
 
-        /*
-     * Important:
-     * Use the effective rule set, not the legacy GroupStateRules property directly.
-     * The Mermaid chart and the matrix UI are both based on effective rules.
-     * If we use only GroupStateRules here, a newly updated AssignmentMatrixConfig
-     * cell can fail to become an effective runtime/chart assignment.
-     */
         $groupStateRules = $this->GetEffectiveGroupStateRules();
         $groupStateRules = $this->EnsureEffectiveRuleIDs($groupStateRules);
 
-        $ruleMap = $this->BuildGroupStateRuleMap($groupStateRules);
-
-        $result = [];
-
-        foreach ($matrixRows as $row) {
-            if (!is_array($row)) {
-                continue;
-            }
-
-            $row = $this->NormalizeAssignmentMatrixRow($row);
-
-            $outputID = trim((string) ($row['OutputID'] ?? ''));
-            $groupKey = trim((string) ($row['GroupKey'] ?? ''));
-
-            if ($outputID === '' || $groupKey === '') {
-                continue;
-            }
-
-            foreach (['0', '2', '3', '6', '9'] as $state) {
-                if (!(bool) ($row['HS_' . $state] ?? false)) {
-                    continue;
-                }
-
-                $ruleID = $ruleMap[$groupKey . '|' . $state] ?? '';
-
-                if ($ruleID === '') {
-                    $this->LogMessage(
-                        'GetEffectiveRuleOutputAssignments: no RuleID for GroupKey='
-                            . $groupKey
-                            . ' HouseState='
-                            . $state
-                            . ' OutputID='
-                            . $outputID,
-                        KL_MESSAGE
-                    );
-                    continue;
-                }
-
-                $result[] = [
-                    'Active'       => true,
-                    'AssignmentID' => 'asgmat_' . substr(md5($outputID . '|' . $groupKey . '|' . $state), 0, 12),
-                    'RuleID'       => $ruleID,
-                    'OutputID'     => $outputID
-                ];
-            }
-        }
-
-        return array_values($result);
+        return $this->BuildEffectiveRuleOutputAssignmentsFromMatrixRows($matrixRows, $groupStateRules);
     }
 
     private function GetGraphStateFilter(): string
@@ -4855,10 +4801,12 @@ document.addEventListener("DOMContentLoaded", () => {
             echo json_encode([
                 'ok'      => true,
                 'action'  => $action,
-                'message' => $enabled ? 'Assignment enabled.' : 'Assignment removed.',
+                'message' => $enabled ? 'Assignment enabled and verified.' : 'Assignment removed and verified.',
                 'result'  => $result
             ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
         } catch (Throwable $e) {
+            $this->LogMessage('HandleAssignmentMatrixApi failed: ' . $e->getMessage(), KL_MESSAGE);
+
             echo json_encode([
                 'ok'      => false,
                 'message' => $e->getMessage()
@@ -4924,11 +4872,17 @@ document.addEventListener("DOMContentLoaded", () => {
             throw new Exception('OutputID is not available in OutputResources: ' . $outputID);
         }
 
+        /*
+     * Build from the current matrix/form model, not only from the raw property.
+     * This preserves existing rows and also makes sure missing output/group rows exist.
+     */
         $effectiveRules = $this->GetEffectiveGroupStateRules();
+        $effectiveRules = $this->EnsureEffectiveRuleIDs($effectiveRules);
+
         $rows = $this->BuildAssignmentMatrixPropertyValues($importedGroups, $effectiveRules);
 
-        $found = false;
         $stateField = 'HS_' . $houseState;
+        $found = false;
 
         foreach ($rows as &$row) {
             if (!is_array($row)) {
@@ -4971,29 +4925,128 @@ document.addEventListener("DOMContentLoaded", () => {
             $rows[] = $this->NormalizeAssignmentMatrixRow($row);
         }
 
-        IPS_SetProperty($this->InstanceID, 'AssignmentMatrixConfig', json_encode(array_values($rows)));
+        $rows = array_values($rows);
+
+        IPS_SetProperty($this->InstanceID, 'AssignmentMatrixConfig', json_encode($rows));
         IPS_ApplyChanges($this->InstanceID);
 
+        /*
+     * Verify against the rows we have just written.
+     * Do not rely on a delayed UI refresh for correctness.
+     */
+        $ruleMap = $this->BuildGroupStateRuleMap($effectiveRules);
+        $expectedRuleID = $ruleMap[$groupKey . '|' . $houseState] ?? '';
+
+        if ($expectedRuleID === '') {
+            throw new Exception(
+                'AssignmentMatrixConfig was written, but no effective RuleID exists for GroupKey='
+                    . $groupKey
+                    . ' HouseState='
+                    . $houseState
+            );
+        }
+
+        $effectiveAssignments = $this->BuildEffectiveRuleOutputAssignmentsFromMatrixRows($rows, $effectiveRules);
+
+        $effectiveFound = false;
+
+        foreach ($effectiveAssignments as $assignment) {
+            if (!is_array($assignment)) {
+                continue;
+            }
+
+            if (
+                trim((string) ($assignment['RuleID'] ?? '')) === $expectedRuleID
+                && trim((string) ($assignment['OutputID'] ?? '')) === $outputID
+            ) {
+                $effectiveFound = true;
+                break;
+            }
+        }
+
+        if ($enabled && !$effectiveFound) {
+            throw new Exception(
+                'AssignmentMatrixConfig was written, but effective assignment was not produced. RuleID='
+                    . $expectedRuleID
+                    . ' OutputID='
+                    . $outputID
+            );
+        }
+
+        if (!$enabled && $effectiveFound) {
+            throw new Exception(
+                'AssignmentMatrixConfig was written, but effective assignment still exists. RuleID='
+                    . $expectedRuleID
+                    . ' OutputID='
+                    . $outputID
+            );
+        }
+
         $this->LogMessage(
-            'UpdateAssignmentMatrixConfigCell: '
+            'UpdateAssignmentMatrixConfigCell verified: '
                 . ($enabled ? 'assigned' : 'removed')
                 . ' OutputID=' . $outputID
                 . ' GroupKey=' . $groupKey
-                . ' HouseState=' . $houseState,
+                . ' HouseState=' . $houseState
+                . ' RuleID=' . $expectedRuleID,
             KL_MESSAGE
         );
 
         return [
-            'output_id'    => $outputID,
-            'output_label' => $outputLabels[$outputID],
-            'group_key'    => $groupKey,
-            'group_label'  => $groupLabels[$groupKey],
-            'house_state'  => $houseState,
-            'enabled'      => $enabled
+            'output_id'        => $outputID,
+            'output_label'     => $outputLabels[$outputID],
+            'group_key'        => $groupKey,
+            'group_label'      => $groupLabels[$groupKey],
+            'house_state'      => $houseState,
+            'enabled'          => $enabled,
+            'rule_id'          => $expectedRuleID,
+            'effective_found'  => $effectiveFound,
+            'matrix_row_count' => count($rows)
         ];
     }
 
+    private function BuildEffectiveRuleOutputAssignmentsFromMatrixRows(array $matrixRows, array $groupStateRules): array
+    {
+        $ruleMap = $this->BuildGroupStateRuleMap($groupStateRules);
 
+        $result = [];
+
+        foreach ($matrixRows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $row = $this->NormalizeAssignmentMatrixRow($row);
+
+            $outputID = trim((string) ($row['OutputID'] ?? ''));
+            $groupKey = trim((string) ($row['GroupKey'] ?? ''));
+
+            if ($outputID === '' || $groupKey === '') {
+                continue;
+            }
+
+            foreach (['0', '2', '3', '6', '9'] as $state) {
+                if (!(bool) ($row['HS_' . $state] ?? false)) {
+                    continue;
+                }
+
+                $ruleID = $ruleMap[$groupKey . '|' . $state] ?? '';
+
+                if ($ruleID === '') {
+                    continue;
+                }
+
+                $result[] = [
+                    'Active'       => true,
+                    'AssignmentID' => 'asgmat_' . substr(md5($outputID . '|' . $groupKey . '|' . $state), 0, 12),
+                    'RuleID'       => $ruleID,
+                    'OutputID'     => $outputID
+                ];
+            }
+        }
+
+        return array_values($result);
+    }
 
     private function BuildMermaidNodeMetadataComment(string $nodeID, string $type, array $data): string
     {
