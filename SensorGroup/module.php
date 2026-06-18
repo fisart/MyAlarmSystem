@@ -1,5 +1,5 @@
 <?php
-// Looks like a stable version
+// Version2.11.0
 declare(strict_types=1);
 
 class SensorGroup extends IPSModule
@@ -662,6 +662,32 @@ class SensorGroup extends IPSModule
         $tmp = json_decode((string)$this->ReadPropertyString($propName), true);
         return is_array($tmp) ? $tmp : [];
     }
+
+    private function IsConfigRowActive(array $row): bool
+    {
+        if (!array_key_exists('Active', $row)) {
+            return true;
+        }
+
+        $value = $row['Active'];
+
+        if (is_bool($value)) {
+            return $value;
+        }
+
+        if (is_int($value) || is_float($value)) {
+            return ((int)$value) === 1;
+        }
+
+        if (is_string($value)) {
+            $normalized = strtolower(trim($value));
+            return !in_array($normalized, ['', '0', 'false', 'no', 'off'], true);
+        }
+
+        return (bool)$value;
+    }
+
+
     private function GetMasterMetadata()
     {
         // FIX: Read from Buffer first to include unsaved (newly added) sensors
@@ -857,6 +883,7 @@ class SensorGroup extends IPSModule
                     if (($exRow['ClassID'] ?? '') === $classID && (int)($exRow['VariableID'] ?? 0) === $inVID) {
                         $exRow = array_merge($exRow, $inRow);
                         $exRow['ClassID'] = $classID;
+                        $exRow['Active'] = $this->IsConfigRowActive($exRow);
 
                         if (!isset($exRow['TriggerMode'])) {
                             $exRow['TriggerMode'] = 0;
@@ -1385,6 +1412,8 @@ class SensorGroup extends IPSModule
 
 
 
+
+
     public function SaveConfiguration()
     {
         // 1. Load data from RAM Buffers (The stateless Source of Truth)
@@ -1415,6 +1444,16 @@ class SensorGroup extends IPSModule
         $tmp = json_decode($rawDispatchTargets, true);
         $dispatchTargets = (is_array($tmp) && $rawDispatchTargets !== '') ? $tmp : [];
         unset($tmp);
+
+        foreach ($dispatchTargets as &$targetRow) {
+            if (!is_array($targetRow)) {
+                continue;
+            }
+
+            $targetRow['Active'] = $this->IsConfigRowActive($targetRow);
+        }
+        unset($targetRow);
+
         if ($this->ReadPropertyBoolean('DebugMode')) $this->LogMessage(
             "DEBUG: COMMIT PRECHECK - ClassListBuffer firstRow=" . json_encode($classList[0] ?? null),
             KL_MESSAGE
@@ -1440,7 +1479,40 @@ class SensorGroup extends IPSModule
 
         // 2. Final Label Healing (Source of Truth) + Sensor defaults
         $metadata = $this->GetMasterMetadata();
+
+        foreach ($definedClasses as &$c) {
+            if (is_array($c)) {
+                $c['Active'] = $this->IsConfigRowActive($c);
+            }
+        }
+        unset($c);
+
+        foreach ($definedGroups as &$g) {
+            if (is_array($g)) {
+                $g['Active'] = $this->IsConfigRowActive($g);
+            }
+        }
+        unset($g);
+
+        foreach ($dispatchTargets as &$t) {
+            if (is_array($t)) {
+                $t['Active'] = $this->IsConfigRowActive($t);
+            }
+        }
+        unset($t);
+
         foreach ($sensorList as &$s) {
+            if (!is_array($s)) {
+                continue;
+            }
+
+            $s['Active'] = $this->IsConfigRowActive($s);
+            if (!is_array($s)) {
+                continue;
+            }
+
+            $s['Active'] = $this->IsConfigRowActive($s);
+
             if (!isset($s['TriggerMode'])) {
                 $s['TriggerMode'] = 0;
             } else {
@@ -1484,6 +1556,8 @@ class SensorGroup extends IPSModule
             $name = trim((string)($c['ClassName'] ?? ''));
             if ($name === '') continue;
 
+            $c['Active'] = $this->IsConfigRowActive($c);
+
             $cid = (string)($c['ClassID'] ?? '');
 
             if ($cid === '') {
@@ -1512,6 +1586,7 @@ class SensorGroup extends IPSModule
             if ($gName === '') continue; // placeholder row: do not persist
 
             $g['GroupName'] = $gName;
+            $g['Active'] = $this->IsConfigRowActive($g);
 
             $gId = trim((string)($g['GroupID'] ?? ''));
             if ($gId === '') {
@@ -1595,6 +1670,7 @@ class SensorGroup extends IPSModule
             echo "No changes detected.";
         }
     }
+
 
 
     private function RegisterSensors($propName)
@@ -1755,6 +1831,13 @@ class SensorGroup extends IPSModule
                 $className = $classDef['ClassName'];
                 $classNameMap[$classID] = $className;
 
+                if (!$this->IsConfigRowActive($classDef)) {
+                    if ($this->ReadPropertyBoolean('DebugMode')) {
+                        $this->LogMessage("DEBUG: Class disabled ClassID={$classID} ClassName={$className}", KL_MESSAGE);
+                    }
+                    continue;
+                }
+
                 $logicMode = $classDef['LogicMode'];
                 $labelMode = $classDef['LabelMode'] ?? 0;
 
@@ -1765,6 +1848,16 @@ class SensorGroup extends IPSModule
                 if (is_array($sensorList)) {
                     foreach ($sensorList as $s) {
                         if (($s['ClassID'] ?? '') === $classID) {
+                            if (!$this->IsConfigRowActive($s)) {
+                                if ($this->ReadPropertyBoolean('DebugMode')) {
+                                    $this->LogMessage(
+                                        "DEBUG: Sensor disabled VariableID=" . (int)($s['VariableID'] ?? 0) . " ClassID={$classID}",
+                                        KL_MESSAGE
+                                    );
+                                }
+                                continue;
+                            }
+
                             $classSensors[] = $s;
                         }
                     }
@@ -1898,8 +1991,28 @@ class SensorGroup extends IPSModule
         $mergedGroups = [];
         if (is_array($groupList)) {
             foreach ($groupList as $row) {
-                $name = $row['GroupName'];
-                if (empty($name)) continue;
+                if (!is_array($row)) {
+                    continue;
+                }
+
+                $name = trim((string)($row['GroupName'] ?? ''));
+                if ($name === '') {
+                    continue;
+                }
+
+                if (!$this->IsConfigRowActive($row)) {
+                    $ident = "Status_" . $this->SanitizeIdent($name);
+                    if (@$this->GetIDForIdent($ident)) {
+                        $this->SetValue($ident, false);
+                    }
+
+                    if ($this->ReadPropertyBoolean('DebugMode')) {
+                        $this->LogMessage("DEBUG: Group disabled GroupName={$name}", KL_MESSAGE);
+                    }
+
+                    continue;
+                }
+
                 $mergedGroups[$name] = [
                     'Classes' => [],
                     'Logic' => $row['GroupLogic']
@@ -1970,9 +2083,35 @@ class SensorGroup extends IPSModule
             }
         }
 
+        $dispatchTargets = json_decode($this->ReadPropertyString('DispatchTargets'), true);
+        if (!is_array($dispatchTargets)) {
+            $dispatchTargets = [];
+        }
+
+        $enabledDispatchTargetMap = [];
+        foreach ($dispatchTargets as $targetRow) {
+            if (!is_array($targetRow)) {
+                continue;
+            }
+
+            $targetID = (int)($targetRow['InstanceID'] ?? 0);
+            if ($targetID <= 0) {
+                continue;
+            }
+
+            if (!$this->IsConfigRowActive($targetRow)) {
+                if ($this->ReadPropertyBoolean('DebugMode')) {
+                    $this->LogMessage("DEBUG [Dispatch]: Target disabled ObjectID={$targetID}", KL_MESSAGE);
+                }
+                continue;
+            }
+
+            $enabledDispatchTargetMap[$targetID] = true;
+        }
+
         // === BEDROOM DISPATCH (Presence Sync) ===
         $bedTarget = (int)$this->ReadPropertyInteger('BedroomTarget');
-        if ($bedTarget > 0 && IPS_InstanceExists($bedTarget)) {
+        if ($bedTarget > 0 && IPS_InstanceExists($bedTarget) && isset($enabledDispatchTargetMap[$bedTarget])) {
             $bedList = json_decode($this->ReadPropertyString('BedroomList'), true) ?: [];
 
             // CHANGE B: Relevance Check
@@ -2052,6 +2191,8 @@ class SensorGroup extends IPSModule
             $g = trim((string)($row['GroupName'] ?? ''));
             $iid = (int)($row['InstanceID'] ?? 0);
             if ($g === '' || $iid <= 0) continue;
+            if (!isset($enabledDispatchTargetMap[$iid])) continue;
+
             $dispatchMap[$g][$iid] = true;
         }
 
@@ -2326,6 +2467,8 @@ class SensorGroup extends IPSModule
             $this->SetValue('EventData', $lastPayloadJson);
         }
     }
+
+
 
     private function ReadLastSensorValueMap(): array
     {
@@ -2645,6 +2788,7 @@ class SensorGroup extends IPSModule
         $graph .= "classDef green fill:#2e7d32,stroke:#a5d6a7,stroke-width:2px,color:#fff;\n";
         $graph .= "classDef grey fill:#37474f,stroke:#546e7a,stroke-width:1px,color:#eee;\n";
         $graph .= "classDef target fill:#1565c0,stroke:#90caf9,stroke-width:2px,color:#fff;\n";
+        $graph .= "classDef disabled fill:#555,stroke:#b0bec5,stroke-width:2px,color:#eeeeee,stroke-dasharray: 5 5;\n";
 
         $conf = json_decode($this->GetConfiguration(), true);
         if (!is_array($conf)) {
@@ -2745,6 +2889,54 @@ class SensorGroup extends IPSModule
             }
         }
 
+        $disabledTargetMap = [];
+        foreach ($dispatchTargets as $t) {
+            if (!is_array($t)) {
+                continue;
+            }
+
+            $iid = (int)($t['InstanceID'] ?? 0);
+            if ($iid > 0 && !$this->IsConfigRowActive($t)) {
+                $disabledTargetMap[$iid] = true;
+            }
+        }
+
+        $disabledGroupMap = [];
+        foreach ($groupList as $g) {
+            if (!is_array($g)) {
+                continue;
+            }
+
+            $gName = (string)($g['GroupName'] ?? '');
+            if ($gName !== '' && !$this->IsConfigRowActive($g)) {
+                $disabledGroupMap[$gName] = true;
+            }
+        }
+
+        $disabledClassMap = [];
+        foreach ($classList as $c) {
+            if (!is_array($c)) {
+                continue;
+            }
+
+            $cID = (string)($c['ClassID'] ?? '');
+            if ($cID !== '' && !$this->IsConfigRowActive($c)) {
+                $disabledClassMap[$cID] = true;
+            }
+        }
+
+        $disabledSensorMap = [];
+        foreach ($sensorList as $s) {
+            if (!is_array($s)) {
+                continue;
+            }
+
+            $vid = (int)($s['VariableID'] ?? 0);
+            if ($vid > 0 && !$this->IsConfigRowActive($s)) {
+                $disabledSensorMap[$vid] = true;
+            }
+        }
+
         // Live state
         $engineActiveClasses = json_decode($this->ReadAttributeString('ActiveClassesBuffer'), true);
         if (!is_array($engineActiveClasses)) {
@@ -2765,7 +2957,8 @@ class SensorGroup extends IPSModule
             }
 
             $ident = "Status_" . $this->SanitizeIdent($gName);
-            $isActive = (@$this->GetIDForIdent($ident) && GetValue($this->GetIDForIdent($ident)));
+            $isDisabled = isset($disabledGroupMap[$gName]);
+            $isActive = (!$isDisabled && @$this->GetIDForIdent($ident) && GetValue($this->GetIDForIdent($ident)));
 
             if ($stateFilter === 'active' && !$isActive) {
                 continue;
@@ -2803,7 +2996,8 @@ class SensorGroup extends IPSModule
                     continue;
                 }
 
-                $isClassActive = in_array($cID, $engineActiveClasses, true);
+                $isClassDisabled = isset($disabledClassMap[$cID]);
+                $isClassActive = (!$isClassDisabled && in_array($cID, $engineActiveClasses, true));
 
                 if ($stateFilter === 'active' && !$isClassActive) {
                     continue;
@@ -2830,7 +3024,8 @@ class SensorGroup extends IPSModule
                     continue;
                 }
 
-                $isSensorActive = in_array($vid, $engineActiveSensors, true);
+                $isSensorDisabled = isset($disabledSensorMap[$vid]);
+                $isSensorActive = (!$isSensorDisabled && in_array($vid, $engineActiveSensors, true));
 
                 if ($stateFilter === 'active' && !$isSensorActive) {
                     continue;
@@ -2851,18 +3046,23 @@ class SensorGroup extends IPSModule
             }
 
             $tid = "T_" . $iid;
-            $label = $this->EscapeMermaidLabel((string) ($t['Name'] ?? ('Target ' . $iid)) . "<br/>[" . $iid . "]");
-            $graph .= $tid . "[\"" . $label . "\"]:::target\n";
+            $isTargetDisabled = isset($disabledTargetMap[$iid]);
+            $targetSuffix = $isTargetDisabled ? "<br/>[DISABLED]" : "";
+            $label = $this->EscapeMermaidLabel((string) ($t['Name'] ?? ('Target ' . $iid)) . "<br/>[" . $iid . "]" . $targetSuffix);
+            $targetStyle = $isTargetDisabled ? "disabled" : "target";
+            $graph .= $tid . "[\"" . $label . "\"]:::" . $targetStyle . "\n";
         }
 
         // B1. Draw Groups
         foreach ($visibleGroups as $gName => $isActive) {
             $gid = "G_" . md5($gName);
-            $style = $isActive ? "red" : "green";
+            $isGroupDisabled = isset($disabledGroupMap[$gName]);
+            $style = $isGroupDisabled ? "disabled" : ($isActive ? "red" : "green");
 
             $g = $groupMap[$gName] ?? [];
             $gLogic = ((int) ($g['GroupLogic'] ?? 0) === 1) ? "AND" : "OR";
-            $label = $this->EscapeMermaidLabel($gName . "<br/>[" . $gLogic . "]");
+            $disabledSuffix = $isGroupDisabled ? "<br/>[DISABLED]" : "";
+            $label = $this->EscapeMermaidLabel($gName . "<br/>[" . $gLogic . "]" . $disabledSuffix);
 
             $graph .= $gid . "[\"" . $label . "\"]:::" . $style . "\n";
         }
@@ -3026,9 +3226,11 @@ class SensorGroup extends IPSModule
                     $cLogic = "OR";
                 }
 
-                $cLabel = $this->EscapeMermaidLabel((string) ($cDef['ClassName'] ?? $cID) . "<br/>[" . $cLogic . " | " . ($cDef['TimeWindow'] ?? 0) . "s]");
+                $isClassDisabled = isset($disabledClassMap[$cID]);
+                $disabledSuffix = $isClassDisabled ? "<br/>[DISABLED]" : "";
+                $cLabel = $this->EscapeMermaidLabel((string) ($cDef['ClassName'] ?? $cID) . "<br/>[" . $cLogic . " | " . ($cDef['TimeWindow'] ?? 0) . "s]" . $disabledSuffix);
                 $isClassActive = $visibleClasses[$cID];
-                $cStyle = $isClassActive ? "red" : "grey";
+                $cStyle = $isClassDisabled ? "disabled" : ($isClassActive ? "red" : "grey");
 
                 $graph .= $cidNode . "[\"" . $cLabel . "\"]:::" . $cStyle . " --> " . $gid . "\n";
 
@@ -3059,7 +3261,8 @@ class SensorGroup extends IPSModule
                 $sid = "S_" . $vid;
 
                 $isActive = $visibleSensors[$vid];
-                $style = $isActive ? "red" : "green";
+                $isSensorDisabled = isset($disabledSensorMap[$vid]);
+                $style = $isSensorDisabled ? "disabled" : ($isActive ? "red" : "green");
 
                 $opMap = ['=', '!=', '>', '<', '>=', '<='];
                 $opIdx = (int) ($s['Operator'] ?? 0);
@@ -3070,7 +3273,8 @@ class SensorGroup extends IPSModule
                 $pName = (string) ($s['ParentName'] ?? 'Unknown');
                 $gpName = (string) ($s['GrandParentName'] ?? 'Unknown');
 
-                $label = $this->EscapeMermaidLabel($name . " (" . $vid . ")<br/>[" . $gpName . " / " . $pName . "]<br/>" . $rule);
+                $disabledSuffix = $isSensorDisabled ? "<br/>[DISABLED]" : "";
+                $label = $this->EscapeMermaidLabel($name . " (" . $vid . ")<br/>[" . $gpName . " / " . $pName . "]<br/>" . $rule . $disabledSuffix);
                 $graph .= $sid . "[\"" . $label . "\"]:::" . $style . " --> " . $cidNode . "\n";
 
                 $linkIdx = $this->linkCounter++;
@@ -3406,6 +3610,8 @@ class SensorGroup extends IPSModule
     }
 
 
+
+
     public function GetConfigurationForm()
     {
         // === DEBUG: Enter GetConfigurationForm ===
@@ -3646,6 +3852,7 @@ class SensorGroup extends IPSModule
                                 "onEdit"  => "IPS_RequestAction(\$id, 'UPD_SENS_$safeID', json_encode(\$List_$safeID));",
                                 "columns" => [
                                     ["caption" => "ID", "name" => "DisplayID", "width" => "70px"],
+                                    ["caption" => "Active", "name" => "Active", "width" => "70px", "edit" => ["type" => "CheckBox"]],
                                     ["caption" => "Variable", "name" => "VariableID", "width" => "200px", "edit" => ["type" => "SelectVariable"]],
                                     ["caption" => "Loc (P)", "name" => "ParentName", "width" => "100px"],
                                     ["caption" => "Area (GP)", "name" => "GrandParentName", "width" => "100px"],
@@ -3683,6 +3890,7 @@ class SensorGroup extends IPSModule
                         "onEdit"   => "IPS_RequestAction(\$id, 'UpdateGroupList', json_encode(\$GroupList));",
                         "columns"  => [
                             ["caption" => "ID", "name" => "GroupID", "width" => "0px", "add" => "", "visible" => false],
+                            ["caption" => "Active", "name" => "Active", "width" => "70px", "add" => true, "edit" => ["type" => "CheckBox"]],
                             ["caption" => "Group Name", "name" => "GroupName", "width" => "200px", "add" => "", "edit" => ["type" => "ValidationTextBox"]],
                             ["caption" => "Alignment Spacer", "name" => "Spacer", "width" => "200px", "add" => ""],
                             ["caption" => "Logic", "name" => "GroupLogic", "width" => "200px", "add" => 0, "edit" => ["type" => "Select", "options" => [["caption" => "OR (Any Member)", "value" => 0], ["caption" => "AND (All Members)", "value" => 1]]]],
@@ -3877,6 +4085,8 @@ class SensorGroup extends IPSModule
 
         return json_encode($form);
     }
+
+
 
     /**
      * Public function for Module 2 to discover the configuration of this instance.
@@ -4095,6 +4305,7 @@ class SensorGroup extends IPSModule
             foreach ($newValues as $row) {
                 if (is_array($row)) {
                     $row['ClassID'] = $ClassID;
+                    $row['Active'] = $this->IsConfigRowActive($row);
                     $vid = $row['VariableID'] ?? 0;
 
                     // Heal labels from Source of Truth
@@ -4111,6 +4322,9 @@ class SensorGroup extends IPSModule
         // 4. Update the RAM Buffer
         $this->WriteAttributeString('SensorListBuffer', json_encode(array_merge($others, $updatedClass)));
     }
+
+
+
     // New Helper: Finds list column definition by name
     private function UpdateListColumnOption(&$elements, $listName, $columnName, $options)
     {

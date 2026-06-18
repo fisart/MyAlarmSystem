@@ -24,6 +24,15 @@
           "visible": false
         },
         {
+          "caption": "Active",
+          "name": "Active",
+          "width": "70px",
+          "add": true,
+          "edit": {
+            "type": "CheckBox"
+          }
+        },
+        {
           "caption": "Class Name",
           "name": "ClassName",
           "width": "200px",
@@ -178,6 +187,15 @@
       "delete": true,
       "onEdit": "IPS_RequestAction($id, 'UpdateDispatchTargets', json_encode($DispatchTargets));",
       "columns": [
+        {
+          "caption": "Active",
+          "name": "Active",
+          "width": "70px",
+          "add": true,
+          "edit": {
+            "type": "CheckBox"
+          }
+        },
         {
           "caption": "Name",
           "name": "Name",
