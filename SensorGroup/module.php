@@ -1,5 +1,5 @@
 <?php
-// Version2.11.0
+// Version2.11.1
 declare(strict_types=1);
 
 class SensorGroup extends IPSModule
@@ -3714,9 +3714,43 @@ class SensorGroup extends IPSModule
                 ' groupMembers=' . (is_array($groupMembers) ? count($groupMembers) : -1)
         );
 
-        // Blueprint 2.0 - Step 2: Label Healing + Sensor defaults
+        // Blueprint 2.0 - Step 2: Label Healing + defaults
         $metadata = $this->GetMasterMetadata();
+
+        foreach ($definedClasses as &$c) {
+            if (!is_array($c)) {
+                continue;
+            }
+
+            $c['Active'] = $this->IsConfigRowActive($c);
+        }
+        unset($c);
+
+        foreach ($definedGroups as &$g) {
+            if (!is_array($g)) {
+                continue;
+            }
+
+            $g['Active'] = $this->IsConfigRowActive($g);
+        }
+        unset($g);
+
+        foreach ($dispatchTargets as &$t) {
+            if (!is_array($t)) {
+                continue;
+            }
+
+            $t['Active'] = $this->IsConfigRowActive($t);
+        }
+        unset($t);
+
         foreach ($sensorList as &$s) {
+            if (!is_array($s)) {
+                continue;
+            }
+
+            $s['Active'] = $this->IsConfigRowActive($s);
+
             if (!isset($s['TriggerMode'])) {
                 $s['TriggerMode'] = 0;
             } else {
@@ -4085,7 +4119,6 @@ class SensorGroup extends IPSModule
 
         return json_encode($form);
     }
-
 
 
     /**
