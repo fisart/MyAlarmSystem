@@ -1,5 +1,5 @@
 <?php
-// Version2.11.2
+// Version2.11.3
 declare(strict_types=1);
 
 class SensorGroup extends IPSModule
@@ -685,6 +685,142 @@ class SensorGroup extends IPSModule
         }
 
         return (bool)$value;
+    }
+
+    private function ToggleActiveState(string $type, string $id): array
+    {
+        $type = strtolower(trim($type));
+        $id = trim($id);
+
+        if ($id === '') {
+            return [
+                'success' => false,
+                'message' => 'Missing toggle id.'
+            ];
+        }
+
+        $propertyName = '';
+        $bufferName = '';
+        $idField = '';
+        $numericID = false;
+
+        switch ($type) {
+            case 'sensor':
+                $propertyName = 'SensorList';
+                $bufferName = 'SensorListBuffer';
+                $idField = 'VariableID';
+                $numericID = true;
+                break;
+
+            case 'class':
+                $propertyName = 'ClassList';
+                $bufferName = 'ClassListBuffer';
+                $idField = 'ClassID';
+                break;
+
+            case 'group':
+                $propertyName = 'GroupList';
+                $bufferName = 'GroupListBuffer';
+                $idField = 'GroupID';
+                break;
+
+            case 'target':
+                $propertyName = 'DispatchTargets';
+                $bufferName = 'DispatchTargetsBuffer';
+                $idField = 'InstanceID';
+                $numericID = true;
+                break;
+
+            default:
+                return [
+                    'success' => false,
+                    'message' => 'Unsupported toggle type: ' . $type
+                ];
+        }
+
+        $rows = json_decode((string)$this->ReadPropertyString($propertyName), true);
+        if (!is_array($rows)) {
+            $rows = json_decode((string)$this->ReadAttributeString($bufferName), true);
+        }
+        if (!is_array($rows)) {
+            $rows = [];
+        }
+
+        $found = false;
+        $newState = false;
+        $displayName = '';
+
+        foreach ($rows as &$row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $rowID = (string)($row[$idField] ?? '');
+
+            if ($numericID) {
+                if ((int)$rowID !== (int)$id) {
+                    continue;
+                }
+            } else {
+                if ($rowID !== $id) {
+                    continue;
+                }
+            }
+
+            $currentState = $this->IsConfigRowActive($row);
+            $newState = !$currentState;
+            $row['Active'] = $newState;
+
+            if ($type === 'sensor') {
+                $displayName = (string)($row['ParentName'] ?? $row['DisplayID'] ?? $row['VariableID'] ?? $id);
+            } elseif ($type === 'class') {
+                $displayName = (string)($row['ClassName'] ?? $id);
+            } elseif ($type === 'group') {
+                $displayName = (string)($row['GroupName'] ?? $id);
+            } elseif ($type === 'target') {
+                $displayName = (string)($row['Name'] ?? $row['InstanceID'] ?? $id);
+            }
+
+            $found = true;
+            break;
+        }
+        unset($row);
+
+        if (!$found) {
+            return [
+                'success' => false,
+                'message' => 'Toggle target not found: ' . $type . ' / ' . $id
+            ];
+        }
+
+        $json = json_encode(array_values($rows));
+        if ($json === false) {
+            return [
+                'success' => false,
+                'message' => 'Failed to encode updated ' . $propertyName . '.'
+            ];
+        }
+
+        IPS_SetProperty($this->InstanceID, $propertyName, $json);
+        $this->WriteAttributeString($bufferName, $json);
+
+        if ($this->ReadPropertyBoolean('DebugMode')) {
+            $this->LogMessage(
+                'DEBUG: ToggleActiveState - type=' . $type .
+                    ' id=' . $id .
+                    ' name=' . $displayName .
+                    ' active=' . ($newState ? 'true' : 'false'),
+                KL_MESSAGE
+            );
+        }
+
+        IPS_ApplyChanges($this->InstanceID);
+
+        return [
+            'success' => true,
+            'message' => ucfirst($type) . ' "' . $displayName . '" is now ' . ($newState ? 'ACTIVE' : 'DISABLED') . '.',
+            'active' => $newState
+        ];
     }
 
 
@@ -2815,9 +2951,36 @@ class SensorGroup extends IPSModule
             }
         }
 
+        // 1b. Toggle active state from Mermaid dashboard clicks
+        $action = isset($_GET['action']) ? (string)$_GET['action'] : '';
+
+        if ($action === 'toggle_active') {
+            $type = isset($_GET['type']) ? (string)$_GET['type'] : '';
+            $id   = isset($_GET['id']) ? (string)$_GET['id'] : '';
+
+            $result = $this->ToggleActiveState($type, $id);
+
+            $redirectUrl = strtok($_SERVER['REQUEST_URI'] ?? '', '?');
+            if ($redirectUrl === false || $redirectUrl === '') {
+                $redirectUrl = '/';
+            }
+
+            $query = $_GET;
+            unset($query['action'], $query['type'], $query['id'], $query['api'], $query['t']);
+
+            if (!empty($query)) {
+                $redirectUrl .= '?' . http_build_query($query);
+            }
+
+            header('Location: ' . $redirectUrl);
+            echo (string)($result['message'] ?? 'Toggle completed.');
+            return;
+        }
+
         // 2. Build the Graph Data
         $graph = "graph RL\n";
         $drawnEdges = [];
+        $clickNodes = [];
         $graph .= "classDef red fill:#c62828,stroke:#ff8a80,stroke-width:2px,color:#fff;\n";
         $graph .= "classDef green fill:#2e7d32,stroke:#a5d6a7,stroke-width:2px,color:#fff;\n";
         $graph .= "classDef grey fill:#37474f,stroke:#546e7a,stroke-width:1px,color:#eee;\n";
@@ -3085,6 +3248,10 @@ class SensorGroup extends IPSModule
             $label = $this->EscapeMermaidLabel((string) ($t['Name'] ?? ('Target ' . $iid)) . "<br/>[" . $iid . "]" . $targetSuffix);
             $targetStyle = $isTargetDisabled ? "disabled" : "target";
             $graph .= $tid . "[\"" . $label . "\"]:::" . $targetStyle . "\n";
+            if (!isset($clickNodes[$tid])) {
+                $clickNodes[$tid] = true;
+                $graph .= "click " . $tid . " \"?action=toggle_active&type=target&id=" . rawurlencode((string)$iid) . "\" \"Toggle target active state\"\n";
+            }
         }
 
         // B1. Draw Groups
@@ -3099,6 +3266,11 @@ class SensorGroup extends IPSModule
             $label = $this->EscapeMermaidLabel($gName . "<br/>[" . $gLogic . "]" . $disabledSuffix);
 
             $graph .= $gid . "[\"" . $label . "\"]:::" . $style . "\n";
+            $groupID = (string)($g['GroupID'] ?? '');
+            if ($groupID !== '' && !isset($clickNodes[$gid])) {
+                $clickNodes[$gid] = true;
+                $graph .= "click " . $gid . " \"?action=toggle_active&type=group&id=" . rawurlencode($groupID) . "\" \"Toggle group active state\"\n";
+            }
         }
 
         // B2. Draw Group -> Target connections
@@ -3267,6 +3439,10 @@ class SensorGroup extends IPSModule
                 $cStyle = $isClassDisabled ? "disabled" : ($isClassActive ? "red" : "grey");
 
                 $graph .= $cidNode . "[\"" . $cLabel . "\"]:::" . $cStyle . " --> " . $gid . "\n";
+                if (!isset($clickNodes[$cidNode])) {
+                    $clickNodes[$cidNode] = true;
+                    $graph .= "click " . $cidNode . " \"?action=toggle_active&type=class&id=" . rawurlencode($cID) . "\" \"Toggle class active state\"\n";
+                }
 
                 $linkIdx = $this->linkCounter++;
                 if ($isClassActive) {
@@ -3310,6 +3486,10 @@ class SensorGroup extends IPSModule
                 $disabledSuffix = $isSensorDisabled ? "<br/>[DISABLED]" : "";
                 $label = $this->EscapeMermaidLabel($name . " (" . $vid . ")<br/>[" . $gpName . " / " . $pName . "]<br/>" . $rule . $disabledSuffix);
                 $graph .= $sid . "[\"" . $label . "\"]:::" . $style . " --> " . $cidNode . "\n";
+                if (!isset($clickNodes[$sid])) {
+                    $clickNodes[$sid] = true;
+                    $graph .= "click " . $sid . " \"?action=toggle_active&type=sensor&id=" . rawurlencode((string)$vid) . "\" \"Toggle sensor active state\"\n";
+                }
 
                 $linkIdx = $this->linkCounter++;
                 if ($isActive) {
@@ -3339,308 +3519,308 @@ class SensorGroup extends IPSModule
             $name = htmlspecialchars((string) ($t['Name'] ?? ('Target ' . $iid)));
             $checkboxesHTML .= "<label style=\"margin:0 12px; cursor:pointer;\">
         <input type=\"checkbox\" class=\"target-filter\" value=\"{$iid}\" checked onchange=\"forceRefresh()\"> {$name}
-    </label>";
+                </label>";
         }
 
         echo '<!DOCTYPE html>
-    <html>
-    <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-    <title>Sensor Flow</title>
-    <style>
-        body{
-            background-color:#1e1e1e;color:#cfcfcf;font-family:"Segoe UI",sans-serif;
-            margin:0;padding:20px;height:100vh;box-sizing:border-box;
-            overflow:hidden;display:flex;flex-direction:column;
-        }
-        .header{flex-shrink:0;text-align:center;margin-bottom:12px;border-bottom:1px solid #333;padding-bottom:10px;}
-        .header h2{margin:0;color:#4CAF50;}
-        .filter-bar{ background:#333; padding:10px; border-radius:6px; display:inline-block; margin-top:10px; }
-        .filter-bar input{ transform:scale(1.15); margin-right:6px; }
-        .container{
-            flex-grow:1;background:#252526;border-radius:8px;width:100%;
-            border:1px solid #444;overflow:hidden;position:relative;
-            touch-action:none;
-            overscroll-behavior:contain;
-        }
-        #mermaid-container {
-            position:absolute;
-            inset:0;
-            overflow:hidden;
-            touch-action:none;
-        }
-        #mermaid-container svg {
-            width:100% !important;
-            height:100% !important;
-            max-width:none !important;
-            display:block;
-            touch-action:none;
-        }
-    </style>
+                <html>
+                <head>
+                <meta charset="utf-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+                <title>Sensor Flow</title>
+                <style>
+                    body{
+                        background-color:#1e1e1e;color:#cfcfcf;font-family:"Segoe UI",sans-serif;
+                        margin:0;padding:20px;height:100vh;box-sizing:border-box;
+                        overflow:hidden;display:flex;flex-direction:column;
+                    }
+                    .header{flex-shrink:0;text-align:center;margin-bottom:12px;border-bottom:1px solid #333;padding-bottom:10px;}
+                    .header h2{margin:0;color:#4CAF50;}
+                    .filter-bar{ background:#333; padding:10px; border-radius:6px; display:inline-block; margin-top:10px; }
+                    .filter-bar input{ transform:scale(1.15); margin-right:6px; }
+                    .container{
+                        flex-grow:1;background:#252526;border-radius:8px;width:100%;
+                        border:1px solid #444;overflow:hidden;position:relative;
+                        touch-action:none;
+                        overscroll-behavior:contain;
+                    }
+                    #mermaid-container {
+                        position:absolute;
+                        inset:0;
+                        overflow:hidden;
+                        touch-action:none;
+                    }
+                    #mermaid-container svg {
+                        width:100% !important;
+                        height:100% !important;
+                        max-width:none !important;
+                        display:block;
+                        touch-action:none;
+                    }
+                </style>
 
-    <script src="https://unpkg.com/svg-pan-zoom@3.6.1/dist/svg-pan-zoom.min.js"></script>
+                <script src="https://unpkg.com/svg-pan-zoom@3.6.1/dist/svg-pan-zoom.min.js"></script>
 
-    <script type="module">
-        import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs";
+                <script type="module">
+                    import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs";
 
-        mermaid.initialize({
-            startOnLoad:false,
-            theme:"dark",
-            flowchart:{ curve:"basis", nodeSpacing:60, rankSpacing:120 }
-        });
+                    mermaid.initialize({
+                        startOnLoad:false,
+                        theme:"dark",
+                        flowchart:{ curve:"basis", nodeSpacing:60, rankSpacing:120 }
+                    });
 
-        let isRendering=false;
-        let lastGraphString="";
-        let pzInstance=null;
+                    let isRendering=false;
+                    let lastGraphString="";
+                    let pzInstance=null;
 
-        function attachTouchPinchZoom(svgEl, gestureEl, panZoomInstance) {
-            if (!svgEl || !gestureEl || !panZoomInstance) {
-                return;
-            }
-
-            let pinchState = null;
-
-            const getTouchDistance = (touchA, touchB) => {
-                const dx = touchA.clientX - touchB.clientX;
-                const dy = touchA.clientY - touchB.clientY;
-                return Math.sqrt(dx * dx + dy * dy);
-            };
-
-            const getTouchMidpoint = (touchA, touchB) => {
-                return {
-                    x: (touchA.clientX + touchB.clientX) / 2,
-                    y: (touchA.clientY + touchB.clientY) / 2
-                };
-            };
-
-            const toSvgPoint = (clientX, clientY) => {
-                const pt = svgEl.createSVGPoint();
-                pt.x = clientX;
-                pt.y = clientY;
-                const ctm = svgEl.getScreenCTM();
-                return ctm ? pt.matrixTransform(ctm.inverse()) : { x: clientX, y: clientY };
-            };
-
-            gestureEl.addEventListener("touchstart", (ev) => {
-                if (ev.touches.length !== 2) {
-                    pinchState = null;
-                    return;
-                }
-
-                ev.preventDefault();
-
-                const touchA = ev.touches[0];
-                const touchB = ev.touches[1];
-                const midpoint = getTouchMidpoint(touchA, touchB);
-                const svgPoint = toSvgPoint(midpoint.x, midpoint.y);
-
-                pinchState = {
-                    distance: getTouchDistance(touchA, touchB),
-                    zoom: panZoomInstance.getZoom(),
-                    focus: svgPoint
-                };
-            }, { passive: false });
-
-            gestureEl.addEventListener("touchmove", (ev) => {
-                if (ev.touches.length !== 2 || pinchState === null) {
-                    return;
-                }
-
-                ev.preventDefault();
-
-                const touchA = ev.touches[0];
-                const touchB = ev.touches[1];
-                const newDistance = getTouchDistance(touchA, touchB);
-
-                if (pinchState.distance <= 0) {
-                    return;
-                }
-
-                const scale = newDistance / pinchState.distance;
-                const targetZoom = pinchState.zoom * scale;
-
-                panZoomInstance.zoomAtPoint(
-                    Math.max(0.2, Math.min(10, targetZoom)),
-                    pinchState.focus
-                );
-            }, { passive: false });
-
-            const resetPinch = () => {
-                pinchState = null;
-            };
-
-            gestureEl.addEventListener("touchend", resetPinch, { passive: true });
-            gestureEl.addEventListener("touchcancel", resetPinch, { passive: true });
-        }
-
-        window.getFilterString = function () {
-            const boxes = document.querySelectorAll(".target-filter:checked");
-            if (boxes.length === 0) return "NONE";
-            return Array.from(boxes).map(b => b.value).join(",");
-        };
-
-        window.getDepthFilter = function () {
-            const el = document.getElementById("depth-filter");
-            return el ? el.value : "sensors";
-        };
-
-        window.getStateFilter = function () {
-            const el = document.getElementById("state-filter");
-            return el ? el.value : "both";
-        };
-
-        window.getBedroomFilter = function () {
-            const el = document.getElementById("bedroom-filter");
-            return (el && el.checked) ? "1" : "0";
-        };
-
-        window.forceRefresh = function () {
-            lastGraphString = "";
-            fetchAndUpdateGraph();
-        };
-
-        window.setAllTargets = function (checked) {
-            document.querySelectorAll(".target-filter").forEach(b => b.checked = checked);
-            window.forceRefresh();
-        };
-
-        async function fetchAndUpdateGraph(){
-            if(isRendering) return;
-
-            try{
-                const url = location.pathname
-                    + "?api=1&t=" + Date.now()
-                    + "&targetFilter=" + encodeURIComponent(window.getFilterString())
-                    + "&depth=" + encodeURIComponent(window.getDepthFilter())
-                    + "&state=" + encodeURIComponent(window.getStateFilter())
-                    + "&showBedrooms=" + encodeURIComponent(window.getBedroomFilter());
-
-                const response = await fetch(url, { credentials: "same-origin" });
-                const graphString = await response.text();
-
-                // IMPORTANT FIX:
-                // Never pass auth/login HTML into Mermaid.
-                if (
-                    response.status === 401 ||
-                    graphString === "AUTH_REQUIRED" ||
-                    graphString.trim().startsWith("<html") ||
-                    graphString.includes("Vault Auth")
-                ) {
-                    window.location.href = location.pathname;
-                    return;
-                }
-
-                // Extra hardening: only render real Mermaid graph text
-                const trimmed = graphString.trim();
-                if (!(trimmed.startsWith("graph ") || trimmed.startsWith("flowchart "))) {
-                    console.error("Unexpected Mermaid payload:", trimmed.substring(0, 300));
-                    return;
-                }
-
-                if(graphString !== lastGraphString){
-                    isRendering=true;
-                    lastGraphString=graphString;
-
-                    const container = document.getElementById("mermaid-container");
-
-                    const oldZoom = pzInstance ? pzInstance.getZoom() : null;
-                    const oldPan  = pzInstance ? pzInstance.getPan()  : null;
-
-                    if(pzInstance){ pzInstance.destroy(); pzInstance=null; }
-
-                    const renderId = "graph_" + Date.now();
-                    const { svg } = await mermaid.render(renderId, graphString);
-
-                    container.innerHTML = svg;
-
-                    const svgEl = container.querySelector("svg");
-                    if (svgEl) {
-                        if (!svgEl.getAttribute("viewBox")) {
-                            const wRaw = (svgEl.width && svgEl.width.baseVal && svgEl.width.baseVal.value) || svgEl.getAttribute("width") || 1000;
-                            const hRaw = (svgEl.height && svgEl.height.baseVal && svgEl.height.baseVal.value) || svgEl.getAttribute("height") || 1000;
-
-                            const w = Number(String(wRaw).replace(/[^0-9.]/g, "")) || 1000;
-                            const h = Number(String(hRaw).replace(/[^0-9.]/g, "")) || 1000;
-
-                            svgEl.setAttribute("viewBox", `0 0 ${w} ${h}`);
+                    function attachTouchPinchZoom(svgEl, gestureEl, panZoomInstance) {
+                        if (!svgEl || !gestureEl || !panZoomInstance) {
+                            return;
                         }
 
-                        svgEl.removeAttribute("width");
-                        svgEl.removeAttribute("height");
-                        svgEl.style.width = "100%";
-                        svgEl.style.height = "100%";
-                        svgEl.style.maxWidth = "none";
-                        svgEl.style.touchAction = "none";
+                        let pinchState = null;
 
-                        let isFirstLoad = (oldZoom === null || oldPan === null);
+                        const getTouchDistance = (touchA, touchB) => {
+                            const dx = touchA.clientX - touchB.clientX;
+                            const dy = touchA.clientY - touchB.clientY;
+                            return Math.sqrt(dx * dx + dy * dy);
+                        };
 
-                        pzInstance = svgPanZoom(svgEl, {
-                            zoomEnabled: true,
-                            controlIconsEnabled: true,
-                            fit: isFirstLoad,
-                            center: isFirstLoad,
-                            minZoom: 0.2,
-                            maxZoom: 10,
-                            eventsListenerElement: container
-                        });
+                        const getTouchMidpoint = (touchA, touchB) => {
+                            return {
+                                x: (touchA.clientX + touchB.clientX) / 2,
+                                y: (touchA.clientY + touchB.clientY) / 2
+                            };
+                        };
 
-                        attachTouchPinchZoom(svgEl, container, pzInstance);
+                        const toSvgPoint = (clientX, clientY) => {
+                            const pt = svgEl.createSVGPoint();
+                            pt.x = clientX;
+                            pt.y = clientY;
+                            const ctm = svgEl.getScreenCTM();
+                            return ctm ? pt.matrixTransform(ctm.inverse()) : { x: clientX, y: clientY };
+                        };
 
-                        pzInstance.resize();
+                        gestureEl.addEventListener("touchstart", (ev) => {
+                            if (ev.touches.length !== 2) {
+                                pinchState = null;
+                                return;
+                            }
 
-                        if (isFirstLoad) {
-                            pzInstance.fit();
-                            pzInstance.center();
-                        } else {
-                            pzInstance.zoom(oldZoom);
-                            pzInstance.pan(oldPan);
+                            ev.preventDefault();
+
+                            const touchA = ev.touches[0];
+                            const touchB = ev.touches[1];
+                            const midpoint = getTouchMidpoint(touchA, touchB);
+                            const svgPoint = toSvgPoint(midpoint.x, midpoint.y);
+
+                            pinchState = {
+                                distance: getTouchDistance(touchA, touchB),
+                                zoom: panZoomInstance.getZoom(),
+                                focus: svgPoint
+                            };
+                        }, { passive: false });
+
+                        gestureEl.addEventListener("touchmove", (ev) => {
+                            if (ev.touches.length !== 2 || pinchState === null) {
+                                return;
+                            }
+
+                            ev.preventDefault();
+
+                            const touchA = ev.touches[0];
+                            const touchB = ev.touches[1];
+                            const newDistance = getTouchDistance(touchA, touchB);
+
+                            if (pinchState.distance <= 0) {
+                                return;
+                            }
+
+                            const scale = newDistance / pinchState.distance;
+                            const targetZoom = pinchState.zoom * scale;
+
+                            panZoomInstance.zoomAtPoint(
+                                Math.max(0.2, Math.min(10, targetZoom)),
+                                pinchState.focus
+                            );
+                        }, { passive: false });
+
+                        const resetPinch = () => {
+                            pinchState = null;
+                        };
+
+                        gestureEl.addEventListener("touchend", resetPinch, { passive: true });
+                        gestureEl.addEventListener("touchcancel", resetPinch, { passive: true });
+                    }
+
+                    window.getFilterString = function () {
+                        const boxes = document.querySelectorAll(".target-filter:checked");
+                        if (boxes.length === 0) return "NONE";
+                        return Array.from(boxes).map(b => b.value).join(",");
+                    };
+
+                    window.getDepthFilter = function () {
+                        const el = document.getElementById("depth-filter");
+                        return el ? el.value : "sensors";
+                    };
+
+                    window.getStateFilter = function () {
+                        const el = document.getElementById("state-filter");
+                        return el ? el.value : "both";
+                    };
+
+                    window.getBedroomFilter = function () {
+                        const el = document.getElementById("bedroom-filter");
+                        return (el && el.checked) ? "1" : "0";
+                    };
+
+                    window.forceRefresh = function () {
+                        lastGraphString = "";
+                        fetchAndUpdateGraph();
+                    };
+
+                    window.setAllTargets = function (checked) {
+                        document.querySelectorAll(".target-filter").forEach(b => b.checked = checked);
+                        window.forceRefresh();
+                    };
+
+                    async function fetchAndUpdateGraph(){
+                        if(isRendering) return;
+
+                        try{
+                            const url = location.pathname
+                                + "?api=1&t=" + Date.now()
+                                + "&targetFilter=" + encodeURIComponent(window.getFilterString())
+                                + "&depth=" + encodeURIComponent(window.getDepthFilter())
+                                + "&state=" + encodeURIComponent(window.getStateFilter())
+                                + "&showBedrooms=" + encodeURIComponent(window.getBedroomFilter());
+
+                            const response = await fetch(url, { credentials: "same-origin" });
+                            const graphString = await response.text();
+
+                            // IMPORTANT FIX:
+                            // Never pass auth/login HTML into Mermaid.
+                            if (
+                                response.status === 401 ||
+                                graphString === "AUTH_REQUIRED" ||
+                                graphString.trim().startsWith("<html") ||
+                                graphString.includes("Vault Auth")
+                            ) {
+                                window.location.href = location.pathname;
+                                return;
+                            }
+
+                            // Extra hardening: only render real Mermaid graph text
+                            const trimmed = graphString.trim();
+                            if (!(trimmed.startsWith("graph ") || trimmed.startsWith("flowchart "))) {
+                                console.error("Unexpected Mermaid payload:", trimmed.substring(0, 300));
+                                return;
+                            }
+
+                            if(graphString !== lastGraphString){
+                                isRendering=true;
+                                lastGraphString=graphString;
+
+                                const container = document.getElementById("mermaid-container");
+
+                                const oldZoom = pzInstance ? pzInstance.getZoom() : null;
+                                const oldPan  = pzInstance ? pzInstance.getPan()  : null;
+
+                                if(pzInstance){ pzInstance.destroy(); pzInstance=null; }
+
+                                const renderId = "graph_" + Date.now();
+                                const { svg } = await mermaid.render(renderId, graphString);
+
+                                container.innerHTML = svg;
+
+                                const svgEl = container.querySelector("svg");
+                                if (svgEl) {
+                                    if (!svgEl.getAttribute("viewBox")) {
+                                        const wRaw = (svgEl.width && svgEl.width.baseVal && svgEl.width.baseVal.value) || svgEl.getAttribute("width") || 1000;
+                                        const hRaw = (svgEl.height && svgEl.height.baseVal && svgEl.height.baseVal.value) || svgEl.getAttribute("height") || 1000;
+
+                                        const w = Number(String(wRaw).replace(/[^0-9.]/g, "")) || 1000;
+                                        const h = Number(String(hRaw).replace(/[^0-9.]/g, "")) || 1000;
+
+                                        svgEl.setAttribute("viewBox", `0 0 ${w} ${h}`);
+                                    }
+
+                                    svgEl.removeAttribute("width");
+                                    svgEl.removeAttribute("height");
+                                    svgEl.style.width = "100%";
+                                    svgEl.style.height = "100%";
+                                    svgEl.style.maxWidth = "none";
+                                    svgEl.style.touchAction = "none";
+
+                                    let isFirstLoad = (oldZoom === null || oldPan === null);
+
+                                    pzInstance = svgPanZoom(svgEl, {
+                                        zoomEnabled: true,
+                                        controlIconsEnabled: true,
+                                        fit: isFirstLoad,
+                                        center: isFirstLoad,
+                                        minZoom: 0.2,
+                                        maxZoom: 10,
+                                        eventsListenerElement: container
+                                    });
+
+                                    attachTouchPinchZoom(svgEl, container, pzInstance);
+
+                                    pzInstance.resize();
+
+                                    if (isFirstLoad) {
+                                        pzInstance.fit();
+                                        pzInstance.center();
+                                    } else {
+                                        pzInstance.zoom(oldZoom);
+                                        pzInstance.pan(oldPan);
+                                    }
+                                }
+                            }
+                        }catch(err){
+                            console.error("Failed to render graph:", err);
+                        }finally{
+                            isRendering=false;
                         }
                     }
-                }
-            }catch(err){
-                console.error("Failed to render graph:", err);
-            }finally{
-                isRendering=false;
-            }
-        }
 
-        fetchAndUpdateGraph();
-        setInterval(fetchAndUpdateGraph, 2000);
-    </script>
-    </head>
+                    fetchAndUpdateGraph();
+                    setInterval(fetchAndUpdateGraph, 2000);
+                </script>
+                </head>
 
-    <body>
-    <div class="header">
-        <h2>Sensors -> Groups -> Targets</h2>
-        <small>Instance ID: ' . $this->InstanceID . '</small>
-        <br>
-        <div class="filter-bar">
-            <a href="#" onclick="setAllTargets(true); return false;" style="color:#9ecbff; margin-right:12px;">All</a>
-            <a href="#" onclick="setAllTargets(false); return false;" style="color:#9ecbff; margin-right:18px;">None</a>
-            ' . $checkboxesHTML . '
-            <span style="margin-left:18px;">Depth:</span>
-            <select id="depth-filter" onchange="forceRefresh()" style="margin-left:8px;">
-                <option value="groups">Groups</option>
-                <option value="classes">Classes</option>
-                <option value="sensors" selected>Sensors</option>
-            </select>
-            <span style="margin-left:18px;">State:</span>
-            <select id="state-filter" onchange="forceRefresh()" style="margin-left:8px;">
-                <option value="both" selected>Both</option>
-                <option value="active">Active</option>
-                <option value="passive">Passive</option>
-            </select>
-            <label style="margin-left:18px; cursor:pointer;">
-                <input type="checkbox" id="bedroom-filter" checked onchange="forceRefresh()"> Bedrooms
-            </label>
-        </div>
-    </div>
-    <div class="container">
-        <div id="mermaid-container">Initializing Live View...</div>
-    </div>
-    </body>
-    </html>';
+                <body>
+                <div class="header">
+                    <h2>Sensors -> Groups -> Targets</h2>
+                    <small>Instance ID: ' . $this->InstanceID . '</small>
+                    <br>
+                    <div class="filter-bar">
+                        <a href="#" onclick="setAllTargets(true); return false;" style="color:#9ecbff; margin-right:12px;">All</a>
+                        <a href="#" onclick="setAllTargets(false); return false;" style="color:#9ecbff; margin-right:18px;">None</a>
+                        ' . $checkboxesHTML . '
+                        <span style="margin-left:18px;">Depth:</span>
+                        <select id="depth-filter" onchange="forceRefresh()" style="margin-left:8px;">
+                            <option value="groups">Groups</option>
+                            <option value="classes">Classes</option>
+                            <option value="sensors" selected>Sensors</option>
+                        </select>
+                        <span style="margin-left:18px;">State:</span>
+                        <select id="state-filter" onchange="forceRefresh()" style="margin-left:8px;">
+                            <option value="both" selected>Both</option>
+                            <option value="active">Active</option>
+                            <option value="passive">Passive</option>
+                        </select>
+                        <label style="margin-left:18px; cursor:pointer;">
+                            <input type="checkbox" id="bedroom-filter" checked onchange="forceRefresh()"> Bedrooms
+                        </label>
+                    </div>
+                </div>
+                <div class="container">
+                    <div id="mermaid-container">Initializing Live View...</div>
+                </div>
+                </body>
+                </html>';
     }
 
 
