@@ -3,7 +3,8 @@
 declare(strict_types=1);
 
 // AlarmHeartbeatWatchdog module.php
-// Version: 1.5.4
+// Version: 1.5.5
+// Notes: Heartbeat notifications are sent as complete HTML emails. Dashboard formatting and tables are preserved.
 // Heartbeat token mode: milliseconds since midnight used as an integer correlation token
 // Pulse model: token is active only for PulseDurationMs/ResetDelayMs, then HeartbeatInputVariableID is reset to 0
 // Delivery confirmation mode: module-managed triggered events plus internal RegisterMessage/MessageSink fallback for Module 3 output variables
@@ -838,13 +839,8 @@ class AlarmHeartbeatWatchdog extends IPSModule
         }
     }
 
-    private function HandleNotificationState(bool $overallOK, bool $overallWarning, string $summary, string $html): void
+    private function HandleNotificationState(bool $overallOK, string $summary, string $html): void
     {
-        // Warning-only states are diagnostic only. They must not trigger failure or recovery email.
-        if ($overallWarning) {
-            return;
-        }
-
         if (!$this->ReadPropertyBoolean('SendEmail')) {
             $this->WriteAttributeBoolean('LastOverallOK', $overallOK);
             $this->WriteAttributeString('LastFailureText', $overallOK ? '' : $summary);
@@ -852,39 +848,100 @@ class AlarmHeartbeatWatchdog extends IPSModule
         }
 
         $lastOK = $this->ReadAttributeBoolean('LastOverallOK');
+
+        // Send an email only when the overall state changes:
+        // OK -> ERROR or ERROR -> OK.
         if ($lastOK === $overallOK) {
             return;
         }
 
         if ($overallOK) {
-            $this->SendEmail('Alarm System Heartbeat wieder OK', $summary . "\n\n" . strip_tags($html));
+            $this->SendEmail(
+                'Alarm System Heartbeat wieder OK',
+                $html
+            );
         } else {
-            $this->SendEmail('Alarm System Heartbeat Fehler', $summary . "\n\n" . strip_tags($html));
+            $this->SendEmail(
+                'Alarm System Heartbeat Fehler',
+                $html
+            );
         }
 
         $this->WriteAttributeBoolean('LastOverallOK', $overallOK);
         $this->WriteAttributeString('LastFailureText', $overallOK ? '' : $summary);
     }
 
-    private function SendEmail(string $subject, string $body): void
+    private function SendEmail(string $subject, string $statusHtml): void
     {
         $smtpID = $this->ReadPropertyInteger('SmtpInstanceID');
+
         if ($smtpID <= 0 || !IPS_InstanceExists($smtpID)) {
-            $this->LogMessage('Email not sent: SMTP instance missing.', KL_WARNING);
+            $this->LogMessage(
+                'Email not sent: SMTP instance missing.',
+                KL_WARNING
+            );
             return;
         }
 
         $to = trim($this->ReadPropertyString('EmailTo'));
+
+        $emailBody =
+            '<!DOCTYPE html>' .
+            '<html lang="de">' .
+            '<head>' .
+            '<meta charset="UTF-8">' .
+            '<meta name="viewport" content="width=device-width, initial-scale=1.0">' .
+            '<meta name="color-scheme" content="light dark">' .
+            '<title>' .
+            htmlspecialchars($subject, ENT_QUOTES, 'UTF-8') .
+            '</title>' .
+            '</head>' .
+            '<body style="' .
+            'margin:0;' .
+            'padding:16px;' .
+            'background:#f2f2f2;' .
+            'font-family:Segoe UI,Arial,sans-serif;' .
+            '">' .
+            '<div style="' .
+            'width:100%;' .
+            'max-width:1200px;' .
+            'margin:0 auto;' .
+            '">' .
+            $statusHtml .
+            '</div>' .
+            '</body>' .
+            '</html>';
+
         try {
             if ($to !== '' && function_exists('SMTP_SendMailEx')) {
-                @SMTP_SendMailEx($smtpID, $to, $subject, $body);
+                $result = SMTP_SendMailEx(
+                    $smtpID,
+                    $to,
+                    $subject,
+                    $emailBody
+                );
             } else {
-                @SMTP_SendMail($smtpID, $subject, $body);
+                $result = SMTP_SendMail(
+                    $smtpID,
+                    $subject,
+                    $emailBody
+                );
+            }
+
+            if ($result === false) {
+                $this->LogMessage(
+                    'Email send failed: SMTP function returned false.',
+                    KL_WARNING
+                );
             }
         } catch (Throwable $e) {
-            $this->LogMessage('Email send failed: ' . $e->getMessage(), KL_WARNING);
+            $this->LogMessage(
+                'Email send failed: ' . $e->getMessage(),
+                KL_WARNING
+            );
         }
     }
+
 
     private function BuildStatusHtml(array $report): string
     {
