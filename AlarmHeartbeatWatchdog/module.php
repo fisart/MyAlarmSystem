@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 // AlarmHeartbeatWatchdog module.php
-// Version: 1.5.5
+// Version: 1.5.6
 // Notes: Heartbeat notifications are sent as complete HTML emails. Dashboard formatting and tables are preserved.
 // Heartbeat token mode: milliseconds since midnight used as an integer correlation token
 // Pulse model: token is active only for PulseDurationMs/ResetDelayMs, then HeartbeatInputVariableID is reset to 0
@@ -839,18 +839,39 @@ class AlarmHeartbeatWatchdog extends IPSModule
         }
     }
 
-    private function HandleNotificationState(bool $overallOK, string $summary, string $html): void
-    {
+    private function HandleNotificationState(
+        bool $overallOK,
+        bool $overallWarning,
+        string $summary,
+        string $html
+    ): void {
+        /*
+     * WARNING states do not generate an error email.
+     *
+     * The existing overallOK value remains decisive:
+     * - ERROR:   overallOK = false
+     * - WARNING: overallOK = true, overallWarning = true
+     * - OK:      overallOK = true, overallWarning = false
+     */
+
         if (!$this->ReadPropertyBoolean('SendEmail')) {
             $this->WriteAttributeBoolean('LastOverallOK', $overallOK);
-            $this->WriteAttributeString('LastFailureText', $overallOK ? '' : $summary);
+            $this->WriteAttributeString(
+                'LastFailureText',
+                $overallOK ? '' : $summary
+            );
             return;
         }
 
         $lastOK = $this->ReadAttributeBoolean('LastOverallOK');
 
-        // Send an email only when the overall state changes:
-        // OK -> ERROR or ERROR -> OK.
+        /*
+     * Send only when changing between:
+     * - healthy/warning
+     * - error
+     *
+     * A change between OK and WARNING does not generate an email.
+     */
         if ($lastOK === $overallOK) {
             return;
         }
@@ -868,9 +889,11 @@ class AlarmHeartbeatWatchdog extends IPSModule
         }
 
         $this->WriteAttributeBoolean('LastOverallOK', $overallOK);
-        $this->WriteAttributeString('LastFailureText', $overallOK ? '' : $summary);
+        $this->WriteAttributeString(
+            'LastFailureText',
+            $overallOK ? '' : $summary
+        );
     }
-
     private function SendEmail(string $subject, string $statusHtml): void
     {
         $smtpID = $this->ReadPropertyInteger('SmtpInstanceID');
