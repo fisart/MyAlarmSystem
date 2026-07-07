@@ -894,6 +894,7 @@ class AlarmHeartbeatWatchdog extends IPSModule
             $overallOK ? '' : $summary
         );
     }
+
     private function SendEmail(string $subject, string $statusHtml): void
     {
         $smtpID = $this->ReadPropertyInteger('SmtpInstanceID');
@@ -906,40 +907,33 @@ class AlarmHeartbeatWatchdog extends IPSModule
             return;
         }
 
-        $to = trim($this->ReadPropertyString('EmailTo'));
+        $recipient = trim($this->ReadPropertyString('EmailTo'));
 
+        /*
+     * Symcon sends the body as HTML when the literal markers
+     * <html> and </html> are present.
+     */
         $emailBody =
-            '<!DOCTYPE html>' .
-            '<html lang="de">' .
+            '<html>' .
             '<head>' .
             '<meta charset="UTF-8">' .
             '<meta name="viewport" content="width=device-width, initial-scale=1.0">' .
-            '<meta name="color-scheme" content="light dark">' .
             '<title>' .
             htmlspecialchars($subject, ENT_QUOTES, 'UTF-8') .
             '</title>' .
             '</head>' .
-            '<body style="' .
-            'margin:0;' .
-            'padding:16px;' .
-            'background:#f2f2f2;' .
-            'font-family:Segoe UI,Arial,sans-serif;' .
-            '">' .
-            '<div style="' .
-            'width:100%;' .
-            'max-width:1200px;' .
-            'margin:0 auto;' .
-            '">' .
+            '<body style="margin:0;padding:16px;background:#f2f2f2;font-family:Segoe UI,Arial,sans-serif;">' .
+            '<div style="width:100%;max-width:1200px;margin:0 auto;">' .
             $statusHtml .
             '</div>' .
             '</body>' .
             '</html>';
 
         try {
-            if ($to !== '' && function_exists('SMTP_SendMailEx')) {
+            if ($recipient !== '') {
                 $result = SMTP_SendMailEx(
                     $smtpID,
-                    $to,
+                    $recipient,
                     $subject,
                     $emailBody
                 );
