@@ -51,6 +51,229 @@ class SensorGroup extends IPSModule
         IPS_SetHidden($this->GetIDForIdent('EventData'), true);
     }
 
+    public function GetActiveSensors(): string
+    {
+        /*
+     * Read-only API.
+     *
+     * Returns the sensors currently considered active by Module 1.
+     * The method does not reevaluate sensors and does not dispatch events.
+     */
+
+        $activeSensorIDs = json_decode(
+            $this->ReadAttributeString('ActiveSensorsBuffer'),
+            true
+        );
+
+        if (!is_array($activeSensorIDs)) {
+            $activeSensorIDs = [];
+        }
+
+        /*
+     * Load the configuration required to resolve:
+     *
+     * Sensor VariableID -> ClassID
+     * ClassID           -> ClassName
+     * ClassID           -> GroupName(s)
+     */
+        $sensorList = json_decode(
+            $this->ReadPropertyString('SensorList'),
+            true
+        );
+
+        $classList = json_decode(
+            $this->ReadPropertyString('ClassList'),
+            true
+        );
+
+        $groupMembers = json_decode(
+            $this->ReadPropertyString('GroupMembers'),
+            true
+        );
+
+        if (!is_array($sensorList)) {
+            $sensorList = [];
+        }
+
+        if (!is_array($classList)) {
+            $classList = [];
+        }
+
+        if (!is_array($groupMembers)) {
+            $groupMembers = [];
+        }
+
+        /*
+     * Build sensor lookup:
+     *
+     * VariableID -> sensor configuration row
+     */
+        $sensorConfigByVariableID = [];
+
+        foreach ($sensorList as $sensorRow) {
+            if (!is_array($sensorRow)) {
+                continue;
+            }
+
+            $variableID = (int)($sensorRow['VariableID'] ?? 0);
+
+            if ($variableID <= 0) {
+                continue;
+            }
+
+            $sensorConfigByVariableID[$variableID] = $sensorRow;
+        }
+
+        /*
+     * Build class lookup:
+     *
+     * ClassID -> ClassName
+     */
+        $classNameByID = [];
+
+        foreach ($classList as $classRow) {
+            if (!is_array($classRow)) {
+                continue;
+            }
+
+            $classID = trim((string)($classRow['ClassID'] ?? ''));
+
+            if ($classID === '') {
+                continue;
+            }
+
+            $classNameByID[$classID] = (string)($classRow['ClassName'] ?? '');
+        }
+
+        /*
+     * Build group membership lookup:
+     *
+     * ClassID -> GroupName[]
+     *
+     * A class may belong to more than one group.
+     */
+        $groupNamesByClassID = [];
+
+        foreach ($groupMembers as $memberRow) {
+            if (!is_array($memberRow)) {
+                continue;
+            }
+
+            $classID = trim((string)($memberRow['ClassID'] ?? ''));
+            $groupName = trim((string)($memberRow['GroupName'] ?? ''));
+
+            if ($classID === '' || $groupName === '') {
+                continue;
+            }
+
+            if (!isset($groupNamesByClassID[$classID])) {
+                $groupNamesByClassID[$classID] = [];
+            }
+
+            if (!in_array($groupName, $groupNamesByClassID[$classID], true)) {
+                $groupNamesByClassID[$classID][] = $groupName;
+            }
+        }
+
+        /*
+     * Normalize and deduplicate the active sensor IDs.
+     */
+        $uniqueIDs = [];
+
+        foreach ($activeSensorIDs as $sensorID) {
+            $variableID = (int)$sensorID;
+
+            if ($variableID > 0) {
+                $uniqueIDs[$variableID] = $variableID;
+            }
+        }
+
+        $uniqueIDs = array_values($uniqueIDs);
+        sort($uniqueIDs, SORT_NUMERIC);
+
+        $sensors = [];
+
+        foreach ($uniqueIDs as $variableID) {
+            /*
+         * Ignore stale IDs if the variable was deleted after the last
+         * CheckLogic() execution.
+         */
+            if (!IPS_VariableExists($variableID)) {
+                continue;
+            }
+
+            $sensorConfig = $sensorConfigByVariableID[$variableID] ?? [];
+
+            $classID = trim((string)($sensorConfig['ClassID'] ?? ''));
+            $className = $classNameByID[$classID] ?? '';
+
+            $groupNames = $groupNamesByClassID[$classID] ?? [];
+
+            $parentID = IPS_GetParent($variableID);
+            $grandParentID = ($parentID > 0)
+                ? IPS_GetParent($parentID)
+                : 0;
+
+            $sensors[] = [
+                'variable_id' => $variableID,
+                'value' => GetValue($variableID),
+
+                'name' => IPS_GetName($variableID),
+
+                'parent_name' => (
+                    $parentID > 0 &&
+                    IPS_ObjectExists($parentID)
+                )
+                    ? IPS_GetName($parentID)
+                    : '',
+
+                'grandparent_name' => (
+                    $grandParentID > 0 &&
+                    IPS_ObjectExists($grandParentID)
+                )
+                    ? IPS_GetName($grandParentID)
+                    : '',
+
+                'class_id' => $classID,
+                'class_name' => $className,
+
+                /*
+             * These are the configured group memberships of the class.
+             * They do not necessarily mean that every listed group is
+             * currently active.
+             */
+                'group_names' => array_values($groupNames)
+            ];
+        }
+
+        $payload = [
+            'schema' => 'MYALARM.ActiveSensors.v1',
+            'module_instance_id' => $this->InstanceID,
+            'generated_at' => time(),
+            'count' => count($sensors),
+            'sensors' => $sensors
+        ];
+
+        $json = json_encode(
+            $payload,
+            JSON_UNESCAPED_UNICODE |
+                JSON_UNESCAPED_SLASHES |
+                JSON_INVALID_UTF8_SUBSTITUTE
+        );
+
+        if ($json === false) {
+            return json_encode([
+                'schema' => 'MYALARM.ActiveSensors.v1',
+                'module_instance_id' => $this->InstanceID,
+                'generated_at' => time(),
+                'count' => 0,
+                'sensors' => [],
+                'error' => 'JSON encoding failed'
+            ]);
+        }
+
+        return $json;
+    }
 
     public function ApplyChanges()
     {
