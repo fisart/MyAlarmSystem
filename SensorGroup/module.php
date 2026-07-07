@@ -1,5 +1,5 @@
 <?php
-// Version2.11.3
+// Version2.12.1
 declare(strict_types=1);
 
 class SensorGroup extends IPSModule
@@ -1648,26 +1648,146 @@ class SensorGroup extends IPSModule
             case 'UpdateMemberProperty': {
                     $data = json_decode($Value, true);
                     $gName = trim((string)($data['GroupName'] ?? ''));
-                    $matrixValues = (isset($data['Values']['ClassID'])) ? [$data['Values']] : ($data['Values'] ?? []);
+                    $matrixValues = (isset($data['Values']['ClassID']))
+                        ? [$data['Values']]
+                        : ($data['Values'] ?? []);
+
+                    if ($gName === '') {
+                        if ($this->ReadPropertyBoolean('DebugMode')) {
+                            $this->LogMessage(
+                                'WARNING: UpdateMemberProperty ignored because GroupName is empty.',
+                                KL_MESSAGE
+                            );
+                        }
+                        break;
+                    }
+
+                    /*
+                     * Build canonical class lookups.
+                     *
+                     * The IP-Symcon form list may return the displayed ClassName
+                     * instead of the hidden ClassID after an edit. Therefore every
+                     * incoming class reference is resolved against the current
+                     * ClassList before it is written to GroupMembers.
+                     */
+                    $classList = $this->GetBufferedSectionList('ClassListBuffer', 'ClassList');
+
+                    $validClassIDs = [];
+                    $classNameToID = [];
+
+                    foreach ($classList as $classRow) {
+                        if (!is_array($classRow)) {
+                            continue;
+                        }
+
+                        $classID = trim((string)($classRow['ClassID'] ?? ''));
+                        $className = trim((string)($classRow['ClassName'] ?? ''));
+
+                        if ($classID === '') {
+                            continue;
+                        }
+
+                        $validClassIDs[$classID] = true;
+
+                        if ($className !== '') {
+                            $classNameToID[$className] = $classID;
+                        }
+                    }
+
+                    $resolveClassID = static function (
+                        string $rawClassID,
+                        string $className
+                    ) use ($validClassIDs, $classNameToID): string {
+                        $rawClassID = trim($rawClassID);
+                        $className = trim($className);
+
+                        if ($rawClassID !== '' && isset($validClassIDs[$rawClassID])) {
+                            return $rawClassID;
+                        }
+
+                        // Legacy/corrupt value: ClassName stored in ClassID.
+                        if ($rawClassID !== '' && isset($classNameToID[$rawClassID])) {
+                            return $classNameToID[$rawClassID];
+                        }
+
+                        // Hidden ClassID may be dropped by the form; use visible name.
+                        if ($className !== '' && isset($classNameToID[$className])) {
+                            return $classNameToID[$className];
+                        }
+
+                        return '';
+                    };
 
                     $master = $this->GetBufferedSectionList('GroupMembersBuffer', 'GroupMembers');
+
+                    /*
+                     * Heal existing legacy GroupMembers rows before applying the
+                     * current checkbox changes.
+                     */
+                    foreach ($master as &$memberRow) {
+                        if (!is_array($memberRow)) {
+                            continue;
+                        }
+
+                        $rawMemberClassID = trim((string)($memberRow['ClassID'] ?? ''));
+                        $resolvedMemberClassID = $resolveClassID($rawMemberClassID, '');
+
+                        if ($resolvedMemberClassID !== '') {
+                            $memberRow['ClassID'] = $resolvedMemberClassID;
+                        }
+                    }
+                    unset($memberRow);
 
                     foreach ((array)$matrixValues as $row) {
                         if (!is_array($row)) {
                             continue;
                         }
 
-                        $cID = trim((string)($row['ClassID'] ?? ''));
-                        if ($gName === '' || $cID === '') {
+                        $rawClassID = trim((string)($row['ClassID'] ?? ''));
+                        $className = trim((string)($row['ClassName'] ?? ''));
+                        $cID = $resolveClassID($rawClassID, $className);
+
+                        if ($cID === '') {
+                            if ($this->ReadPropertyBoolean('DebugMode')) {
+                                $this->LogMessage(
+                                    'WARNING: UpdateMemberProperty ignored unresolved class reference' .
+                                        ' group=' . $gName .
+                                        ' rawClassID=' . $rawClassID .
+                                        ' className=' . $className,
+                                    KL_MESSAGE
+                                );
+                            }
                             continue;
                         }
 
-                        $master = array_values(array_filter($master, function ($m) use ($gName, $cID) {
-                            return !(
-                                trim((string)($m['GroupName'] ?? '')) === $gName &&
-                                trim((string)($m['ClassID'] ?? '')) === $cID
-                            );
-                        }));
+                        /*
+                         * Remove any existing canonical or legacy entry for this
+                         * group/class before adding the new checkbox state.
+                         */
+                        $legacyAliases = array_values(array_unique(array_filter([
+                            $cID,
+                            $rawClassID,
+                            $className
+                        ], static function ($value) {
+                            return trim((string)$value) !== '';
+                        })));
+
+                        $master = array_values(array_filter(
+                            $master,
+                            static function ($member) use ($gName, $legacyAliases) {
+                                if (!is_array($member)) {
+                                    return false;
+                                }
+
+                                $memberGroupName = trim((string)($member['GroupName'] ?? ''));
+                                $memberClassID = trim((string)($member['ClassID'] ?? ''));
+
+                                return !(
+                                    $memberGroupName === $gName &&
+                                    in_array($memberClassID, $legacyAliases, true)
+                                );
+                            }
+                        ));
 
                         if (!empty($row['Assigned'])) {
                             $master[] = [
@@ -1677,10 +1797,44 @@ class SensorGroup extends IPSModule
                         }
                     }
 
-                    $this->WriteBufferedSectionList('GroupMembersBuffer', $master);
+                    /*
+                     * Final canonical deduplication.
+                     */
+                    $uniqueMembers = [];
+                    $seenMembers = [];
+
+                    foreach ($master as $memberRow) {
+                        if (!is_array($memberRow)) {
+                            continue;
+                        }
+
+                        $memberGroupName = trim((string)($memberRow['GroupName'] ?? ''));
+                        $memberClassID = trim((string)($memberRow['ClassID'] ?? ''));
+
+                        if ($memberGroupName === '' || $memberClassID === '') {
+                            continue;
+                        }
+
+                        $key = $memberGroupName . '::' . $memberClassID;
+
+                        if (isset($seenMembers[$key])) {
+                            continue;
+                        }
+
+                        $seenMembers[$key] = true;
+                        $uniqueMembers[] = [
+                            'GroupName' => $memberGroupName,
+                            'ClassID'   => $memberClassID
+                        ];
+                    }
+
+                    $this->WriteBufferedSectionList('GroupMembersBuffer', $uniqueMembers);
 
                     if ($this->ReadPropertyBoolean('DebugMode')) {
-                        $this->LogMessage("DEBUG: GroupMembersBuffer updated rows=" . count($master), KL_MESSAGE);
+                        $this->LogMessage(
+                            'DEBUG: GroupMembersBuffer updated rows=' . count($uniqueMembers),
+                            KL_MESSAGE
+                        );
                     }
 
                     $this->ReloadForm();
@@ -1765,6 +1919,7 @@ class SensorGroup extends IPSModule
                 }
         }
     }
+
 
 
 
@@ -1993,6 +2148,44 @@ class SensorGroup extends IPSModule
         }
         unset($s);
 
+        // --- Normalize GroupMembers ClassID: convert ClassName references to real ClassID ---
+        $groupMembersFixed = false;
+        $validClassIDs = [];
+
+        foreach ($classNameToId as $className => $classID) {
+            $classID = trim((string)$classID);
+
+            if ($classID !== '') {
+                $validClassIDs[$classID] = true;
+            }
+        }
+
+        foreach ($groupMembers as &$memberRow) {
+            if (!is_array($memberRow)) {
+                continue;
+            }
+
+            $memberClassID = trim((string)($memberRow['ClassID'] ?? ''));
+
+            if ($memberClassID === '') {
+                continue;
+            }
+
+            if (isset($validClassIDs[$memberClassID])) {
+                continue;
+            }
+
+            /*
+             * Legacy/corrupt form result:
+             * ClassName was stored in the ClassID field.
+             */
+            if (isset($classNameToId[$memberClassID])) {
+                $memberRow['ClassID'] = $classNameToId[$memberClassID];
+                $groupMembersFixed = true;
+            }
+        }
+        unset($memberRow);
+
         // Persist updated maps if we changed anything
         if ($classIdsFixed || $groupIdsFixed) {
             $stateData['IDMap'] = $idMap;
@@ -2011,6 +2204,10 @@ class SensorGroup extends IPSModule
 
         if ($sensorsFixed) {
             $this->WriteAttributeString('SensorListBuffer', json_encode($sensorList));
+        }
+
+        if ($groupMembersFixed) {
+            $this->WriteAttributeString('GroupMembersBuffer', json_encode($groupMembers));
         }
 
         // Also include GroupDispatch in commit
@@ -2063,6 +2260,7 @@ class SensorGroup extends IPSModule
             echo "No changes detected.";
         }
     }
+
 
 
 
