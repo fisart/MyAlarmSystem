@@ -4253,7 +4253,16 @@ class SensorGroup extends IPSModule
         if ($this->ReadPropertyBoolean('DebugMode')) IPS_LogMessage('SensorGroup', 'DEBUG: GetConfigurationForm ENTER InstanceID=' . $this->InstanceID);
 
         $form = json_decode(file_get_contents(__DIR__ . '/form.json'), true);
+        if (!is_array($form)) {
+            $form = [];
+        }
 
+        if (!isset($form['elements']) || !is_array($form['elements'])) {
+            $form['elements'] = [];
+        }
+
+        // Read-only help button. It has no property name and cannot change configuration data.
+        array_unshift($form['elements'], $this->BuildModule1DocumentationPopup());
         // === DEBUG: form.json loaded ===
         if ($this->ReadPropertyBoolean('DebugMode')) IPS_LogMessage(
             'SensorGroup',
@@ -4991,7 +5000,409 @@ class SensorGroup extends IPSModule
         $this->WriteAttributeString('SensorListBuffer', json_encode(array_merge($others, $updatedClass)));
     }
 
+    private function BuildModule1DocumentationPanel(string $caption, array $entries): array
+    {
+        $items = [];
 
+        foreach ($entries as $entry) {
+            $title = trim((string)($entry['title'] ?? ''));
+            $text  = trim((string)($entry['text'] ?? ''));
+
+            if ($title !== '') {
+                $items[] = [
+                    'type'    => 'Label',
+                    'caption' => $title,
+                    'bold'    => true,
+                    'width'   => '100%'
+                ];
+            }
+
+            if ($text !== '') {
+                $items[] = [
+                    'type'    => 'Label',
+                    'caption' => $text,
+                    'width'   => '100%'
+                ];
+            }
+        }
+
+        return [
+            'type'     => 'ExpansionPanel',
+            'caption'  => $caption,
+            'expanded' => false,
+            'items'    => $items
+        ];
+    }
+
+    private function BuildModule1DocumentationPopup(): array
+    {
+        $panels = [];
+
+        $panels[] = $this->BuildModule1DocumentationPanel(
+            '1. Processing model and saving changes',
+            [
+                [
+                    'title' => 'Processing chain',
+                    'text'  => 'Module 1 processes information in this order: Sensor rule -> Class logic -> Group logic -> Group dispatch -> Target. A sensor can belong to one class. A class can be assigned to multiple groups, and a group can be routed to multiple targets.'
+                ],
+                [
+                    'title' => 'Active checkboxes',
+                    'text'  => 'The Active checkbox on a sensor, class, group, or dispatch target controls whether that row participates at runtime. Disabling a row keeps its configuration but excludes it from evaluation or dispatch.'
+                ],
+                [
+                    'title' => 'COMMIT ALL CHANGES TO DISK',
+                    'text'  => 'Use this as the final save step after editing dynamically generated sensors, groups, group members, or bedroom rules. It copies the current RAM-buffered configuration into the persistent instance properties and applies the configuration.'
+                ],
+                [
+                    'title' => 'Apply changes button',
+                    'text'  => 'The orange Apply changes button belongs to the IP-Symcon instance form. Property-bound fields use it directly. Because Module 1 also contains dynamically generated buffer-backed lists, use COMMIT ALL CHANGES TO DISK after completing a configuration session.'
+                ]
+            ]
+        );
+
+        $panels[] = $this->BuildModule1DocumentationPanel(
+            '2. Class definitions',
+            [
+                [
+                    'title' => 'Active',
+                    'text'  => 'ON: the class is evaluated. OFF: the class is skipped and cannot activate a group. Sensors assigned to the class remain stored.'
+                ],
+                [
+                    'title' => 'Class Name',
+                    'text'  => 'Human-readable class name used in the configuration, payloads, logs, and dashboard. Use a unique name. Do not use exactly the same name for a class and a group.'
+                ],
+                [
+                    'title' => 'Label Mode - Sensor Name',
+                    'text'  => 'The smart label in the payload uses the name of the triggering IP-Symcon variable.'
+                ],
+                [
+                    'title' => 'Label Mode - Parent (Location)',
+                    'text'  => 'The smart label uses the name of the direct parent object of the triggering variable. This is normally the device or room object immediately above the variable.'
+                ],
+                [
+                    'title' => 'Label Mode - Status Text',
+                    'text'  => 'The smart label uses GetValueFormatted() for the triggering variable. The result depends on the variable profile and may be text such as Open, Closed, ON, or a formatted number.'
+                ],
+                [
+                    'title' => 'Logic - OR (Instant)',
+                    'text'  => 'The class is active while at least one enabled sensor in the class currently returns active. Threshold and Window are ignored in this mode.'
+                ],
+                [
+                    'title' => 'Logic - AND (All)',
+                    'text'  => 'The class is active only while every enabled sensor assigned to the class currently returns active. A class with no enabled sensors is not active. Threshold and Window are ignored in this mode.'
+                ],
+                [
+                    'title' => 'Logic - COUNT',
+                    'text'  => 'The class stores timestamps of qualifying trigger events. It is active when the number of timestamps still inside the rolling Window is at least Threshold. Events can come from the same sensor or different sensors in the class; distinct sensors are not required.'
+                ],
+                [
+                    'title' => 'Threshold',
+                    'text'  => 'Used only by COUNT. It is the number of qualifying events required inside the rolling Window. Example: Threshold 2 means the second qualifying event can activate the class.'
+                ],
+                [
+                    'title' => 'Window',
+                    'text'  => 'Used only by COUNT. It is the rolling time window in seconds. Event timestamps older than this value are removed. Example: Threshold 2 and Window 30 means two qualifying events no more than 30 seconds apart.'
+                ],
+                [
+                    'title' => 'COUNT design note',
+                    'text'  => 'COUNT counts qualifying trigger evaluations, not unique rooms or unique sensor IDs. For motion detection, ONCE with a short pulse is normally preferable to LEVEL. A repeated update arriving while an ONCE pulse is still active can still be evaluated as active, so keep the pulse short when COUNT is used.'
+                ]
+            ]
+        );
+
+        $panels[] = $this->BuildModule1DocumentationPanel(
+            '3. Sensor inputs',
+            [
+                [
+                    'title' => 'ID',
+                    'text'  => 'Read-only display of the selected IP-Symcon variable ID.'
+                ],
+                [
+                    'title' => 'Active',
+                    'text'  => 'ON: the sensor participates in its class. OFF: the sensor row remains configured but is skipped at runtime.'
+                ],
+                [
+                    'title' => 'Variable',
+                    'text'  => 'The IP-Symcon variable read by Module 1 and registered for update messages. Select the actual state variable, not only the parent device instance.'
+                ],
+                [
+                    'title' => 'Loc (P)',
+                    'text'  => 'Read-only name of the direct parent of the selected variable. Module 1 refreshes this metadata from the object tree.'
+                ],
+                [
+                    'title' => 'Area (GP)',
+                    'text'  => 'Read-only name of the grandparent of the selected variable. Module 1 refreshes this metadata from the object tree.'
+                ],
+                [
+                    'title' => 'Op =',
+                    'text'  => 'Active when the current value equals Value. For string variables this is the appropriate operator for exact status words such as DISCONNECTED. Capitalization and spelling must match.'
+                ],
+                [
+                    'title' => 'Op !=',
+                    'text'  => 'Active when the current value does not equal Value.'
+                ],
+                [
+                    'title' => 'Op >, <, >=, <=',
+                    'text'  => 'Numeric comparisons for integer or float variables. The configured Value is converted to a number when the monitored variable is numeric.'
+                ],
+                [
+                    'title' => 'Value',
+                    'text'  => 'Comparison value used by LEVEL and ONCE. Boolean values accept 1 or true for true. Numeric variables use a numeric value. String equality uses the configured text.'
+                ],
+                [
+                    'title' => 'Mode - LEVEL',
+                    'text'  => 'The sensor rule remains active for as long as the current variable value satisfies Op and Value. Pulse Width is ignored. Repeated evaluations continue to see the sensor as active.'
+                ],
+                [
+                    'title' => 'Mode - CHANGE',
+                    'text'  => 'After the first observation, any typed value change creates a pulse. Op and Value are ignored in CHANGE mode. The first observation only initializes the last-value cache and does not trigger.'
+                ],
+                [
+                    'title' => 'Mode - ONCE',
+                    'text'  => 'Op and Value define a condition. A false-to-true condition edge starts one pulse. The condition must become false before the sensor is re-armed for another pulse. The first observation only initializes the condition state and does not trigger.'
+                ],
+                [
+                    'title' => 'Pulse Width in Seconds',
+                    'text'  => 'Used by CHANGE and ONCE. It defines how long the sensor rule returns active after a qualifying event. The pulse-expiry timer causes Module 1 to reevaluate when the pulse ends. For COUNT-based motion detection, 1 second is a sensible starting value.'
+                ],
+                [
+                    'title' => 'Delete',
+                    'text'  => 'Removes this sensor row from the class configuration. Commit the configuration after deletion.'
+                ]
+            ]
+        );
+
+        $panels[] = $this->BuildModule1DocumentationPanel(
+            '4. Sabotage / Tamper',
+            [
+                [
+                    'title' => 'Variable',
+                    'text'  => 'Boolean variable used as a tamper input. Module 1 sets its Sabotage output true when any configured tamper row evaluates active.'
+                ],
+                [
+                    'title' => 'Invert',
+                    'text'  => 'OFF: true means tamper active. ON: false means tamper active. Use this for normally closed or reversed-polarity tamper signals.'
+                ],
+                [
+                    'title' => 'Tamper routing note',
+                    'text'  => 'The tamper list directly drives the Module 1 Sabotage variable. It is separate from the normal Sensor -> Class -> Group routing chain.'
+                ]
+            ]
+        );
+
+        $panels[] = $this->BuildModule1DocumentationPanel(
+            '5. Group management',
+            [
+                [
+                    'title' => 'Active',
+                    'text'  => 'ON: the group is evaluated. OFF: the group output is forced inactive and no dispatch route for that group is used.'
+                ],
+                [
+                    'title' => 'Group Name',
+                    'text'  => 'Human-readable group identity used by class assignments, dispatch routes, payloads, group status variables, and the dashboard. Use a unique stable name. Renaming can invalidate references if all related sections are not updated.'
+                ],
+                [
+                    'title' => 'Logic - OR (Any Member)',
+                    'text'  => 'The group is active when at least one assigned class is active.'
+                ],
+                [
+                    'title' => 'Logic - AND (All Members)',
+                    'text'  => 'The group is active only when every class assigned to the group is active. A group with no assigned classes is inactive.'
+                ],
+                [
+                    'title' => 'Delete',
+                    'text'  => 'Deletes the group definition. Related class assignments and dispatch routes should be reviewed after deletion.'
+                ]
+            ]
+        );
+
+        $panels[] = $this->BuildModule1DocumentationPanel(
+            '6. Assign classes to groups',
+            [
+                [
+                    'title' => 'Class Name',
+                    'text'  => 'Read-only class shown in the membership matrix.'
+                ],
+                [
+                    'title' => 'Assigned',
+                    'text'  => 'ON: the class is a member of the selected group. A class can be assigned to more than one group. Group OR or AND logic is then applied to all assigned classes.'
+                ]
+            ]
+        );
+
+        $panels[] = $this->BuildModule1DocumentationPanel(
+            '7. Bedroom behavioral settings',
+            [
+                [
+                    'title' => 'Active Var (IPSView)',
+                    'text'  => 'Boolean variable representing whether that bedroom is active or occupied in the bedroom synchronization payload. Its current value is sent as SwitchState.'
+                ],
+                [
+                    'title' => 'Door Class (Trigger)',
+                    'text'  => 'Class used to determine whether the bedroom door condition is active. Its current class state is sent as DoorTripped.'
+                ],
+                [
+                    'title' => 'Group',
+                    'text'  => 'The group name identifies the bedroom entry in the BEDROOM_SYNC payload.'
+                ],
+                [
+                    'title' => 'Global Bedroom Target Server',
+                    'text'  => 'Instance that receives BEDROOM_SYNC payloads through ReceivePayload. The object must be an IP-Symcon instance and must also be present and active in Dispatch Targets.'
+                ],
+                [
+                    'title' => 'When synchronization is sent',
+                    'text'  => 'A full reevaluation can send all bedroom states. During normal events, synchronization is sent when a configured Active Var changes or when a sensor belonging to a configured Door Class triggers.'
+                ]
+            ]
+        );
+
+        $panels[] = $this->BuildModule1DocumentationPanel(
+            '8. Dispatch targets and group routing',
+            [
+                [
+                    'title' => 'Dispatch Target - Active',
+                    'text'  => 'ON: the target may receive routed payloads. OFF: all routes to this target are ignored while its configuration remains stored.'
+                ],
+                [
+                    'title' => 'Dispatch Target - Name',
+                    'text'  => 'Descriptive name used only to make target selection and diagnostics easier.'
+                ],
+                [
+                    'title' => 'Target ObjectID',
+                    'text'  => 'Object ID of a destination instance or script. An instance receives IPS_RequestAction(TargetID, ReceivePayload, JSON). A script is started with the JSON in both payload and Payload parameters plus source_instance_id.'
+                ],
+                [
+                    'title' => 'Group Dispatch - Group',
+                    'text'  => 'Selects the group whose active or cleared state is projected to the target.'
+                ],
+                [
+                    'title' => 'Group Dispatch - Target',
+                    'text'  => 'Selects one configured dispatch target. The same group may be routed to multiple targets, and a target may receive multiple groups.'
+                ],
+                [
+                    'title' => 'No route',
+                    'text'  => 'An active group without a Group Dispatch entry remains active inside Module 1 but is not sent to an external target.'
+                ]
+            ]
+        );
+
+        $panels[] = $this->BuildModule1DocumentationPanel(
+            '9. Per-target message throttling',
+            [
+                [
+                    'title' => 'Target',
+                    'text'  => 'Target whose normal routed payloads are rate-limited. A target without a throttle row is not rate-limited by Module 1.'
+                ],
+                [
+                    'title' => 'Max Messages',
+                    'text'  => 'Maximum number of payloads allowed during Window Seconds.'
+                ],
+                [
+                    'title' => 'Window Seconds',
+                    'text'  => 'Rolling time window used for the target rate limit. Timestamps older than the window are removed.'
+                ],
+                [
+                    'title' => 'Important consequence',
+                    'text'  => 'When the limit is reached, additional routed payloads are skipped until the window frees capacity. This can also delay or suppress a later cleared-state payload, so configure throttling conservatively for alarm targets.'
+                ]
+            ]
+        );
+
+        $panels[] = $this->BuildModule1DocumentationPanel(
+            '10. General module settings',
+            [
+                [
+                    'title' => 'Security Vault (Webhook Protection)',
+                    'text'  => 'Optional Security Vault instance used to protect access to the Module 1 live dashboard webhook. It does not change sensor evaluation or alarm dispatch.'
+                ],
+                [
+                    'title' => 'Maintenance Mode',
+                    'text'  => 'Adds is_maintenance=true to generated payloads. In the current Module 1 implementation it does not by itself stop sensor evaluation or dispatch. Receiving modules must decide how to treat maintenance payloads.'
+                ],
+                [
+                    'title' => 'Debug Logging',
+                    'text'  => 'Enables detailed Module 1 diagnostic messages for form loading, sensor evaluation, class and group processing, dispatch, throttling, and errors. Disable it during normal operation if the log volume becomes excessive.'
+                ]
+            ]
+        );
+
+        $panels[] = $this->BuildModule1DocumentationPanel(
+            '11. Bulk import wizard',
+            [
+                [
+                    'title' => 'Search Root',
+                    'text'  => 'Object-tree root below which the wizard scans for variables.'
+                ],
+                [
+                    'title' => 'Assign to Class',
+                    'text'  => 'Class assigned to all selected imported variables.'
+                ],
+                [
+                    'title' => 'SCAN',
+                    'text'  => 'Scans the selected object-tree branch and fills the Found Variables list.'
+                ],
+                [
+                    'title' => 'Search Name / Filter',
+                    'text'  => 'Filters the current scan results by text.'
+                ],
+                [
+                    'title' => 'Import checkbox',
+                    'text'  => 'Selects which candidate variables will be added.'
+                ],
+                [
+                    'title' => 'Select All / Select None',
+                    'text'  => 'Changes the selection state of all current candidates.'
+                ],
+                [
+                    'title' => 'ADD SELECTED',
+                    'text'  => 'Adds selected candidates to the chosen class. Review their operator, comparison value, mode, and pulse width afterward because imported defaults may not match the sensor type.'
+                ]
+            ]
+        );
+
+        $panels[] = $this->BuildModule1DocumentationPanel(
+            '12. Configuration backup and restore',
+            [
+                [
+                    'title' => 'LOAD CURRENT CONFIG',
+                    'text'  => 'Generates a JSON representation of the current Module 1 configuration and places it in the JSON Data field.'
+                ],
+                [
+                    'title' => 'JSON Data',
+                    'text'  => 'Text area used to copy a backup out of the module or paste a backup for restoration. Keep an external copy before major changes.'
+                ],
+                [
+                    'title' => 'RESTORE FROM JSON',
+                    'text'  => 'Validates and writes the supplied configuration into the module properties. After restoration, verify class IDs, group memberships, dispatch targets, and routes before testing alarms.'
+                ],
+                [
+                    'title' => 'Safety rule',
+                    'text'  => 'Never restore a partial JSON fragment. Use a complete backup generated by the same Module 1 configuration format.'
+                ]
+            ]
+        );
+
+        return [
+            'type'    => 'PopupButton',
+            'caption' => '? Module 1 parameter documentation',
+            'width'   => '100%',
+            'popup'   => [
+                'caption'      => 'Module 1 - Parameter Documentation',
+                'closeCaption' => 'Close',
+                'items'        => array_merge(
+                    [
+                        [
+                            'type'    => 'Label',
+                            'caption' => 'Click a section below to expand it. This documentation is read-only and does not change the Module 1 configuration.',
+                            'bold'    => true,
+                            'width'   => '100%'
+                        ]
+                    ],
+                    $panels
+                )
+            ]
+        ];
+    }
 
     // New Helper: Finds list column definition by name
     private function UpdateListColumnOption(&$elements, $listName, $columnName, $options)
