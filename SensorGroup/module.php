@@ -4062,7 +4062,7 @@ class SensorGroup extends IPSModule
                             const targetZoom = pinchState.zoom * scale;
 
                             panZoomInstance.zoomAtPoint(
-                                Math.max(0.2, Math.min(10, targetZoom)),
+                                Math.max(0.2, Math.min(30, targetZoom)),
                                 pinchState.focus
                             );
                         }, { passive: false });
@@ -4182,7 +4182,7 @@ class SensorGroup extends IPSModule
                                         fit: isFirstLoad,
                                         center: isFirstLoad,
                                         minZoom: 0.2,
-                                        maxZoom: 10,
+                                        maxZoom: 30,
                                         eventsListenerElement: container
                                     });
 
