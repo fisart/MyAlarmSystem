@@ -2198,7 +2198,7 @@ function attachTouchPinchZoom(svgEl, gestureEl, panZoomInstance) {
         const targetZoom = pinchState.zoom * scale;
 
         panZoomInstance.zoomAtPoint(
-            Math.max(0.2, Math.min(10, targetZoom)),
+            Math.max(0.2, Math.min(30, targetZoom)),
             pinchState.focus
         );
     }, { passive: false });
@@ -2341,7 +2341,7 @@ pzInstance = svgPanZoom(svgEl, {
     fit: (oldZoom === null),
     center: (oldPan === null),
     minZoom: 0.2,
-    maxZoom: 10,
+    maxZoom: 30,
     eventsListenerElement: pzContainer
 });
 
