@@ -1,7 +1,7 @@
 <?php
 
 declare(strict_types=1);
-// 7.6.1
+// 7.6.2
 class AlarmResponseManager extends IPSModule
 {
     private const HOUSE_STATES = [
@@ -90,6 +90,7 @@ class AlarmResponseManager extends IPSModule
         $this->EnableAction('OutputKillSwitch');
 
         $this->RegisterVariableString('HeartbeatAuditLog', 'Heartbeat Audit Log', '~TextBox', 20);
+        $this->RegisterVariableString('QueueProcessorDebugLog', 'Queue Processor Debug Log', '~TextBox', 30);
     }
 
     public function ApplyChanges()
@@ -615,6 +616,66 @@ class AlarmResponseManager extends IPSModule
         }
 
         SetValueString($varID, implode("\n", $lines));
+    }
+
+
+    private function AppendQueueProcessorDebug(string $stage, array $context = []): void
+    {
+        $varID = @$this->GetIDForIdent('QueueProcessorDebugLog');
+        if ($varID === false || $varID <= 0) {
+            return;
+        }
+
+        $semaphoreName = 'ARMM_DBG_' . $this->InstanceID;
+        if (!IPS_SemaphoreEnter($semaphoreName, 1000)) {
+            return;
+        }
+
+        try {
+            $now = microtime(true);
+            $seconds = (int) floor($now);
+            $milliseconds = (int) floor(($now - $seconds) * 1000);
+
+            $parts = [];
+            $parts[] = date('Y-m-d H:i:s', $seconds)
+                . '.'
+                . str_pad((string) $milliseconds, 3, '0', STR_PAD_LEFT);
+            $parts[] = 'instance=' . $this->InstanceID;
+            $parts[] = $stage;
+
+            foreach ($context as $key => $value) {
+                if (is_array($value)) {
+                    $value = json_encode($value, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+                } elseif (is_bool($value)) {
+                    $value = $value ? 'true' : 'false';
+                } elseif ($value === null) {
+                    $value = 'null';
+                }
+
+                $valueText = str_replace(["\r", "\n"], ['\\r', '\\n'], (string) $value);
+                $parts[] = $key . '=' . $valueText;
+            }
+
+            $line = implode(' | ', $parts);
+
+            $current = trim((string) GetValueString($varID));
+            $lines = $current === '' ? [] : preg_split('/\R/', $current);
+
+            if (!is_array($lines)) {
+                $lines = [];
+            }
+
+            $lines[] = $line;
+
+            $maxLines = 3000;
+            if (count($lines) > $maxLines) {
+                $lines = array_slice($lines, -$maxLines);
+            }
+
+            SetValueString($varID, implode("\n", $lines));
+        } finally {
+            IPS_SemaphoreLeave($semaphoreName);
+        }
     }
 
     private function BuildOutputScreenEntryHtml(array $resource, array $payload, array $house, string $groupLabel): string
@@ -3553,9 +3614,25 @@ document.addEventListener("DOMContentLoaded", () => {
 
     private function EnqueueModule1Payload(array $payload, string $payloadJson): void
     {
+        $eventID = trim((string) ($payload['event_id'] ?? ''));
+        $eventEpoch = (string) ($payload['event_epoch'] ?? '0');
+        $eventSeq = (int) ($payload['event_seq'] ?? 0);
+        $heartbeatToken = $this->ExtractHeartbeatContentToken($payload);
+
+        $this->AppendQueueProcessorDebug('ENQUEUE_ATTEMPT', [
+            'event_id' => $eventID,
+            'event_epoch' => $eventEpoch,
+            'event_seq' => $eventSeq,
+            'heartbeat_token' => $heartbeatToken
+        ]);
+
         if (!$this->EnterPayloadQueueLock()) {
-            $eventEpoch = (string) ($payload['event_epoch'] ?? '0');
-            $eventSeq = (int) ($payload['event_seq'] ?? 0);
+            $this->AppendQueueProcessorDebug('ENQUEUE_QUEUE_LOCK_TIMEOUT', [
+                'event_id' => $eventID,
+                'event_epoch' => $eventEpoch,
+                'event_seq' => $eventSeq,
+                'heartbeat_token' => $heartbeatToken
+            ]);
 
             $this->AppendHeartbeatAuditForPayload($payload, 'NOT_WRITTEN', [
                 'reason' => 'queue_lock_timeout',
@@ -3573,10 +3650,6 @@ document.addEventListener("DOMContentLoaded", () => {
         try {
             $queue = $this->GetPendingModule1PayloadQueue();
 
-            $eventID = trim((string) ($payload['event_id'] ?? ''));
-            $eventEpoch = (string) ($payload['event_epoch'] ?? '0');
-            $eventSeq = (int) ($payload['event_seq'] ?? 0);
-
             foreach ($queue as $existing) {
                 $existingPayload = $existing['payload'] ?? [];
                 if (!is_array($existingPayload)) {
@@ -3588,6 +3661,14 @@ document.addEventListener("DOMContentLoaded", () => {
                 $existingSeq = (int) ($existingPayload['event_seq'] ?? 0);
 
                 if ($eventID !== '' && $existingEventID === $eventID) {
+                    $this->AppendQueueProcessorDebug('ENQUEUE_DUPLICATE_EVENT_ID', [
+                        'event_id' => $eventID,
+                        'event_epoch' => $eventEpoch,
+                        'event_seq' => $eventSeq,
+                        'queue_size' => count($queue),
+                        'heartbeat_token' => $heartbeatToken
+                    ]);
+
                     $this->AppendHeartbeatAuditForPayload($payload, 'NOT_WRITTEN', [
                         'reason' => 'duplicate_event_id',
                         'event_id' => $eventID
@@ -3598,6 +3679,13 @@ document.addEventListener("DOMContentLoaded", () => {
                 }
 
                 if ($eventID === '' && $existingEpoch === $eventEpoch && $existingSeq === $eventSeq) {
+                    $this->AppendQueueProcessorDebug('ENQUEUE_DUPLICATE_EVENT_TOKEN', [
+                        'event_epoch' => $eventEpoch,
+                        'event_seq' => $eventSeq,
+                        'queue_size' => count($queue),
+                        'heartbeat_token' => $heartbeatToken
+                    ]);
+
                     $this->AppendHeartbeatAuditForPayload($payload, 'NOT_WRITTEN', [
                         'reason' => 'duplicate_event_token',
                         'event_epoch' => $eventEpoch,
@@ -3626,6 +3714,14 @@ document.addEventListener("DOMContentLoaded", () => {
                 $dropCount = count($queue) - $maxQueueSize;
                 $queue = array_slice($queue, -$maxQueueSize);
 
+                $this->AppendQueueProcessorDebug('ENQUEUE_QUEUE_OVERFLOW', [
+                    'drop_count' => $dropCount,
+                    'queue_size_after_drop' => count($queue),
+                    'event_epoch' => $eventEpoch,
+                    'event_seq' => $eventSeq,
+                    'heartbeat_token' => $heartbeatToken
+                ]);
+
                 $this->AppendHeartbeatAuditForPayload($payload, 'QUEUE_OVERFLOW_CHECK', [
                     'drop_count' => $dropCount,
                     'note' => 'oldest_entries_dropped'
@@ -3638,6 +3734,14 @@ document.addEventListener("DOMContentLoaded", () => {
             }
 
             $this->WritePendingModule1PayloadQueue($queue);
+
+            $this->AppendQueueProcessorDebug('ENQUEUED', [
+                'event_id' => $eventID,
+                'event_epoch' => $eventEpoch,
+                'event_seq' => $eventSeq,
+                'queue_size' => count($queue),
+                'heartbeat_token' => $heartbeatToken
+            ]);
 
             $this->AppendHeartbeatAuditForPayload($payload, 'QUEUED', [
                 'queue_size' => count($queue),
@@ -3670,194 +3774,360 @@ document.addEventListener("DOMContentLoaded", () => {
 
     private function ProcessPendingModule1PayloadQueue(?array $houseOverride = null): void
     {
+        $triggerSource = $houseOverride !== null ? 'house_snapshot' : 'payload_or_manual';
+
         if (!$this->EnterPayloadProcessorLock()) {
+            $this->AppendQueueProcessorDebug('PROCESSOR_BUSY_TRIGGER_SKIPPED', [
+                'trigger_source' => $triggerSource,
+                'last_event_epoch' => $this->ReadAttributeString('LastEventEpoch'),
+                'last_event_seq' => $this->ReadAttributeInteger('LastEventSeq')
+            ]);
+
             $this->LogMessage('ProcessPendingModule1PayloadQueue: processor already running, skipped this trigger', KL_MESSAGE);
             return;
         }
 
+        $processorLockHeld = true;
+        $batchNumber = 0;
+        $totalProcessed = 0;
+
+        $this->AppendQueueProcessorDebug('PROCESSOR_ACQUIRED', [
+            'trigger_source' => $triggerSource,
+            'house_override' => $houseOverride !== null
+        ]);
+
         try {
-            if (!$this->EnterPayloadQueueLock()) {
-                $this->LogMessage('ProcessPendingModule1PayloadQueue: queue lock timeout while reading queue', KL_MESSAGE);
-                return;
-            }
-
-            try {
-                $queue = $this->GetPendingModule1PayloadQueue();
-
-                if (count($queue) === 0) {
-                    return;
-                }
-
-                foreach ($queue as $entry) {
-                    $payloadForAudit = $entry['payload'] ?? null;
-                    if (is_array($payloadForAudit)) {
-                        $this->AppendHeartbeatAuditForPayload($payloadForAudit, 'PROCESS_PICKED_UP', [
-                            'batch_size' => count($queue)
-                        ]);
-                    }
-                }
-
-                $this->WritePendingModule1PayloadQueue([]);
-            } finally {
-                $this->LeavePayloadQueueLock();
-            }
-
-            $remaining = [];
-            $processed = 0;
-            $blocked = false;
-
-            foreach ($queue as $entry) {
-                if ($blocked) {
-                    $remaining[] = $entry;
-
-                    $payloadBlocked = $entry['payload'] ?? null;
-                    if (is_array($payloadBlocked)) {
-                        $this->AppendHeartbeatAuditForPayload($payloadBlocked, 'NOT_WRITTEN', [
-                            'reason' => 'left_behind_due_to_earlier_blocked_event'
-                        ]);
-                    }
-
-                    continue;
-                }
-
-                $payload = $entry['payload'] ?? null;
-                if (!is_array($payload)) {
-                    $processed++;
-                    continue;
-                }
-
-                $payloadJson = (string) ($entry['payload_json'] ?? '');
-                if ($payloadJson === '') {
-                    $payloadJson = json_encode($payload);
-                }
-
-                $eventEpoch = (string) ($payload['event_epoch'] ?? '0');
-                $eventSeq = (int) ($payload['event_seq'] ?? 0);
-                $eventType = strtoupper(trim((string) ($payload['event_type'] ?? '')));
-
-                if ($eventType !== 'ALARM') {
-                    $this->AppendHeartbeatAuditForPayload($payload, 'NOT_WRITTEN', [
-                        'reason' => 'process_non_alarm_event_type',
-                        'event_type' => $eventType
-                    ]);
-
-                    $this->LogMessage(
-                        'ProcessPendingModule1PayloadQueue: skipped non-ALARM event_type=' . $eventType,
-                        KL_MESSAGE
-                    );
-                    $processed++;
-                    continue;
-                }
-
-                $targetGroups = $payload['target_active_groups'] ?? [];
-
-                if (!is_array($targetGroups) || count($targetGroups) === 0) {
-                    $this->SetCurrentModule1PayloadContext($payload, $payloadJson);
-                    $this->ReevaluateCurrentAlarmContext($payload, $houseOverride ?? ['system_state_id' => 0]);
-
-                    $this->AppendHeartbeatAuditForPayload($payload, 'PROCESSED_RESET_OR_ALL_CLEAR', [
-                        'event_epoch' => $eventEpoch,
-                        'event_seq' => $eventSeq
-                    ]);
-
-                    $this->LogMessage(
-                        'ProcessPendingModule1PayloadQueue: processed reset/all-clear event=(' . $eventEpoch . ',' . $eventSeq . ')',
-                        KL_MESSAGE
-                    );
-
-                    $processed++;
-                    continue;
-                }
-
-                $house = $houseOverride;
-                if ($house === null) {
-                    $house = $this->GetUsableHouseStateSnapshot($eventEpoch, $eventSeq);
-                }
-
-                if ($house === null) {
-                    $this->AppendHeartbeatAuditForPayload($payload, 'NOT_WRITTEN', [
-                        'reason' => 'blocked_no_usable_house_snapshot',
-                        'event_epoch' => $eventEpoch,
-                        'event_seq' => $eventSeq
-                    ]);
-
-                    $this->LogMessage(
-                        'ProcessPendingModule1PayloadQueue: blocked, no usable house snapshot for event=(' . $eventEpoch . ',' . $eventSeq . ')',
-                        KL_MESSAGE
-                    );
-
-                    $remaining[] = $entry;
-                    $blocked = true;
-                    continue;
-                }
-
-                $this->AppendHeartbeatAuditForPayload($payload, 'PROCESS_HAS_HOUSE_SNAPSHOT', [
-                    'house_state' => (int) ($house['system_state_id'] ?? -1),
-                    'house_sync_epoch' => (string) ($house['sync']['last_processed_event_epoch'] ?? '0'),
-                    'house_sync_seq' => (int) ($house['sync']['last_processed_event_seq'] ?? 0)
-                ]);
-
-                $this->SetCurrentModule1PayloadContext($payload, $payloadJson);
-                $this->ReevaluateCurrentAlarmContext($payload, $house);
-
-                $this->AppendHeartbeatAuditForPayload($payload, 'PROCESS_DONE', [
-                    'event_epoch' => $eventEpoch,
-                    'event_seq' => $eventSeq
-                ]);
-
-                $this->LogMessage(
-                    'ProcessPendingModule1PayloadQueue: processed event=(' . $eventEpoch . ',' . $eventSeq . ')',
-                    KL_MESSAGE
-                );
-
-                $processed++;
-            }
-
-            if (count($remaining) > 0) {
+            while (true) {
                 if (!$this->EnterPayloadQueueLock()) {
-                    $this->LogMessage(
-                        'ProcessPendingModule1PayloadQueue: queue lock timeout while restoring remaining events; remaining=' . count($remaining),
-                        KL_MESSAGE
-                    );
+                    $this->AppendQueueProcessorDebug('PROCESSOR_QUEUE_LOCK_TIMEOUT', [
+                        'batch_number' => $batchNumber,
+                        'total_processed' => $totalProcessed
+                    ]);
+
+                    $this->LogMessage('ProcessPendingModule1PayloadQueue: queue lock timeout while reading queue', KL_MESSAGE);
                     return;
                 }
 
                 try {
-                    $currentQueue = $this->GetPendingModule1PayloadQueue();
-                    $mergedQueue = array_merge($remaining, $currentQueue);
+                    $queue = $this->GetPendingModule1PayloadQueue();
+                    $queueSize = count($queue);
 
-                    $maxQueueSize = 100;
-                    if (count($mergedQueue) > $maxQueueSize) {
-                        $dropCount = count($mergedQueue) - $maxQueueSize;
-                        $mergedQueue = array_slice($mergedQueue, -$maxQueueSize);
+                    if ($queueSize === 0) {
+                        /*
+                         * Atomic handoff:
+                         * The queue lock remains held while the processor lock is released.
+                         * A concurrent sender can therefore enqueue only after the processor
+                         * lock is free and can reliably start a new processor run.
+                         */
+                        $this->AppendQueueProcessorDebug('QUEUE_EMPTY_ATOMIC_HANDOFF', [
+                            'batch_number' => $batchNumber,
+                            'total_processed' => $totalProcessed
+                        ]);
 
-                        foreach ($remaining as $entry) {
-                            $payloadForAudit = $entry['payload'] ?? null;
-                            if (is_array($payloadForAudit)) {
-                                $this->AppendHeartbeatAuditForPayload($payloadForAudit, 'QUEUE_OVERFLOW_AFTER_RESTORE', [
-                                    'drop_count' => $dropCount
-                                ]);
-                            }
-                        }
-
-                        $this->LogMessage(
-                            'ProcessPendingModule1PayloadQueue: queue overflow after restore, dropped oldest entries=' . $dropCount,
-                            KL_MESSAGE
-                        );
+                        $this->LeavePayloadProcessorLock();
+                        $processorLockHeld = false;
+                        return;
                     }
 
-                    $this->WritePendingModule1PayloadQueue($mergedQueue);
+                    $batchNumber++;
+
+                    $firstPayload = $queue[0]['payload'] ?? [];
+                    $lastPayload = $queue[$queueSize - 1]['payload'] ?? [];
+
+                    $this->AppendQueueProcessorDebug('BATCH_CLAIMED', [
+                        'batch_number' => $batchNumber,
+                        'batch_size' => $queueSize,
+                        'first_event_epoch' => is_array($firstPayload) ? (string) ($firstPayload['event_epoch'] ?? '0') : '0',
+                        'first_event_seq' => is_array($firstPayload) ? (int) ($firstPayload['event_seq'] ?? 0) : 0,
+                        'last_event_epoch' => is_array($lastPayload) ? (string) ($lastPayload['event_epoch'] ?? '0') : '0',
+                        'last_event_seq' => is_array($lastPayload) ? (int) ($lastPayload['event_seq'] ?? 0) : 0
+                    ]);
+
+                    foreach ($queue as $entry) {
+                        $payloadForAudit = $entry['payload'] ?? null;
+                        if (is_array($payloadForAudit)) {
+                            $this->AppendHeartbeatAuditForPayload($payloadForAudit, 'PROCESS_PICKED_UP', [
+                                'batch_size' => $queueSize,
+                                'batch_number' => $batchNumber
+                            ]);
+                        }
+                    }
+
+                    $this->WritePendingModule1PayloadQueue([]);
                 } finally {
                     $this->LeavePayloadQueueLock();
                 }
-            }
 
-            $this->LogMessage(
-                'ProcessPendingModule1PayloadQueue: processed=' . $processed . ', remaining=' . count($remaining),
-                KL_MESSAGE
-            );
+                $remaining = [];
+                $processed = 0;
+                $blocked = false;
+
+                foreach ($queue as $entry) {
+                    if ($blocked) {
+                        $remaining[] = $entry;
+
+                        $payloadBlocked = $entry['payload'] ?? null;
+                        if (is_array($payloadBlocked)) {
+                            $this->AppendQueueProcessorDebug('EVENT_DEFERRED_AFTER_BLOCK', [
+                                'batch_number' => $batchNumber,
+                                'event_epoch' => (string) ($payloadBlocked['event_epoch'] ?? '0'),
+                                'event_seq' => (int) ($payloadBlocked['event_seq'] ?? 0),
+                                'heartbeat_token' => $this->ExtractHeartbeatContentToken($payloadBlocked)
+                            ]);
+
+                            $this->AppendHeartbeatAuditForPayload($payloadBlocked, 'NOT_WRITTEN', [
+                                'reason' => 'left_behind_due_to_earlier_blocked_event'
+                            ]);
+                        }
+
+                        continue;
+                    }
+
+                    $payload = $entry['payload'] ?? null;
+                    if (!is_array($payload)) {
+                        $processed++;
+                        $this->AppendQueueProcessorDebug('INVALID_QUEUE_ENTRY_SKIPPED', [
+                            'batch_number' => $batchNumber
+                        ]);
+                        continue;
+                    }
+
+                    $payloadJson = (string) ($entry['payload_json'] ?? '');
+                    if ($payloadJson === '') {
+                        $payloadJson = json_encode($payload);
+                    }
+
+                    $eventEpoch = (string) ($payload['event_epoch'] ?? '0');
+                    $eventSeq = (int) ($payload['event_seq'] ?? 0);
+                    $eventType = strtoupper(trim((string) ($payload['event_type'] ?? '')));
+                    $heartbeatToken = $this->ExtractHeartbeatContentToken($payload);
+
+                    $this->AppendQueueProcessorDebug('EVENT_PROCESS_START', [
+                        'batch_number' => $batchNumber,
+                        'event_type' => $eventType,
+                        'event_epoch' => $eventEpoch,
+                        'event_seq' => $eventSeq,
+                        'heartbeat_token' => $heartbeatToken
+                    ]);
+
+                    if ($eventType !== 'ALARM') {
+                        $this->AppendQueueProcessorDebug('EVENT_SKIPPED_NON_ALARM', [
+                            'batch_number' => $batchNumber,
+                            'event_type' => $eventType,
+                            'event_epoch' => $eventEpoch,
+                            'event_seq' => $eventSeq,
+                            'heartbeat_token' => $heartbeatToken
+                        ]);
+
+                        $this->AppendHeartbeatAuditForPayload($payload, 'NOT_WRITTEN', [
+                            'reason' => 'process_non_alarm_event_type',
+                            'event_type' => $eventType
+                        ]);
+
+                        $this->LogMessage(
+                            'ProcessPendingModule1PayloadQueue: skipped non-ALARM event_type=' . $eventType,
+                            KL_MESSAGE
+                        );
+                        $processed++;
+                        continue;
+                    }
+
+                    $targetGroups = $payload['target_active_groups'] ?? [];
+
+                    if (!is_array($targetGroups) || count($targetGroups) === 0) {
+                        $this->SetCurrentModule1PayloadContext($payload, $payloadJson);
+                        $this->ReevaluateCurrentAlarmContext($payload, $houseOverride ?? ['system_state_id' => 0]);
+
+                        $this->AppendQueueProcessorDebug('EVENT_RESET_PROCESSED', [
+                            'batch_number' => $batchNumber,
+                            'event_epoch' => $eventEpoch,
+                            'event_seq' => $eventSeq,
+                            'heartbeat_token' => $heartbeatToken
+                        ]);
+
+                        $this->AppendHeartbeatAuditForPayload($payload, 'PROCESSED_RESET_OR_ALL_CLEAR', [
+                            'event_epoch' => $eventEpoch,
+                            'event_seq' => $eventSeq
+                        ]);
+
+                        $this->LogMessage(
+                            'ProcessPendingModule1PayloadQueue: processed reset/all-clear event=(' . $eventEpoch . ',' . $eventSeq . ')',
+                            KL_MESSAGE
+                        );
+
+                        $processed++;
+                        continue;
+                    }
+
+                    $house = $houseOverride;
+                    if ($house === null) {
+                        $house = $this->GetUsableHouseStateSnapshot($eventEpoch, $eventSeq);
+                    }
+
+                    if ($house === null) {
+                        $this->AppendQueueProcessorDebug('EVENT_BLOCKED_NO_HOUSE_SNAPSHOT', [
+                            'batch_number' => $batchNumber,
+                            'event_epoch' => $eventEpoch,
+                            'event_seq' => $eventSeq,
+                            'heartbeat_token' => $heartbeatToken
+                        ]);
+
+                        $this->AppendHeartbeatAuditForPayload($payload, 'NOT_WRITTEN', [
+                            'reason' => 'blocked_no_usable_house_snapshot',
+                            'event_epoch' => $eventEpoch,
+                            'event_seq' => $eventSeq
+                        ]);
+
+                        $this->LogMessage(
+                            'ProcessPendingModule1PayloadQueue: blocked, no usable house snapshot for event=(' . $eventEpoch . ',' . $eventSeq . ')',
+                            KL_MESSAGE
+                        );
+
+                        $remaining[] = $entry;
+                        $blocked = true;
+                        continue;
+                    }
+
+                    $this->AppendHeartbeatAuditForPayload($payload, 'PROCESS_HAS_HOUSE_SNAPSHOT', [
+                        'house_state' => (int) ($house['system_state_id'] ?? -1),
+                        'house_sync_epoch' => (string) ($house['sync']['last_processed_event_epoch'] ?? '0'),
+                        'house_sync_seq' => (int) ($house['sync']['last_processed_event_seq'] ?? 0)
+                    ]);
+
+                    $this->SetCurrentModule1PayloadContext($payload, $payloadJson);
+                    $this->ReevaluateCurrentAlarmContext($payload, $house);
+
+                    $this->AppendQueueProcessorDebug('EVENT_PROCESS_DONE', [
+                        'batch_number' => $batchNumber,
+                        'event_epoch' => $eventEpoch,
+                        'event_seq' => $eventSeq,
+                        'house_state' => (int) ($house['system_state_id'] ?? -1),
+                        'heartbeat_token' => $heartbeatToken
+                    ]);
+
+                    $this->AppendHeartbeatAuditForPayload($payload, 'PROCESS_DONE', [
+                        'event_epoch' => $eventEpoch,
+                        'event_seq' => $eventSeq
+                    ]);
+
+                    $this->LogMessage(
+                        'ProcessPendingModule1PayloadQueue: processed event=(' . $eventEpoch . ',' . $eventSeq . ')',
+                        KL_MESSAGE
+                    );
+
+                    $processed++;
+                }
+
+                $totalProcessed += $processed;
+
+                if (count($remaining) > 0) {
+                    if (!$this->EnterPayloadQueueLock()) {
+                        $this->AppendQueueProcessorDebug('RESTORE_QUEUE_LOCK_TIMEOUT', [
+                            'batch_number' => $batchNumber,
+                            'remaining' => count($remaining),
+                            'total_processed' => $totalProcessed
+                        ]);
+
+                        $this->LogMessage(
+                            'ProcessPendingModule1PayloadQueue: queue lock timeout while restoring remaining events; remaining=' . count($remaining),
+                            KL_MESSAGE
+                        );
+                        return;
+                    }
+
+                    try {
+                        $currentQueue = $this->GetPendingModule1PayloadQueue();
+                        $mergedQueue = array_merge($remaining, $currentQueue);
+
+                        $maxQueueSize = 100;
+                        if (count($mergedQueue) > $maxQueueSize) {
+                            $dropCount = count($mergedQueue) - $maxQueueSize;
+                            $mergedQueue = array_slice($mergedQueue, -$maxQueueSize);
+
+                            foreach ($remaining as $entry) {
+                                $payloadForAudit = $entry['payload'] ?? null;
+                                if (is_array($payloadForAudit)) {
+                                    $this->AppendHeartbeatAuditForPayload($payloadForAudit, 'QUEUE_OVERFLOW_AFTER_RESTORE', [
+                                        'drop_count' => $dropCount
+                                    ]);
+                                }
+                            }
+
+                            $this->AppendQueueProcessorDebug('RESTORE_QUEUE_OVERFLOW', [
+                                'batch_number' => $batchNumber,
+                                'drop_count' => $dropCount,
+                                'queue_size_after_drop' => count($mergedQueue)
+                            ]);
+
+                            $this->LogMessage(
+                                'ProcessPendingModule1PayloadQueue: queue overflow after restore, dropped oldest entries=' . $dropCount,
+                                KL_MESSAGE
+                            );
+                        }
+
+                        $this->WritePendingModule1PayloadQueue($mergedQueue);
+
+                        $newSnapshotAvailable = $houseOverride !== null || $this->GetCachedHouseStateSnapshot() !== null;
+
+                        $this->AppendQueueProcessorDebug('BLOCKED_EVENTS_RESTORED', [
+                            'batch_number' => $batchNumber,
+                            'remaining_from_batch' => count($remaining),
+                            'new_events_waiting' => count($currentQueue),
+                            'queue_size' => count($mergedQueue),
+                            'new_snapshot_available' => $newSnapshotAvailable
+                        ]);
+
+                        if (!$newSnapshotAvailable) {
+                            /*
+                             * Atomic blocked handoff:
+                             * Leave the restored queue protected until the processor lock is
+                             * free. A later payload or house-state push can then start processing.
+                             */
+                            $this->AppendQueueProcessorDebug('BLOCKED_ATOMIC_HANDOFF', [
+                                'batch_number' => $batchNumber,
+                                'queue_size' => count($mergedQueue),
+                                'total_processed' => $totalProcessed
+                            ]);
+
+                            $this->LeavePayloadProcessorLock();
+                            $processorLockHeld = false;
+                            return;
+                        }
+                    } finally {
+                        $this->LeavePayloadQueueLock();
+                    }
+
+                    $this->AppendQueueProcessorDebug('BLOCKED_RETRY_WITH_NEW_SNAPSHOT', [
+                        'batch_number' => $batchNumber,
+                        'total_processed' => $totalProcessed
+                    ]);
+
+                    continue;
+                }
+
+                $this->AppendQueueProcessorDebug('BATCH_COMPLETE_RECHECK_QUEUE', [
+                    'batch_number' => $batchNumber,
+                    'processed_in_batch' => $processed,
+                    'total_processed' => $totalProcessed
+                ]);
+
+                $this->LogMessage(
+                    'ProcessPendingModule1PayloadQueue: batch=' . $batchNumber
+                        . ', processed=' . $processed
+                        . ', total_processed=' . $totalProcessed
+                        . ', rechecking queue',
+                    KL_MESSAGE
+                );
+            }
         } finally {
-            $this->LeavePayloadProcessorLock();
+            if ($processorLockHeld) {
+                $this->LeavePayloadProcessorLock();
+
+                $this->AppendQueueProcessorDebug('PROCESSOR_RELEASED_EARLY_EXIT', [
+                    'batch_number' => $batchNumber,
+                    'total_processed' => $totalProcessed
+                ]);
+            }
         }
     }
 
