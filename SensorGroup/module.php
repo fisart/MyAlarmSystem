@@ -1,5 +1,5 @@
 <?php
-// Version2.12.3
+// Version2.12.2
 declare(strict_types=1);
 
 class SensorGroup extends IPSModule
@@ -920,22 +920,10 @@ class SensorGroup extends IPSModule
         return in_array($variableID, array_map('intval', $ids), true);
     }
 
-    private function ClassifyTrafficDiagnosticVariableUpdate(
-        int $variableID,
-        $value,
-        ?bool $knownChanged = null
-    ): array {
+    private function ClassifyTrafficDiagnosticVariableUpdate(int $variableID, $value): array
+    {
         if (!$this->ReadPropertyBoolean('EnableTrafficDiagnostics')) {
             return ['source' => 'other', 'changed' => null];
-        }
-
-        if ($knownChanged !== null) {
-            return [
-                'source' => $this->IsTrafficDiagnosticHeartbeatVariable($variableID)
-                    ? 'heartbeat_update'
-                    : 'vm_update',
-                'changed' => $knownChanged
-            ];
         }
 
         $typeName = $this->GetVariableTypeName($value);
@@ -977,8 +965,7 @@ class SensorGroup extends IPSModule
         string $source,
         int $triggeringID,
         ?bool $valueChanged,
-        array $dispatchedTargetIDs,
-        bool $countCheckLogicExecution = true
+        array $dispatchedTargetIDs
     ): void {
         if (!$this->ReadPropertyBoolean('EnableTrafficDiagnostics')) {
             return;
@@ -994,10 +981,7 @@ class SensorGroup extends IPSModule
 
         try {
             $counters = $this->ReadTrafficDiagnosticCounters();
-
-            if ($countCheckLogicExecution) {
-                $counters['checklogic_total'] = (int)$counters['checklogic_total'] + 1;
-            }
+            $counters['checklogic_total'] = (int)$counters['checklogic_total'] + 1;
 
             switch ($source) {
                 case 'vm_update':
@@ -1155,7 +1139,7 @@ class SensorGroup extends IPSModule
         $lines[] = '';
         $lines[] = 'Sources:';
         $lines[] = 'VM_UPDATE, value changed: ' . (int)($sources['vm_update_changed'] ?? 0);
-        $lines[] = 'VM_UPDATE, same-value refresh (suppressed): ' . (int)($sources['vm_update_unchanged'] ?? 0);
+        $lines[] = 'VM_UPDATE, same-value refresh: ' . (int)($sources['vm_update_unchanged'] ?? 0);
         $lines[] = 'Heartbeat variable updates: ' . (int)($sources['heartbeat_update'] ?? 0);
         $lines[] = 'Pulse expiry with state change: ' . (int)($sources['pulse_expiry_changed'] ?? 0);
         $lines[] = 'Pulse timer without state change: ' . (int)($sources['pulse_timer_no_change'] ?? 0);
@@ -1242,8 +1226,7 @@ class SensorGroup extends IPSModule
         }
 
         $lines[] = '';
-        $lines[] = 'Note: source counters include variable updates observed before same-value suppression; CheckLogic calls count only actual CheckLogic executions.';
-        $lines[] = 'A variable without an existing comparison baseline is processed and counted as changed on its first observation.';
+        $lines[] = 'Note: a variable without an existing diagnostic baseline is counted as changed on its first observation.';
 
         $this->SetValue('TrafficDiagnostics', implode("\n", $lines));
         $this->SetTimerInterval('TrafficDiagnosticsTimer', 300000);
@@ -2772,79 +2755,13 @@ class SensorGroup extends IPSModule
         return preg_replace('/[^a-zA-Z0-9]/', '', $name);
     }
 
-    private function MessageSinkValuesAreDifferent(string $oldType, $oldValue, $newValue): bool
-    {
-        switch ($oldType) {
-            case 'boolean':
-                return ((bool)$oldValue !== (bool)$newValue);
-
-            case 'integer':
-                return ((int)$oldValue !== (int)$newValue);
-
-            case 'float':
-                return ((float)$oldValue !== (float)$newValue);
-
-            case 'string':
-            default:
-                return ((string)$oldValue !== (string)$newValue);
-        }
-    }
-
-    private function IsMessageSinkValueChanged(int $variableID, $value): bool
-    {
-        if ($variableID <= 0) {
-            return true;
-        }
-
-        $typeName = $this->GetVariableTypeName($value);
-        $bufferName = 'MessageSinkLastValue_' . $variableID;
-        $previous = json_decode((string)$this->GetBuffer($bufferName), true);
-
-        if (
-            !is_array($previous) ||
-            !array_key_exists('type', $previous) ||
-            !array_key_exists('value', $previous)
-        ) {
-            $this->SetBuffer(
-                $bufferName,
-                json_encode([
-                    'type' => $typeName,
-                    'value' => $value
-                ])
-            );
-
-            return true;
-        }
-
-        $oldType = (string)$previous['type'];
-        $oldValue = $previous['value'];
-
-        $changed = ($oldType !== $typeName) ||
-            $this->MessageSinkValuesAreDifferent($oldType, $oldValue, $value);
-
-        // Avoid a buffer write for unchanged refreshes. Only genuine changes
-        // replace the stored baseline used by the MessageSink filter.
-        if ($changed) {
-            $this->SetBuffer(
-                $bufferName,
-                json_encode([
-                    'type' => $typeName,
-                    'value' => $value
-                ])
-            );
-        }
-
-        return $changed;
-    }
-
     public function MessageSink($TimeStamp, $SenderID, $Message, $Data)
     {
         $val = null;
         $valType = 'n/a';
         $valFmt = 'n/a';
-        $variableExists = IPS_VariableExists($SenderID);
 
-        if ($variableExists) {
+        if (IPS_VariableExists($SenderID)) {
             $val = GetValue($SenderID);
             $valType = gettype($val);
             $valFmt = @GetValueFormatted($SenderID);
@@ -2856,38 +2773,10 @@ class SensorGroup extends IPSModule
             KL_MESSAGE
         );
 
-        // Suppress only ordinary VM_UPDATE messages whose typed value is
-        // identical to the last value observed by MessageSink. All explicit
-        // CheckLogic(0) paths, state synchronizations, ApplyChanges calls,
-        // pulse-expiry handling and genuine value transitions remain unchanged.
-        $valueChanged = true;
-
-        if ((int)$Message === VM_UPDATE && $variableExists) {
-            $valueChanged = $this->IsMessageSinkValueChanged(
-                (int)$SenderID,
-                $val
-            );
-        }
-
         $diagnostic = $this->ClassifyTrafficDiagnosticVariableUpdate(
             (int)$SenderID,
-            $val,
-            $valueChanged
+            $val
         );
-
-        if (!$valueChanged) {
-            // Preserve the diagnostic count of observed unchanged refreshes,
-            // but do not count an execution because CheckLogic is not called.
-            $this->TrafficDiagnosticRecordExecution(
-                (string)($diagnostic['source'] ?? 'other'),
-                (int)$SenderID,
-                false,
-                [],
-                false
-            );
-
-            return;
-        }
 
         $this->CheckLogic(
             $SenderID,
