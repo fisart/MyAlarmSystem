@@ -1,7 +1,7 @@
 <?php
 
 declare(strict_types=1);
-// 7.6.1
+// 7.6.3
 class AlarmResponseManager extends IPSModule
 {
     private const HOUSE_STATES = [
@@ -90,6 +90,24 @@ class AlarmResponseManager extends IPSModule
         $this->EnableAction('OutputKillSwitch');
 
         $this->RegisterVariableString('HeartbeatAuditLog', 'Heartbeat Audit Log', '~TextBox', 20);
+
+        $this->RegisterVariableInteger(
+            'Module1MessagesPerInterval',
+            'Module 1 Messages (5 min)',
+            '',
+            30
+        );
+        $this->RegisterVariableInteger(
+            'Module2SnapshotsPerInterval',
+            'Module 2 Snapshots (5 min)',
+            '',
+            40
+        );
+        $this->RegisterTimer(
+            'MessageTrafficCounterTimer',
+            0,
+            'IPS_RequestAction($_IPS["TARGET"], "PublishMessageTrafficCounters", 0);'
+        );
     }
 
     public function ApplyChanges()
@@ -98,12 +116,67 @@ class AlarmResponseManager extends IPSModule
 
         $this->RegisterHook('/hook/psm_output_' . $this->InstanceID);
 
+        if ($this->GetBuffer('MessageTrafficCounters') === '') {
+            $this->SetBuffer('MessageTrafficCounters', '{"module1":0,"module2":0}');
+        }
+
+        $this->SetTimerInterval('MessageTrafficCounterTimer', 300000);
+
         $this->SetStatus(102);
         $this->LogMessage(
             'OutputKillSwitch is currently ' . ($this->IsOutputKillSwitchActive() ? 'ON' : 'OFF'),
             KL_MESSAGE
         );
     }
+
+    private function CountIncomingMessage(string $source): void
+    {
+        if ($source !== 'module1' && $source !== 'module2') {
+            return;
+        }
+
+        $semaphoreName = 'ARMM_TRAFFIC_' . $this->InstanceID;
+        if (!IPS_SemaphoreEnter($semaphoreName, 1)) {
+            return;
+        }
+
+        try {
+            $counters = json_decode($this->GetBuffer('MessageTrafficCounters'), true);
+            if (!is_array($counters)) {
+                $counters = ['module1' => 0, 'module2' => 0];
+            }
+
+            $counters[$source] = max(0, (int) ($counters[$source] ?? 0)) + 1;
+            $this->SetBuffer('MessageTrafficCounters', json_encode($counters));
+        } finally {
+            IPS_SemaphoreLeave($semaphoreName);
+        }
+    }
+
+    private function PublishMessageTrafficCounters(): void
+    {
+        $semaphoreName = 'ARMM_TRAFFIC_' . $this->InstanceID;
+        if (!IPS_SemaphoreEnter($semaphoreName, 50)) {
+            return;
+        }
+
+        try {
+            $counters = json_decode($this->GetBuffer('MessageTrafficCounters'), true);
+            if (!is_array($counters)) {
+                $counters = ['module1' => 0, 'module2' => 0];
+            }
+
+            $module1Count = max(0, (int) ($counters['module1'] ?? 0));
+            $module2Count = max(0, (int) ($counters['module2'] ?? 0));
+            $this->SetBuffer('MessageTrafficCounters', '{"module1":0,"module2":0}');
+        } finally {
+            IPS_SemaphoreLeave($semaphoreName);
+        }
+
+        SetValueInteger($this->GetIDForIdent('Module1MessagesPerInterval'), $module1Count);
+        SetValueInteger($this->GetIDForIdent('Module2SnapshotsPerInterval'), $module2Count);
+    }
+
 
     private function GetVisibleGraphGroupKeys(array $groups): array
     {
@@ -219,6 +292,10 @@ class AlarmResponseManager extends IPSModule
                     KL_MESSAGE
                 );
                 break;
+            case 'PublishMessageTrafficCounters':
+                $this->PublishMessageTrafficCounters();
+                break;
+
             case 'ReadModule1Configuration':
                 $this->ReadModule1Configuration();
                 break;
@@ -2688,6 +2765,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
     public function ReceivePayload(string $payloadJson): void
     {
+        $this->CountIncomingMessage('module1');
+
         $this->WriteAttributeString('LastReceivedPayloadRaw', $payloadJson);
 
         $payload = json_decode($payloadJson, true);
@@ -3451,6 +3530,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
     public function ReceiveHouseStateSnapshot(string $snapshotJson): void
     {
+        $this->CountIncomingMessage('module2');
+
         $data = json_decode($snapshotJson, true);
         if (!is_array($data)) {
             $this->LogMessage('ReceiveHouseStateSnapshot: invalid JSON', KL_MESSAGE);
