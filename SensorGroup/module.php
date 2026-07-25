@@ -1,5 +1,5 @@
 <?php
-// Version2.12.1
+// Version2.12.2
 declare(strict_types=1);
 
 class SensorGroup extends IPSModule
@@ -18,6 +18,7 @@ class SensorGroup extends IPSModule
         $this->RegisterPropertyInteger('VaultInstanceID', 0); // NEW: Security Vault for Webhook
         $this->RegisterPropertyBoolean('MaintenanceMode', false);
         $this->RegisterPropertyBoolean('DebugMode', false);
+        $this->RegisterPropertyBoolean('EnableTrafficDiagnostics', false);
 
         // RAM Buffers for Blueprint Strategy 2.0
         $this->RegisterAttributeString('ClassListBuffer', '[]');
@@ -35,6 +36,7 @@ class SensorGroup extends IPSModule
         $this->RegisterAttributeString('ScanCache', '[]');
         $this->RegisterVariableBoolean('Status', 'Status', '~Alert', 10);
         $this->RegisterVariableBoolean('Sabotage', 'Sabotage', '~Alert', 90);
+        $this->RegisterVariableString('TrafficDiagnostics', 'Traffic Diagnostics (5 min)', '', 95);
         $this->RegisterVariableString('EventData', 'Event Payload', '', 99);
 
         $this->RegisterPropertyString('DispatchTargets', '[]');   // list of Module2 targets
@@ -47,6 +49,7 @@ class SensorGroup extends IPSModule
         $this->RegisterAttributeString('SensorPulseUntilMap', '{}');
         $this->RegisterAttributeString('SensorConditionStateMap', '{}');
         $this->RegisterTimer('PulseExpireTimer', 0, 'MYALARM_CheckPulseExpiry($_IPS[\'TARGET\']);');
+        $this->RegisterTimer('TrafficDiagnosticsTimer', 0, 'MYALARM_PublishTrafficDiagnostics($_IPS[\'TARGET\']);');
         $this->RegisterAttributeString('LastMainStatus', '0');
         IPS_SetHidden($this->GetIDForIdent('EventData'), true);
     }
@@ -668,7 +671,7 @@ class SensorGroup extends IPSModule
         }
 
         // 4. VARIABLES (Status)
-        $keepIdents = ['Status', 'Sabotage', 'EventData'];
+        $keepIdents = ['Status', 'Sabotage', 'TrafficDiagnostics', 'EventData'];
         $pos = 20;
         foreach ($groupList as $group) {
             if (empty($group['GroupName'])) continue;
@@ -691,7 +694,9 @@ class SensorGroup extends IPSModule
         // 5. RELOAD FORM
         $this->ReloadForm();
         $this->UpdatePulseExpireTimer();
-        $this->CheckLogic();
+        $this->RefreshTrafficDiagnosticHeartbeatVariableIDs();
+        $this->UpdateTrafficDiagnosticsTimer();
+        $this->CheckLogic(0, 'apply_changes');
     }
 
     public function CheckPulseExpiry()
@@ -724,7 +729,10 @@ class SensorGroup extends IPSModule
         $this->UpdatePulseExpireTimer();
 
         if ($changed || $hadActivePulse) {
-            $this->CheckLogic(0);
+            $diagnosticSource = $changed
+                ? 'pulse_expiry_changed'
+                : 'pulse_timer_no_change';
+            $this->CheckLogic(0, $diagnosticSource);
         }
     }
     private function UpdatePulseExpireTimer()
@@ -755,6 +763,473 @@ class SensorGroup extends IPSModule
 
         $delayMs = max(1, ($nextExpiry - $now) * 1000);
         $this->SetTimerInterval('PulseExpireTimer', $delayMs);
+    }
+
+    private function GetEmptyTrafficDiagnosticCounters(?int $periodStart = null): array
+    {
+        return [
+            'period_start' => $periodStart ?? time(),
+            'checklogic_total' => 0,
+            'sources' => [
+                'vm_update_changed' => 0,
+                'vm_update_unchanged' => 0,
+                'heartbeat_update' => 0,
+                'pulse_expiry_changed' => 0,
+                'pulse_timer_no_change' => 0,
+                'apply_changes' => 0,
+                'state_sync' => 0,
+                'manual' => 0,
+                'other' => 0
+            ],
+            'variables' => [],
+            'dispatches' => []
+        ];
+    }
+
+    private function ReadTrafficDiagnosticCounters(): array
+    {
+        $raw = (string)$this->GetBuffer('TrafficDiagnosticsCounters');
+        $data = json_decode($raw, true);
+
+        if (!is_array($data)) {
+            return $this->GetEmptyTrafficDiagnosticCounters();
+        }
+
+        if (!isset($data['period_start']) || (int)$data['period_start'] <= 0) {
+            $data['period_start'] = time();
+        }
+        if (!isset($data['checklogic_total'])) {
+            $data['checklogic_total'] = 0;
+        }
+        if (!isset($data['sources']) || !is_array($data['sources'])) {
+            $data['sources'] = [];
+        }
+        if (!isset($data['variables']) || !is_array($data['variables'])) {
+            $data['variables'] = [];
+        }
+        if (!isset($data['dispatches']) || !is_array($data['dispatches'])) {
+            $data['dispatches'] = [];
+        }
+
+        foreach ($this->GetEmptyTrafficDiagnosticCounters()['sources'] as $key => $value) {
+            if (!isset($data['sources'][$key])) {
+                $data['sources'][$key] = 0;
+            }
+        }
+
+        return $data;
+    }
+
+    private function WriteTrafficDiagnosticCounters(array $counters): void
+    {
+        $json = json_encode($counters);
+        if ($json !== false) {
+            $this->SetBuffer('TrafficDiagnosticsCounters', $json);
+        }
+    }
+
+    private function ResetTrafficDiagnosticCountersInternal(?int $periodStart = null): void
+    {
+        $this->WriteTrafficDiagnosticCounters(
+            $this->GetEmptyTrafficDiagnosticCounters($periodStart)
+        );
+    }
+
+    private function RefreshTrafficDiagnosticHeartbeatVariableIDs(): void
+    {
+        $classList = json_decode($this->ReadPropertyString('ClassList'), true);
+        $sensorList = json_decode($this->ReadPropertyString('SensorList'), true);
+        $groupMembers = json_decode($this->ReadPropertyString('GroupMembers'), true);
+
+        if (!is_array($classList)) {
+            $classList = [];
+        }
+        if (!is_array($sensorList)) {
+            $sensorList = [];
+        }
+        if (!is_array($groupMembers)) {
+            $groupMembers = [];
+        }
+
+        $heartbeatClassIDs = [];
+
+        foreach ($classList as $classRow) {
+            if (!is_array($classRow)) {
+                continue;
+            }
+
+            $classID = trim((string)($classRow['ClassID'] ?? ''));
+            $className = trim((string)($classRow['ClassName'] ?? ''));
+
+            if ($classID !== '' && $className === 'Alarm Heartbeat Class') {
+                $heartbeatClassIDs[$classID] = true;
+            }
+        }
+
+        foreach ($groupMembers as $memberRow) {
+            if (!is_array($memberRow)) {
+                continue;
+            }
+
+            if (trim((string)($memberRow['GroupName'] ?? '')) !== 'Alarm Heartbeat Group') {
+                continue;
+            }
+
+            $classID = trim((string)($memberRow['ClassID'] ?? ''));
+            if ($classID !== '') {
+                $heartbeatClassIDs[$classID] = true;
+            }
+        }
+
+        $heartbeatVariableIDs = [];
+
+        foreach ($sensorList as $sensorRow) {
+            if (!is_array($sensorRow)) {
+                continue;
+            }
+
+            $classID = trim((string)($sensorRow['ClassID'] ?? ''));
+            $variableID = (int)($sensorRow['VariableID'] ?? 0);
+
+            if ($variableID > 0 && isset($heartbeatClassIDs[$classID])) {
+                $heartbeatVariableIDs[$variableID] = true;
+            }
+        }
+
+        $this->SetBuffer(
+            'TrafficDiagnosticsHeartbeatVariableIDs',
+            json_encode(array_map('intval', array_keys($heartbeatVariableIDs)))
+        );
+    }
+
+    private function IsTrafficDiagnosticHeartbeatVariable(int $variableID): bool
+    {
+        if ($variableID <= 0) {
+            return false;
+        }
+
+        $ids = json_decode(
+            (string)$this->GetBuffer('TrafficDiagnosticsHeartbeatVariableIDs'),
+            true
+        );
+
+        if (!is_array($ids)) {
+            return false;
+        }
+
+        return in_array($variableID, array_map('intval', $ids), true);
+    }
+
+    private function ClassifyTrafficDiagnosticVariableUpdate(int $variableID, $value): array
+    {
+        if (!$this->ReadPropertyBoolean('EnableTrafficDiagnostics')) {
+            return ['source' => 'other', 'changed' => null];
+        }
+
+        $typeName = $this->GetVariableTypeName($value);
+        $bufferName = 'TrafficDiagLastValue_' . $variableID;
+        $previous = json_decode((string)$this->GetBuffer($bufferName), true);
+
+        $changed = true;
+
+        if (
+            is_array($previous) &&
+            array_key_exists('type', $previous) &&
+            array_key_exists('value', $previous)
+        ) {
+            $oldType = (string)$previous['type'];
+            $oldValue = $previous['value'];
+            $changed = ($oldType !== $typeName) ||
+                $this->ValuesAreDifferent($oldType, $oldValue, $value);
+        }
+
+        if ($changed || !is_array($previous)) {
+            $this->SetBuffer(
+                $bufferName,
+                json_encode([
+                    'type' => $typeName,
+                    'value' => $value
+                ])
+            );
+        }
+
+        return [
+            'source' => $this->IsTrafficDiagnosticHeartbeatVariable($variableID)
+                ? 'heartbeat_update'
+                : 'vm_update',
+            'changed' => $changed
+        ];
+    }
+
+    private function TrafficDiagnosticRecordExecution(
+        string $source,
+        int $triggeringID,
+        ?bool $valueChanged,
+        array $dispatchedTargetIDs
+    ): void {
+        if (!$this->ReadPropertyBoolean('EnableTrafficDiagnostics')) {
+            return;
+        }
+
+        $lockName = 'Mod1_TrafficDiag_' . $this->InstanceID;
+
+        // Diagnostics must never delay alarm processing. Skip this one sample
+        // if the very short RAM-counter lock is currently unavailable.
+        if (!IPS_SemaphoreEnter($lockName, 5)) {
+            return;
+        }
+
+        try {
+            $counters = $this->ReadTrafficDiagnosticCounters();
+            $counters['checklogic_total'] = (int)$counters['checklogic_total'] + 1;
+
+            switch ($source) {
+                case 'vm_update':
+                    $sourceKey = ($valueChanged === false)
+                        ? 'vm_update_unchanged'
+                        : 'vm_update_changed';
+                    break;
+
+                case 'heartbeat_update':
+                    $sourceKey = 'heartbeat_update';
+                    break;
+
+                case 'pulse_expiry_changed':
+                case 'pulse_timer_no_change':
+                case 'apply_changes':
+                case 'state_sync':
+                case 'manual':
+                    $sourceKey = $source;
+                    break;
+
+                default:
+                    $sourceKey = 'other';
+                    break;
+            }
+
+            $counters['sources'][$sourceKey] =
+                (int)($counters['sources'][$sourceKey] ?? 0) + 1;
+
+            if (
+                $triggeringID > 0 &&
+                in_array($source, ['vm_update', 'heartbeat_update'], true)
+            ) {
+                $key = (string)$triggeringID;
+
+                if (!isset($counters['variables'][$key]) || !is_array($counters['variables'][$key])) {
+                    $counters['variables'][$key] = [
+                        'updates' => 0,
+                        'changed' => 0,
+                        'unchanged' => 0
+                    ];
+                }
+
+                $counters['variables'][$key]['updates'] =
+                    (int)$counters['variables'][$key]['updates'] + 1;
+
+                if ($valueChanged === false) {
+                    $counters['variables'][$key]['unchanged'] =
+                        (int)$counters['variables'][$key]['unchanged'] + 1;
+                } else {
+                    $counters['variables'][$key]['changed'] =
+                        (int)$counters['variables'][$key]['changed'] + 1;
+                }
+            }
+
+            foreach ($dispatchedTargetIDs as $targetID) {
+                $targetID = (int)$targetID;
+                if ($targetID <= 0) {
+                    continue;
+                }
+
+                $key = (string)$targetID;
+                $counters['dispatches'][$key] =
+                    (int)($counters['dispatches'][$key] ?? 0) + 1;
+            }
+
+            $this->WriteTrafficDiagnosticCounters($counters);
+        } finally {
+            IPS_SemaphoreLeave($lockName);
+        }
+    }
+
+    private function UpdateTrafficDiagnosticsTimer(): void
+    {
+        if (!$this->ReadPropertyBoolean('EnableTrafficDiagnostics')) {
+            $this->SetTimerInterval('TrafficDiagnosticsTimer', 0);
+            $this->SetValue(
+                'TrafficDiagnostics',
+                'Traffic diagnostics are disabled.'
+            );
+            return;
+        }
+
+        $raw = (string)$this->GetBuffer('TrafficDiagnosticsCounters');
+        $existing = json_decode($raw, true);
+
+        if (!is_array($existing)) {
+            $this->ResetTrafficDiagnosticCountersInternal(time());
+        }
+
+        $this->SetTimerInterval('TrafficDiagnosticsTimer', 300000);
+    }
+
+    public function ResetTrafficDiagnostics(): void
+    {
+        $lockName = 'Mod1_TrafficDiag_' . $this->InstanceID;
+
+        if (IPS_SemaphoreEnter($lockName, 200)) {
+            try {
+                $this->ResetTrafficDiagnosticCountersInternal(time());
+            } finally {
+                IPS_SemaphoreLeave($lockName);
+            }
+        }
+
+        if ($this->ReadPropertyBoolean('EnableTrafficDiagnostics')) {
+            $this->SetValue(
+                'TrafficDiagnostics',
+                'Traffic diagnostic counters reset at ' . date('d.m.Y H:i:s') . '.'
+            );
+            $this->SetTimerInterval('TrafficDiagnosticsTimer', 300000);
+        } else {
+            $this->SetValue(
+                'TrafficDiagnostics',
+                'Traffic diagnostics are disabled.'
+            );
+        }
+    }
+
+    public function PublishTrafficDiagnostics(): void
+    {
+        if (!$this->ReadPropertyBoolean('EnableTrafficDiagnostics')) {
+            $this->SetTimerInterval('TrafficDiagnosticsTimer', 0);
+            $this->SetValue(
+                'TrafficDiagnostics',
+                'Traffic diagnostics are disabled.'
+            );
+            return;
+        }
+
+        $lockName = 'Mod1_TrafficDiag_' . $this->InstanceID;
+
+        if (!IPS_SemaphoreEnter($lockName, 200)) {
+            return;
+        }
+
+        try {
+            $counters = $this->ReadTrafficDiagnosticCounters();
+            $periodEnd = time();
+            $this->ResetTrafficDiagnosticCountersInternal($periodEnd);
+        } finally {
+            IPS_SemaphoreLeave($lockName);
+        }
+
+        $periodStart = (int)($counters['period_start'] ?? $periodEnd);
+        $sources = is_array($counters['sources'] ?? null)
+            ? $counters['sources']
+            : [];
+
+        $lines = [];
+        $lines[] = 'MODULE 1 TRAFFIC DIAGNOSTICS';
+        $lines[] = 'Period: ' . date('d.m.Y H:i:s', $periodStart) .
+            ' - ' . date('d.m.Y H:i:s', $periodEnd);
+        $lines[] = '';
+        $lines[] = 'CheckLogic calls: ' . (int)($counters['checklogic_total'] ?? 0);
+        $lines[] = '';
+        $lines[] = 'Sources:';
+        $lines[] = 'VM_UPDATE, value changed: ' . (int)($sources['vm_update_changed'] ?? 0);
+        $lines[] = 'VM_UPDATE, same-value refresh: ' . (int)($sources['vm_update_unchanged'] ?? 0);
+        $lines[] = 'Heartbeat variable updates: ' . (int)($sources['heartbeat_update'] ?? 0);
+        $lines[] = 'Pulse expiry with state change: ' . (int)($sources['pulse_expiry_changed'] ?? 0);
+        $lines[] = 'Pulse timer without state change: ' . (int)($sources['pulse_timer_no_change'] ?? 0);
+        $lines[] = 'ApplyChanges/full evaluation: ' . (int)($sources['apply_changes'] ?? 0);
+        $lines[] = 'State synchronization: ' . (int)($sources['state_sync'] ?? 0);
+        $lines[] = 'Manual execution: ' . (int)($sources['manual'] ?? 0);
+        $lines[] = 'Other/unknown: ' . (int)($sources['other'] ?? 0);
+        $lines[] = '';
+        $lines[] = 'Dispatch calls issued:';
+
+        $targetNames = [];
+        $dispatchTargets = json_decode(
+            $this->ReadPropertyString('DispatchTargets'),
+            true
+        );
+
+        if (is_array($dispatchTargets)) {
+            foreach ($dispatchTargets as $targetRow) {
+                if (!is_array($targetRow)) {
+                    continue;
+                }
+
+                $targetID = (int)($targetRow['InstanceID'] ?? 0);
+                if ($targetID <= 0) {
+                    continue;
+                }
+
+                $targetNames[$targetID] = trim((string)($targetRow['Name'] ?? ''));
+            }
+        }
+
+        $dispatches = is_array($counters['dispatches'] ?? null)
+            ? $counters['dispatches']
+            : [];
+
+        if (count($dispatches) === 0) {
+            $lines[] = 'None';
+        } else {
+            arsort($dispatches, SORT_NUMERIC);
+
+            foreach ($dispatches as $targetIDRaw => $count) {
+                $targetID = (int)$targetIDRaw;
+                $targetName = $targetNames[$targetID] ?? '';
+
+                if ($targetName === '' && $this->IsDispatchTargetObjectValid($targetID)) {
+                    $targetName = IPS_GetName($targetID);
+                }
+
+                if ($targetName === '') {
+                    $targetName = 'Target';
+                }
+
+                $lines[] = $targetName . ' [' . $targetID . ']: ' . (int)$count;
+            }
+        }
+
+        $lines[] = '';
+        $lines[] = 'Most frequently updated variables:';
+
+        $variables = is_array($counters['variables'] ?? null)
+            ? $counters['variables']
+            : [];
+
+        if (count($variables) === 0) {
+            $lines[] = 'None';
+        } else {
+            uasort($variables, static function ($a, $b) {
+                return (int)($b['updates'] ?? 0) <=> (int)($a['updates'] ?? 0);
+            });
+
+            $topVariables = array_slice($variables, 0, 5, true);
+
+            foreach ($topVariables as $variableIDRaw => $stats) {
+                $variableID = (int)$variableIDRaw;
+                $name = IPS_VariableExists($variableID)
+                    ? IPS_GetName($variableID)
+                    : 'Missing variable';
+
+                $lines[] = $variableID . ' - ' . $name . ': ' .
+                    (int)($stats['updates'] ?? 0) . ' updates, ' .
+                    (int)($stats['changed'] ?? 0) . ' changed, ' .
+                    (int)($stats['unchanged'] ?? 0) . ' unchanged';
+            }
+        }
+
+        $lines[] = '';
+        $lines[] = 'Note: a variable without an existing diagnostic baseline is counted as changed on its first observation.';
+
+        $this->SetValue('TrafficDiagnostics', implode("\n", $lines));
+        $this->SetTimerInterval('TrafficDiagnosticsTimer', 300000);
     }
 
     private function ReadTargetThrottleConfig(): array
@@ -1292,7 +1767,7 @@ class SensorGroup extends IPSModule
             case 'CheckPulseExpiry': {
 
 
-                    $this->CheckLogic(0);
+                    $this->CheckLogic(0, 'manual');
                     break;
                 }
             case 'UpdateGroupDispatch': {
@@ -2298,7 +2773,18 @@ class SensorGroup extends IPSModule
             KL_MESSAGE
         );
 
-        $this->CheckLogic($SenderID);
+        $diagnostic = $this->ClassifyTrafficDiagnosticVariableUpdate(
+            (int)$SenderID,
+            $val
+        );
+
+        $this->CheckLogic(
+            $SenderID,
+            (string)($diagnostic['source'] ?? 'other'),
+            isset($diagnostic['changed']) && is_bool($diagnostic['changed'])
+                ? $diagnostic['changed']
+                : null
+        );
     }
 
     // Helper to determine the text based on Class Settings
@@ -2350,8 +2836,13 @@ class SensorGroup extends IPSModule
         }
     }
 
-    private function CheckLogic($TriggeringID = 0)
-    {
+    private function CheckLogic(
+        $TriggeringID = 0,
+        string $DiagnosticSource = 'other',
+        ?bool $DiagnosticValueChanged = null
+    ) {
+        $diagnosticDispatchedTargetIDs = [];
+
         $classList = json_decode($this->ReadPropertyString('ClassList'), true);
         $sensorList = json_decode($this->ReadPropertyString('SensorList'), true);
         $tamperList = json_decode($this->ReadPropertyString('TamperList'), true);
@@ -2768,6 +3259,7 @@ class SensorGroup extends IPSModule
                     $this->SetValue('EventData', $payloadJson);
                     try {
                         @IPS_RequestAction($bedTarget, 'ReceivePayload', $payloadJson);
+                        $diagnosticDispatchedTargetIDs[] = $bedTarget;
                     } catch (Throwable $e) {
                     }
                 }
@@ -3041,6 +3533,10 @@ class SensorGroup extends IPSModule
 
                 $sent = $this->DispatchPayloadToTarget($iid, $payloadJsonForTarget);
 
+                if ($sent) {
+                    $diagnosticDispatchedTargetIDs[] = $iid;
+                }
+
                 if (!$sent && $this->ReadPropertyBoolean('DebugMode')) {
                     $this->LogMessage("DISPATCH ERROR: Target {$iid} is neither instance nor script.", KL_WARNING);
                 }
@@ -3057,6 +3553,13 @@ class SensorGroup extends IPSModule
         if ($lastPayloadJson !== '') {
             $this->SetValue('EventData', $lastPayloadJson);
         }
+
+        $this->TrafficDiagnosticRecordExecution(
+            $DiagnosticSource,
+            (int)$TriggeringID,
+            $DiagnosticValueChanged,
+            $diagnosticDispatchedTargetIDs
+        );
     }
 
 
@@ -4263,6 +4766,33 @@ class SensorGroup extends IPSModule
 
         // Read-only help button. It has no property name and cannot change configuration data.
         array_unshift($form['elements'], $this->BuildModule1DocumentationPopup());
+
+        array_splice($form['elements'], 1, 0, [[
+            'type' => 'ExpansionPanel',
+            'caption' => 'Traffic diagnostics',
+            'expanded' => false,
+            'items' => [
+                [
+                    'type' => 'CheckBox',
+                    'name' => 'EnableTrafficDiagnostics',
+                    'caption' => 'Enable traffic diagnostics (5-minute report)'
+                ],
+                [
+                    'type' => 'Label',
+                    'caption' => 'The latest report is stored in the visible variable Traffic Diagnostics (5 min) below this instance.'
+                ],
+                [
+                    'type' => 'Button',
+                    'caption' => 'Publish current interval now',
+                    'onClick' => 'MYALARM_PublishTrafficDiagnostics($id);'
+                ],
+                [
+                    'type' => 'Button',
+                    'caption' => 'Reset diagnostic counters',
+                    'onClick' => 'MYALARM_ResetTrafficDiagnostics($id);'
+                ]
+            ]
+        ]]);
         // === DEBUG: form.json loaded ===
         if ($this->ReadPropertyBoolean('DebugMode')) IPS_LogMessage(
             'SensorGroup',
@@ -4838,7 +5368,7 @@ class SensorGroup extends IPSModule
                 $vid = (int)($s['VariableID'] ?? 0);
                 if ($vid > 0) {
                     // Simulate a direct trigger for every individual active sensor
-                    $this->CheckLogic($vid);
+                    $this->CheckLogic($vid, 'state_sync');
                     $activeCount++;
                 }
             }
@@ -4846,7 +5376,7 @@ class SensorGroup extends IPSModule
 
         // If absolutely nothing is active, send a standard evaluation (to trigger RESET and BEDROOM_SYNC)
         if ($activeCount === 0) {
-            $this->CheckLogic(0);
+            $this->CheckLogic(0, 'state_sync');
         }
     }
 
