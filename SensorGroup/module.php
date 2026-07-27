@@ -4013,7 +4013,14 @@ class SensorGroup extends IPSModule
         }
 
         // 2. Build the Graph Data
-        $graph = "graph RL\n";
+        // Presentation-only layout switch. The existing horizontal layout remains RL.
+        $direction = isset($_GET['direction']) ? strtolower((string)$_GET['direction']) : 'horizontal';
+        if (!in_array($direction, ['horizontal', 'vertical'], true)) {
+            $direction = 'horizontal';
+        }
+        $graphDirection = ($direction === 'vertical') ? 'TB' : 'RL';
+
+        $graph = "graph " . $graphDirection . "\n";
         $drawnEdges = [];
         $clickNodes = [];
         $graph .= "classDef red fill:#c62828,stroke:#ff8a80,stroke-width:2px,color:#fff;\n";
@@ -4058,7 +4065,7 @@ class SensorGroup extends IPSModule
 
             if (count($dispatchTargets) === 0) {
                 header("Content-Type: text/plain; charset=utf-8");
-                echo "graph RL\nEMPTY[\"No Targets Selected\"]:::grey\n";
+                echo "graph " . $graphDirection . "\nEMPTY[\"No Targets Selected\"]:::grey\n";
                 return;
             }
 
@@ -4705,9 +4712,29 @@ class SensorGroup extends IPSModule
                         return el ? el.value : "both";
                     };
 
+                    const directionStorageKey = "MyAlarmFlowDirection_' . $this->InstanceID . '";
+                    let resetViewportOnNextRender = false;
+
                     window.getBedroomFilter = function () {
                         const el = document.getElementById("bedroom-filter");
                         return (el && el.checked) ? "1" : "0";
+                    };
+
+                    window.getDirectionFilter = function () {
+                        const el = document.getElementById("direction-filter");
+                        return (el && el.value === "vertical") ? "vertical" : "horizontal";
+                    };
+
+                    window.changeDirection = function () {
+                        const direction = window.getDirectionFilter();
+                        try {
+                            localStorage.setItem(directionStorageKey, direction);
+                        } catch (e) {
+                            // Browser storage is optional. The switch still works for this page session.
+                        }
+
+                        resetViewportOnNextRender = true;
+                        window.forceRefresh();
                     };
 
                     window.forceRefresh = function () {
@@ -4729,7 +4756,8 @@ class SensorGroup extends IPSModule
                                 + "&targetFilter=" + encodeURIComponent(window.getFilterString())
                                 + "&depth=" + encodeURIComponent(window.getDepthFilter())
                                 + "&state=" + encodeURIComponent(window.getStateFilter())
-                                + "&showBedrooms=" + encodeURIComponent(window.getBedroomFilter());
+                                + "&showBedrooms=" + encodeURIComponent(window.getBedroomFilter())
+                                + "&direction=" + encodeURIComponent(window.getDirectionFilter());
 
                             const response = await fetch(url, { credentials: "same-origin" });
                             const graphString = await response.text();
@@ -4759,8 +4787,9 @@ class SensorGroup extends IPSModule
 
                                 const container = document.getElementById("mermaid-container");
 
-                                const oldZoom = pzInstance ? pzInstance.getZoom() : null;
-                                const oldPan  = pzInstance ? pzInstance.getPan()  : null;
+                                const oldZoom = (!resetViewportOnNextRender && pzInstance) ? pzInstance.getZoom() : null;
+                                const oldPan  = (!resetViewportOnNextRender && pzInstance) ? pzInstance.getPan()  : null;
+                                resetViewportOnNextRender = false;
 
                                 if(pzInstance){ pzInstance.destroy(); pzInstance=null; }
 
@@ -4820,6 +4849,16 @@ class SensorGroup extends IPSModule
                         }
                     }
 
+                    try {
+                        const savedDirection = localStorage.getItem(directionStorageKey);
+                        const directionElement = document.getElementById("direction-filter");
+                        if (directionElement && (savedDirection === "horizontal" || savedDirection === "vertical")) {
+                            directionElement.value = savedDirection;
+                        }
+                    } catch (e) {
+                        // Use the default horizontal layout when browser storage is unavailable.
+                    }
+
                     fetchAndUpdateGraph();
                     setInterval(fetchAndUpdateGraph, 2000);
                 </script>
@@ -4845,6 +4884,11 @@ class SensorGroup extends IPSModule
                             <option value="both" selected>Both</option>
                             <option value="active">Active</option>
                             <option value="passive">Passive</option>
+                        </select>
+                        <span style="margin-left:18px;">Direction:</span>
+                        <select id="direction-filter" onchange="changeDirection()" style="margin-left:8px;">
+                            <option value="horizontal" selected>Horizontal</option>
+                            <option value="vertical">Vertical</option>
                         </select>
                         <label style="margin-left:18px; cursor:pointer;">
                             <input type="checkbox" id="bedroom-filter" checked onchange="forceRefresh()"> Bedrooms
