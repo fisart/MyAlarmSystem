@@ -1,7 +1,7 @@
 <?php
 
 declare(strict_types=1);
-// 7.6.3
+// 7.7.0
 class AlarmResponseManager extends IPSModule
 {
     private const HOUSE_STATES = [
@@ -2190,6 +2190,41 @@ body{
     color:#9aa0a6;
     margin-top:6px;
 }
+
+.mapping-switch{
+    display:inline-flex;
+    align-items:center;
+    gap:8px;
+    white-space:nowrap;
+    cursor:pointer;
+    user-select:none;
+}
+
+.mapping-switch input{
+    margin:0;
+}
+
+.mapping-switch-state{
+    min-width:72px;
+    color:#90caf9;
+    font-size:12px;
+    font-weight:600;
+}
+
+.assignment-editor-panel{
+    width:340px;
+    flex:0 0 340px;
+    background:#252526;
+    border:1px solid #444;
+    border-radius:8px;
+    padding:12px;
+    overflow:auto;
+    display:none;
+}
+
+.assignment-editor-panel.enabled{
+    display:block;
+}
 </style>
 
 <script src="https://unpkg.com/svg-pan-zoom@3.6.1/dist/svg-pan-zoom.min.js"></script>
@@ -2207,6 +2242,11 @@ mermaid.initialize({
 let isRendering = false;
 let lastGraphString = "";
 let pzInstance = null;
+const moduleInstanceID = ' . (int) $this->InstanceID . ';
+const assignmentEditorStorageKey = "armm_mapping_assignment_editor_" + moduleInstanceID;
+const chartOrientationStorageKey = "armm_mapping_chart_orientation_" + moduleInstanceID;
+let assignmentEditorEnabled = false;
+let chartOrientation = "horizontal";
 ' . $this->BuildMermaidSelectionJavascript() . '
 function attachTouchPinchZoom(svgEl, gestureEl, panZoomInstance) {
     if (!svgEl || !panZoomInstance) {
@@ -2322,6 +2362,75 @@ function getOutputFilter() {
     return Array.from(el.selectedOptions).map(opt => opt.value).filter(v => v !== "").join(",");
 }
 
+function getChartOrientationFilter() {
+    return chartOrientation === "vertical" ? "TB" : "LR";
+}
+
+function loadMappingUiSettings() {
+    try {
+        assignmentEditorEnabled = localStorage.getItem(assignmentEditorStorageKey) === "1";
+        chartOrientation = localStorage.getItem(chartOrientationStorageKey) === "vertical"
+            ? "vertical"
+            : "horizontal";
+    } catch (err) {
+        assignmentEditorEnabled = false;
+        chartOrientation = "horizontal";
+    }
+}
+
+function saveMappingUiSetting(key, value) {
+    try {
+        localStorage.setItem(key, value);
+    } catch (err) {
+        // Browser storage may be unavailable; the current page state still works.
+    }
+}
+
+function updateMappingUiControls() {
+    const editorToggle = document.getElementById("assignment-editor-toggle");
+    const editorState = document.getElementById("assignment-editor-state");
+    const editorPanel = document.getElementById("assignment-editor-panel");
+    const orientationToggle = document.getElementById("chart-orientation-toggle");
+    const orientationState = document.getElementById("chart-orientation-state");
+
+    if (editorToggle) {
+        editorToggle.checked = assignmentEditorEnabled;
+    }
+
+    if (editorState) {
+        editorState.textContent = assignmentEditorEnabled ? "ON" : "OFF";
+    }
+
+    if (editorPanel) {
+        editorPanel.classList.toggle("enabled", assignmentEditorEnabled);
+        editorPanel.setAttribute("aria-hidden", assignmentEditorEnabled ? "false" : "true");
+    }
+
+    if (orientationToggle) {
+        orientationToggle.checked = chartOrientation === "vertical";
+    }
+
+    if (orientationState) {
+        orientationState.textContent = chartOrientation === "vertical" ? "Vertical" : "Horizontal";
+    }
+
+    updateAssignmentSelectionPanel();
+}
+
+function resizeCurrentGraphToContainer() {
+    if (!pzInstance) {
+        return;
+    }
+
+    try {
+        pzInstance.resize();
+        pzInstance.fit();
+        pzInstance.center();
+    } catch (err) {
+        console.warn("Graph resize failed", err);
+    }
+}
+
 function updateOutputSummary() {
     const el = document.getElementById("output-filter");
     const summaryEl = document.getElementById("output-summary");
@@ -2377,7 +2486,8 @@ async function fetchAndUpdateGraph() {
             + "&depth=" + encodeURIComponent(getDepthFilter())
             + "&showConditions=" + encodeURIComponent(getShowConditionsFilter())
             + "&stateFilter=" + encodeURIComponent(getStateFilter())
-            + "&outputFilter=" + encodeURIComponent(getOutputFilter()),
+            + "&outputFilter=" + encodeURIComponent(getOutputFilter())
+            + "&orientation=" + encodeURIComponent(getChartOrientationFilter()),
             { credentials: "same-origin" }
         );
         const graphString = await response.text();
@@ -2445,6 +2555,30 @@ async function applyFilterAndRefresh() {
 }
 
 document.addEventListener("DOMContentLoaded", () => {
+    loadMappingUiSettings();
+    updateMappingUiControls();
+
+    const assignmentEditorToggle = document.getElementById("assignment-editor-toggle");
+    if (assignmentEditorToggle) {
+        assignmentEditorToggle.addEventListener("change", () => {
+            assignmentEditorEnabled = assignmentEditorToggle.checked;
+            saveMappingUiSetting(assignmentEditorStorageKey, assignmentEditorEnabled ? "1" : "0");
+            updateMappingUiControls();
+            window.setTimeout(resizeCurrentGraphToContainer, 0);
+        });
+    }
+
+    const chartOrientationToggle = document.getElementById("chart-orientation-toggle");
+    if (chartOrientationToggle) {
+        chartOrientationToggle.addEventListener("change", async () => {
+            chartOrientation = chartOrientationToggle.checked ? "vertical" : "horizontal";
+            saveMappingUiSetting(chartOrientationStorageKey, chartOrientation);
+            updateMappingUiControls();
+            lastGraphString = "";
+            await fetchAndUpdateGraph();
+        });
+    }
+
     document.querySelectorAll(".group-toggle").forEach(cb => {
         cb.addEventListener("change", applyFilterAndRefresh);
     });
@@ -2590,6 +2724,18 @@ document.addEventListener("DOMContentLoaded", () => {
 
     <label style="white-space:nowrap;">
         <input type="checkbox" id="show-conditions" checked> Show conditions
+    </label>
+
+    <label class="mapping-switch" title="Show or hide the output assignment editor.">
+        <input type="checkbox" id="assignment-editor-toggle">
+        <span>Output Assignment Editor</span>
+        <span id="assignment-editor-state" class="mapping-switch-state">OFF</span>
+    </label>
+
+    <label class="mapping-switch" title="Switch Mermaid chart orientation.">
+        <input type="checkbox" id="chart-orientation-toggle">
+        <span>Chart Layout</span>
+        <span id="chart-orientation-state" class="mapping-switch-state">Horizontal</span>
     </label>
 
     <div class="output-picker-wrap">
@@ -5090,6 +5236,11 @@ document.addEventListener("DOMContentLoaded", () => {
             $outputID = trim((string) ($data['output_id'] ?? ''));
             $groupKey = trim((string) ($data['group_key'] ?? ''));
             $houseState = trim((string) ($data['house_state'] ?? ''));
+            $editorEnabled = (bool) ($data['editor_enabled'] ?? false);
+
+            if (!$editorEnabled) {
+                throw new Exception('Assignment editor is disabled.');
+            }
 
             if (!in_array($action, ['assign', 'remove'], true)) {
                 throw new Exception('Invalid action. Expected assign or remove.');
@@ -5372,7 +5523,7 @@ document.addEventListener("DOMContentLoaded", () => {
     private function BuildMermaidSelectionPanelHtml(): string
     {
         return '
-<div style="width:340px;flex:0 0 340px;background:#252526;border:1px solid #444;border-radius:8px;padding:12px;overflow:auto;">
+<div id="assignment-editor-panel" class="assignment-editor-panel" aria-hidden="true">
     <h3 style="margin:0 0 10px 0;color:#4CAF50;">Selected Node</h3>
 
     <div style="font-size:12px;color:#999;margin-bottom:6px;">Type</div>
@@ -5638,7 +5789,7 @@ function updateAssignmentSelectionPanel() {
         }
     }
 
-    const ready = !!(hasRule && hasOutput);
+    const ready = !!(assignmentEditorEnabled && hasRule && hasOutput);
 
     if (assignButton) {
         assignButton.disabled = !ready;
@@ -5651,14 +5802,25 @@ function updateAssignmentSelectionPanel() {
     }
 
     if (statusEl) {
-        statusEl.textContent = ready
-            ? "Ready: assign or remove selected output for selected rule."
-            : "Select one rule and one output.";
+        if (!assignmentEditorEnabled) {
+            statusEl.textContent = "Assignment editor is disabled.";
+        } else {
+            statusEl.textContent = ready
+                ? "Ready: assign or remove selected output for selected rule."
+                : "Select one rule and one output.";
+        }
     }
 }
 
 async function sendAssignmentMatrixAction(action) {
     const statusEl = document.getElementById("assignment-action-status");
+
+    if (!assignmentEditorEnabled) {
+        if (statusEl) {
+            statusEl.textContent = "Assignment editor is disabled.";
+        }
+        return;
+    }
 
     if (!selectedAssignmentRule || !selectedAssignmentOutput) {
         if (statusEl) {
@@ -5702,7 +5864,8 @@ async function sendAssignmentMatrixAction(action) {
                 action: action,
                 group_key: groupKey,
                 house_state: houseState,
-                output_id: outputID
+                output_id: outputID,
+                editor_enabled: true
             })
         });
 
@@ -5827,6 +5990,10 @@ JS;
         $depth = $this->GetGraphDepth();
         $showConditions = $this->GetShowConditions();
         $stateFilter = $this->GetGraphStateFilter();
+        $orientation = strtoupper(trim((string) ($_GET['orientation'] ?? 'LR')));
+        if (!in_array($orientation, ['LR', 'TB'], true)) {
+            $orientation = 'LR';
+        }
 
         $selectedOutputIDs = [];
         $rawOutputFilter = trim((string) ($_GET['outputFilter'] ?? ''));
@@ -6125,7 +6292,7 @@ JS;
         }
 
         $lines = [];
-        $lines[] = 'graph LR';
+        $lines[] = 'graph ' . $orientation;
         $lines[] = 'classDef green fill:#2e7d32,stroke:#a5d6a7,stroke-width:2px,color:#fff;';
         $lines[] = 'classDef red fill:#c62828,stroke:#ff8a80,stroke-width:2px,color:#fff;';
         $lines[] = 'classDef blue fill:#1565c0,stroke:#90caf9,stroke-width:2px,color:#fff;';
