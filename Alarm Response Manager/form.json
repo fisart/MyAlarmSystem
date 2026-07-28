@@ -25,6 +25,11 @@
       "caption": "Screen Log Max Entries"
     },
     {
+      "type": "CheckBox",
+      "name": "EnableDebugMessages",
+      "caption": "Enable diagnostic debug messages"
+    },
+    {
       "type": "ValidationTextBox",
       "name": "ImportedModule1ConfigJson",
       "caption": "Imported Module 1 Config JSON"

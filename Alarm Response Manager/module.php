@@ -1,7 +1,7 @@
 <?php
 
 declare(strict_types=1);
-// 7.7.0
+// 7.7.1
 class AlarmResponseManager extends IPSModule
 {
     private const HOUSE_STATES = [
@@ -58,6 +58,7 @@ class AlarmResponseManager extends IPSModule
         $this->RegisterPropertyString('ConfigBackupJson', '');
         $this->RegisterPropertyString('OutputResourcesBackupJson', '');
         $this->RegisterPropertyInteger('ScreenLogMaxEntries', 100);
+        $this->RegisterPropertyBoolean('EnableDebugMessages', false);
         $this->RegisterPropertyString('VisibleGraphGroups', '[]');
         $this->RegisterPropertyString('AssignmentMatrixConfig', '[]');
         $this->RegisterPropertyString('GroupStateMatrixConfig', '[]');
@@ -116,6 +117,11 @@ class AlarmResponseManager extends IPSModule
 
         $this->RegisterHook('/hook/psm_output_' . $this->InstanceID);
 
+        $this->SetBuffer(
+            'DebugMessagesEnabled',
+            $this->ReadPropertyBoolean('EnableDebugMessages') ? '1' : '0'
+        );
+
         if ($this->GetBuffer('MessageTrafficCounters') === '') {
             $this->SetBuffer('MessageTrafficCounters', '{"module1":0,"module2":0}');
         }
@@ -123,7 +129,7 @@ class AlarmResponseManager extends IPSModule
         $this->SetTimerInterval('MessageTrafficCounterTimer', 300000);
 
         $this->SetStatus(102);
-        $this->LogMessage(
+        $this->DebugLog(
             'OutputKillSwitch is currently ' . ($this->IsOutputKillSwitchActive() ? 'ON' : 'OFF'),
             KL_MESSAGE
         );
@@ -175,6 +181,20 @@ class AlarmResponseManager extends IPSModule
 
         SetValueInteger($this->GetIDForIdent('Module1MessagesPerInterval'), $module1Count);
         SetValueInteger($this->GetIDForIdent('Module2SnapshotsPerInterval'), $module2Count);
+    }
+
+    private function IsDebugMessagesEnabled(): bool
+    {
+        return $this->GetBuffer('DebugMessagesEnabled') === '1';
+    }
+
+    private function DebugLog(string $message, int $level): void
+    {
+        if (!$this->IsDebugMessagesEnabled()) {
+            return;
+        }
+
+        $this->LogMessage($message, $level);
     }
 
 
@@ -642,6 +662,10 @@ class AlarmResponseManager extends IPSModule
 
     private function AppendHeartbeatAuditForPayload(array $payload, string $stage, array $context = []): void
     {
+        if (!$this->IsDebugMessagesEnabled()) {
+            return;
+        }
+
         $token = $this->ExtractHeartbeatContentToken($payload);
         if ($token === '') {
             return;
@@ -749,7 +773,7 @@ class AlarmResponseManager extends IPSModule
         $entries = array_slice($entries, 0, $maxEntries);
 
         SetValueString($varID, $this->BuildOutputScreenWrapper($entries));
-        $this->LogMessage('WriteScreenOutputResource: screen entry added', KL_MESSAGE);
+        $this->DebugLog('WriteScreenOutputResource: screen entry added', KL_MESSAGE);
 
         return true;
     }
@@ -2944,7 +2968,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 'event_type' => $eventType
             ]);
 
-            $this->LogMessage('ReceivePayload: ignored non-ALARM event_type=' . $eventType, KL_MESSAGE);
+            $this->DebugLog('ReceivePayload: ignored non-ALARM event_type=' . $eventType, KL_MESSAGE);
             return;
         }
 
@@ -2988,12 +3012,12 @@ document.addEventListener("DOMContentLoaded", () => {
             $this->WriteAttributeString('LastActiveOutputIDs', '[]');
             $this->WriteAttributeString('ActiveOutputMatchKeys', '[]');
             $this->WriteActiveOutputInputContentSignatureSet([]);
-            $this->LogMessage('ReevaluateCurrentAlarmContext: no active target groups, live path and active output matches cleared', KL_MESSAGE);
+            $this->DebugLog('ReevaluateCurrentAlarmContext: no active target groups, live path and active output matches cleared', KL_MESSAGE);
             return;
         }
 
         $houseState = (string) ((int) ($house['system_state_id'] ?? 0));
-        $this->LogMessage('ReevaluateCurrentAlarmContext: houseState=' . $houseState, KL_MESSAGE);
+        $this->DebugLog('ReevaluateCurrentAlarmContext: houseState=' . $houseState, KL_MESSAGE);
 
         $this->AppendHeartbeatAuditForPayload($payload, 'REEVALUATE_ENTER', [
             'house_state' => $houseState,
@@ -3022,7 +3046,7 @@ document.addEventListener("DOMContentLoaded", () => {
             $activeGroupsForView[$groupLabel] = true;
 
             $ruleIDs = $this->FindMatchingRuleIDsForGroupAndState($groupLabel, $houseState);
-            $this->LogMessage('ReevaluateCurrentAlarmContext: group=' . $groupLabel . ' matched rules=' . json_encode($ruleIDs), KL_MESSAGE);
+            $this->DebugLog('ReevaluateCurrentAlarmContext: group=' . $groupLabel . ' matched rules=' . json_encode($ruleIDs), KL_MESSAGE);
 
             if ($this->IsHeartbeatGroupLabel($groupLabel)) {
                 $this->AppendHeartbeatAuditForPayload($payload, 'RULE_MATCH_CHECK', [
@@ -3114,7 +3138,7 @@ document.addEventListener("DOMContentLoaded", () => {
                             ]);
                         }
 
-                        $this->LogMessage(
+                        $this->DebugLog(
                             'ReevaluateCurrentAlarmContext: suppressed same input content'
                                 . ' match=' . $matchKey
                                 . ' OutputID=' . $outputID
@@ -3126,7 +3150,7 @@ document.addEventListener("DOMContentLoaded", () => {
                     }
 
                     if (isset($previousMatchKeys[$matchKey])) {
-                        $this->LogMessage(
+                        $this->DebugLog(
                             'ReevaluateCurrentAlarmContext: input content changed; allowing repeated active match'
                                 . ' match=' . $matchKey
                                 . ' OutputID=' . $outputID
@@ -3222,7 +3246,7 @@ document.addEventListener("DOMContentLoaded", () => {
             $remainingSlots = $this->GetRemainingThrottleSlots($resource, $outputID, $now);
             $throttlingEnabled = $this->IsThrottlingEnabledForResource($resource);
 
-            $this->LogMessage(
+            $this->DebugLog(
                 'ReevaluateCurrentAlarmContext: OutputID=' . $outputID
                     . ' candidates=' . count($candidates)
                     . ' remainingSlots=' . ($throttlingEnabled ? (string) $remainingSlots : 'unlimited'),
@@ -3251,7 +3275,7 @@ document.addEventListener("DOMContentLoaded", () => {
                         ]);
                     }
 
-                    $this->LogMessage(
+                    $this->DebugLog(
                         'ReevaluateCurrentAlarmContext: throttled OutputID=' . $outputID
                             . ' match=' . $matchKey
                             . ' rule=' . $ruleID
@@ -3271,7 +3295,7 @@ document.addEventListener("DOMContentLoaded", () => {
                         ]);
                     }
 
-                    $this->LogMessage(
+                    $this->DebugLog(
                         'ReevaluateCurrentAlarmContext: output suppressed by OutputKillSwitch'
                             . ' match=' . $matchKey
                             . ' OutputID=' . $outputID
@@ -3301,7 +3325,7 @@ document.addEventListener("DOMContentLoaded", () => {
                     ]);
                 }
 
-                $this->LogMessage(
+                $this->DebugLog(
                     'ReevaluateCurrentAlarmContext: execute match=' . $matchKey
                         . ' OutputID=' . $outputID
                         . ' rule=' . $ruleID
@@ -3323,7 +3347,7 @@ document.addEventListener("DOMContentLoaded", () => {
         $this->WriteAttributeString('ActiveOutputMatchKeys', json_encode(array_values(array_keys($currentMatchKeys))));
         $this->WriteActiveOutputInputContentSignatureSet($currentInputContentSignatures);
 
-        $this->LogMessage(
+        $this->DebugLog(
             'ReevaluateCurrentAlarmContext: previousMatches=' . count($previousMatchKeys)
                 . ' currentMatches=' . count($currentMatchKeys)
                 . ' newCandidates=' . array_sum(array_map('count', $candidatesByOutputID)),
@@ -3696,7 +3720,7 @@ document.addEventListener("DOMContentLoaded", () => {
         $epoch = (string) ($data['sync']['last_processed_event_epoch'] ?? '0');
         $seq = (int) ($data['sync']['last_processed_event_seq'] ?? 0);
 
-        $this->LogMessage(
+        $this->DebugLog(
             'ReceiveHouseStateSnapshot: cached state=' . $stateID . ' sync=(' . $epoch . ',' . $seq . ')',
             KL_MESSAGE
         );
@@ -3820,7 +3844,7 @@ document.addEventListener("DOMContentLoaded", () => {
                         'event_id' => $eventID
                     ]);
 
-                    $this->LogMessage('EnqueueModule1Payload: duplicate event_id ignored: ' . $eventID, KL_MESSAGE);
+                    $this->DebugLog('EnqueueModule1Payload: duplicate event_id ignored: ' . $eventID, KL_MESSAGE);
                     return;
                 }
 
@@ -3831,7 +3855,7 @@ document.addEventListener("DOMContentLoaded", () => {
                         'event_seq' => $eventSeq
                     ]);
 
-                    $this->LogMessage(
+                    $this->DebugLog(
                         'EnqueueModule1Payload: duplicate event token ignored: (' . $eventEpoch . ',' . $eventSeq . ')',
                         KL_MESSAGE
                     );
@@ -3872,7 +3896,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 'event_seq' => $eventSeq
             ]);
 
-            $this->LogMessage(
+            $this->DebugLog(
                 'EnqueueModule1Payload: queued event=(' . $eventEpoch . ',' . $eventSeq . '), queue_size=' . count($queue),
                 KL_MESSAGE
             );
@@ -3968,7 +3992,7 @@ document.addEventListener("DOMContentLoaded", () => {
                         'event_type' => $eventType
                     ]);
 
-                    $this->LogMessage(
+                    $this->DebugLog(
                         'ProcessPendingModule1PayloadQueue: skipped non-ALARM event_type=' . $eventType,
                         KL_MESSAGE
                     );
@@ -3987,7 +4011,7 @@ document.addEventListener("DOMContentLoaded", () => {
                         'event_seq' => $eventSeq
                     ]);
 
-                    $this->LogMessage(
+                    $this->DebugLog(
                         'ProcessPendingModule1PayloadQueue: processed reset/all-clear event=(' . $eventEpoch . ',' . $eventSeq . ')',
                         KL_MESSAGE
                     );
@@ -4032,7 +4056,7 @@ document.addEventListener("DOMContentLoaded", () => {
                     'event_seq' => $eventSeq
                 ]);
 
-                $this->LogMessage(
+                $this->DebugLog(
                     'ProcessPendingModule1PayloadQueue: processed event=(' . $eventEpoch . ',' . $eventSeq . ')',
                     KL_MESSAGE
                 );
@@ -4079,7 +4103,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 }
             }
 
-            $this->LogMessage(
+            $this->DebugLog(
                 'ProcessPendingModule1PayloadQueue: processed=' . $processed . ', remaining=' . count($remaining),
                 KL_MESSAGE
             );
@@ -4182,7 +4206,7 @@ document.addEventListener("DOMContentLoaded", () => {
             $cachedEpoch = (string) ($cached['sync']['last_processed_event_epoch'] ?? '0');
             $cachedSeq = (int) ($cached['sync']['last_processed_event_seq'] ?? 0);
 
-            $this->LogMessage(
+            $this->DebugLog(
                 'GetUsableHouseStateSnapshot: RELAXED MODE using cached snapshot event=(' . $eventEpoch . ',' . $eventSeq . ') cached=(' . $cachedEpoch . ',' . $cachedSeq . ')',
                 KL_MESSAGE
             );
@@ -4190,13 +4214,13 @@ document.addEventListener("DOMContentLoaded", () => {
             return $cached;
         }
 
-        $this->LogMessage('GetUsableHouseStateSnapshot: RELAXED MODE no cached snapshot, trying fallback pull', KL_MESSAGE);
+        $this->DebugLog('GetUsableHouseStateSnapshot: RELAXED MODE no cached snapshot, trying fallback pull', KL_MESSAGE);
 
         $pulled = $this->GetSynchronizedHouseStateSnapshot($eventEpoch, $eventSeq);
         if ($pulled !== null) {
             $this->WriteAttributeString('CachedHouseStateSnapshot', json_encode($pulled));
             $this->WriteAttributeInteger('CachedHouseStateReceivedAt', time());
-            $this->LogMessage('GetUsableHouseStateSnapshot: RELAXED MODE fallback pull succeeded', KL_MESSAGE);
+            $this->DebugLog('GetUsableHouseStateSnapshot: RELAXED MODE fallback pull succeeded', KL_MESSAGE);
             return $pulled;
         }
 
@@ -4246,7 +4270,7 @@ document.addEventListener("DOMContentLoaded", () => {
         $processedEpoch = (string) ($house['sync']['last_processed_event_epoch'] ?? '0');
         $processedSeq = (int) ($house['sync']['last_processed_event_seq'] ?? 0);
 
-        $this->LogMessage(
+        $this->DebugLog(
             'GetSynchronizedHouseStateSnapshot: RELAXED MODE returning latest snapshot event=(' . $eventEpoch . ',' . $eventSeq . ') snapshot=(' . $processedEpoch . ',' . $processedSeq . ')',
             KL_MESSAGE
         );
@@ -4359,16 +4383,16 @@ document.addEventListener("DOMContentLoaded", () => {
             ]);
         }
 
-        $this->LogMessage('SendRequestActionOutputResource: TargetObjectID=' . $targetObjectID, KL_MESSAGE);
-        $this->LogMessage('SendRequestActionOutputResource: ActionValueMode=' . $valueMode, KL_MESSAGE);
-        $this->LogMessage(
+        $this->DebugLog('SendRequestActionOutputResource: TargetObjectID=' . $targetObjectID, KL_MESSAGE);
+        $this->DebugLog('SendRequestActionOutputResource: ActionValueMode=' . $valueMode, KL_MESSAGE);
+        $this->DebugLog(
             'SendRequestActionOutputResource: Value=' . (is_scalar($value) || $value === null ? (string) $value : json_encode($value)),
             KL_MESSAGE
         );
 
         try {
             RequestAction($targetObjectID, $value);
-            $this->LogMessage('SendRequestActionOutputResource: RequestAction executed successfully', KL_MESSAGE);
+            $this->DebugLog('SendRequestActionOutputResource: RequestAction executed successfully', KL_MESSAGE);
 
             if ($this->IsHeartbeatOutputResource($resource)) {
                 $this->AppendHeartbeatAuditForPayload($payload, 'REQUESTACTION_OK', [
@@ -4445,10 +4469,10 @@ document.addEventListener("DOMContentLoaded", () => {
         $targetObjectID = (int) ($resource['TargetObjectID'] ?? 0);
         $message = $this->BuildOutputMessageText($resource, $payload);
 
-        $this->LogMessage('SendScriptOutputResource: TypeID=' . $typeID, KL_MESSAGE);
-        $this->LogMessage('SendScriptOutputResource: TargetObjectID=' . $targetObjectID, KL_MESSAGE);
-        $this->LogMessage('SendScriptOutputResource: GroupLabel=' . $groupLabel, KL_MESSAGE);
-        $this->LogMessage('SendScriptOutputResource: Message=' . $message, KL_MESSAGE);
+        $this->DebugLog('SendScriptOutputResource: TypeID=' . $typeID, KL_MESSAGE);
+        $this->DebugLog('SendScriptOutputResource: TargetObjectID=' . $targetObjectID, KL_MESSAGE);
+        $this->DebugLog('SendScriptOutputResource: GroupLabel=' . $groupLabel, KL_MESSAGE);
+        $this->DebugLog('SendScriptOutputResource: Message=' . $message, KL_MESSAGE);
 
         if ($typeID !== 'script') {
             $this->LogMessage('SendScriptOutputResource: invalid script type', KL_MESSAGE);
@@ -4480,7 +4504,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
         try {
             IPS_RunScriptEx($targetObjectID, $parameters);
-            $this->LogMessage('SendScriptOutputResource: IPS_RunScriptEx executed successfully', KL_MESSAGE);
+            $this->DebugLog('SendScriptOutputResource: IPS_RunScriptEx executed successfully', KL_MESSAGE);
             return true;
         } catch (Throwable $e) {
             $this->LogMessage('SendScriptOutputResource failed: ' . $e->getMessage(), KL_MESSAGE);
@@ -4495,10 +4519,10 @@ document.addEventListener("DOMContentLoaded", () => {
         $phoneNumber = trim((string) ($resource['PhoneNumber'] ?? ''));
         $message = $this->BuildOutputMessageText($resource, $payload);
 
-        $this->LogMessage('SendVoipOutputResource: TypeID=' . $typeID, KL_MESSAGE);
-        $this->LogMessage('SendVoipOutputResource: TargetObjectID=' . $targetObjectID, KL_MESSAGE);
-        $this->LogMessage('SendVoipOutputResource: PhoneNumber=' . $phoneNumber, KL_MESSAGE);
-        $this->LogMessage('SendVoipOutputResource: Message=' . $message, KL_MESSAGE);
+        $this->DebugLog('SendVoipOutputResource: TypeID=' . $typeID, KL_MESSAGE);
+        $this->DebugLog('SendVoipOutputResource: TargetObjectID=' . $targetObjectID, KL_MESSAGE);
+        $this->DebugLog('SendVoipOutputResource: PhoneNumber=' . $phoneNumber, KL_MESSAGE);
+        $this->DebugLog('SendVoipOutputResource: Message=' . $message, KL_MESSAGE);
 
         if ($typeID !== 'voip') {
             $this->LogMessage('SendVoipOutputResource: invalid voip type', KL_MESSAGE);
@@ -4522,7 +4546,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
         try {
             TA_StartCallEx($targetObjectID, $phoneNumber, $message);
-            $this->LogMessage('SendVoipOutputResource: TA_StartCallEx executed successfully', KL_MESSAGE);
+            $this->DebugLog('SendVoipOutputResource: TA_StartCallEx executed successfully', KL_MESSAGE);
             return true;
         } catch (Throwable $e) {
             $this->LogMessage('SendVoipOutputResource failed: ' . $e->getMessage(), KL_MESSAGE);
@@ -4538,10 +4562,10 @@ document.addEventListener("DOMContentLoaded", () => {
         $title = $this->BuildEmailSubject($groupLabel, $house);
         $message = $this->BuildOutputMessageText($resource, $payload);
 
-        $this->LogMessage('SendNotificationOutputResource: TypeID=' . $typeID, KL_MESSAGE);
-        $this->LogMessage('SendNotificationOutputResource: TargetObjectID=' . $targetObjectID, KL_MESSAGE);
-        $this->LogMessage('SendNotificationOutputResource: Title=' . $title, KL_MESSAGE);
-        $this->LogMessage('SendNotificationOutputResource: Message=' . $message, KL_MESSAGE);
+        $this->DebugLog('SendNotificationOutputResource: TypeID=' . $typeID, KL_MESSAGE);
+        $this->DebugLog('SendNotificationOutputResource: TargetObjectID=' . $targetObjectID, KL_MESSAGE);
+        $this->DebugLog('SendNotificationOutputResource: Title=' . $title, KL_MESSAGE);
+        $this->DebugLog('SendNotificationOutputResource: Message=' . $message, KL_MESSAGE);
 
         if ($typeID !== 'notification') {
             $this->LogMessage('SendNotificationOutputResource: invalid notification type', KL_MESSAGE);
@@ -4560,7 +4584,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
         try {
             TUPO_SendMessage($targetObjectID, $title, $message, 0);
-            $this->LogMessage('SendNotificationOutputResource: TUPO_SendMessage executed successfully', KL_MESSAGE);
+            $this->DebugLog('SendNotificationOutputResource: TUPO_SendMessage executed successfully', KL_MESSAGE);
             return true;
         } catch (Throwable $e) {
             $this->LogMessage('SendNotificationOutputResource failed: ' . $e->getMessage(), KL_MESSAGE);
@@ -6687,7 +6711,7 @@ JS;
 
     public function TestSendEmailByOutputID(string $outputID, string $subject, string $body): bool
     {
-        $this->LogMessage('TestSendEmailByOutputID called with OutputID=' . $outputID, KL_MESSAGE);
+        $this->DebugLog('TestSendEmailByOutputID called with OutputID=' . $outputID, KL_MESSAGE);
 
         $resource = $this->FindOutputResourceByID($outputID);
         if ($resource === null) {
@@ -6695,9 +6719,9 @@ JS;
             return false;
         }
 
-        $this->LogMessage('TestSendEmailByOutputID: matched Name=' . (string)($resource['Name'] ?? ''), KL_MESSAGE);
-        $this->LogMessage('TestSendEmailByOutputID: matched TypeID=' . (string)($resource['TypeID'] ?? ''), KL_MESSAGE);
-        $this->LogMessage('TestSendEmailByOutputID: matched TargetObjectID=' . (string)($resource['TargetObjectID'] ?? 0), KL_MESSAGE);
+        $this->DebugLog('TestSendEmailByOutputID: matched Name=' . (string)($resource['Name'] ?? ''), KL_MESSAGE);
+        $this->DebugLog('TestSendEmailByOutputID: matched TypeID=' . (string)($resource['TypeID'] ?? ''), KL_MESSAGE);
+        $this->DebugLog('TestSendEmailByOutputID: matched TargetObjectID=' . (string)($resource['TargetObjectID'] ?? 0), KL_MESSAGE);
 
         return $this->SendEmailOutputResource($resource, $subject, $body);
     }
@@ -6707,10 +6731,10 @@ JS;
         $typeID = trim((string) ($resource['TypeID'] ?? ''));
         $targetObjectID = (int) ($resource['TargetObjectID'] ?? 0);
 
-        $this->LogMessage('SendEmailOutputResource: TypeID=' . $typeID, KL_MESSAGE);
-        $this->LogMessage('SendEmailOutputResource: TargetObjectID=' . $targetObjectID, KL_MESSAGE);
-        $this->LogMessage('SendEmailOutputResource: Subject=' . $subject, KL_MESSAGE);
-        $this->LogMessage('SendEmailOutputResource: Body=' . $body, KL_MESSAGE);
+        $this->DebugLog('SendEmailOutputResource: TypeID=' . $typeID, KL_MESSAGE);
+        $this->DebugLog('SendEmailOutputResource: TargetObjectID=' . $targetObjectID, KL_MESSAGE);
+        $this->DebugLog('SendEmailOutputResource: Subject=' . $subject, KL_MESSAGE);
+        $this->DebugLog('SendEmailOutputResource: Body=' . $body, KL_MESSAGE);
 
         if (!$this->IsEmailTypeID($typeID)) {
             $this->LogMessage('SendEmailOutputResource: invalid email type', KL_MESSAGE);
@@ -6728,7 +6752,11 @@ JS;
         }
 
         $result = SMTP_SendMail($targetObjectID, $subject, $body);
-        $this->LogMessage('SendEmailOutputResource: SMTP_SendMail returned ' . ($result ? 'true' : 'false'), KL_MESSAGE);
+        if ($result) {
+            $this->DebugLog('SendEmailOutputResource: SMTP_SendMail returned true', KL_MESSAGE);
+        } else {
+            $this->LogMessage('SendEmailOutputResource: SMTP_SendMail returned false', KL_MESSAGE);
+        }
 
         return $result;
     }
