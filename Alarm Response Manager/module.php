@@ -1,7 +1,7 @@
 <?php
 
 declare(strict_types=1);
-// 7.7.1
+// 7.8.0
 class AlarmResponseManager extends IPSModule
 {
     private const HOUSE_STATES = [
@@ -85,6 +85,7 @@ class AlarmResponseManager extends IPSModule
         $this->RegisterAttributeString('ActiveOutputMatchKeys', '[]');
         $this->RegisterAttributeString('ActiveOutputInputContentSignatures', '{}');
         $this->RegisterAttributeString('OutputThrottleHistory', '{}');
+        $this->RegisterAttributeString('SensorAlarmLatchState', '');
 
         $this->RegisterVariableString('OutputScreenHtml', 'Output Screen', '~HTMLBox', 0);
         $this->RegisterVariableBoolean('OutputKillSwitch', 'Output Kill Switch', '~Switch', 10);
@@ -104,6 +105,14 @@ class AlarmResponseManager extends IPSModule
             '',
             40
         );
+        $this->RegisterVariableBoolean(
+            'RearmAllSensorAlarms',
+            'Re-arm All Sensor Alarms',
+            '~Switch',
+            50
+        );
+        $this->EnableAction('RearmAllSensorAlarms');
+
         $this->RegisterTimer(
             'MessageTrafficCounterTimer',
             0,
@@ -121,6 +130,18 @@ class AlarmResponseManager extends IPSModule
             'DebugMessagesEnabled',
             $this->ReadPropertyBoolean('EnableDebugMessages') ? '1' : '0'
         );
+
+        $sensorGroupMembershipMap = $this->BuildSensorGroupMembershipMapFromImportedConfig();
+        $sensorGroupMembershipJson = json_encode($sensorGroupMembershipMap);
+        $this->SetBuffer(
+            'SensorGroupMembershipMap',
+            is_string($sensorGroupMembershipJson) ? $sensorGroupMembershipJson : '{"sensor_groups":{},"mapped_group_keys":{}}'
+        );
+
+        $rearmVariableID = @$this->GetIDForIdent('RearmAllSensorAlarms');
+        if ($rearmVariableID !== false && $rearmVariableID > 0) {
+            SetValueBoolean($rearmVariableID, false);
+        }
 
         if ($this->GetBuffer('MessageTrafficCounters') === '') {
             $this->SetBuffer('MessageTrafficCounters', '{"module1":0,"module2":0}');
@@ -312,6 +333,18 @@ class AlarmResponseManager extends IPSModule
                     KL_MESSAGE
                 );
                 break;
+
+            case 'RearmAllSensorAlarms':
+                if ((bool) $Value) {
+                    $this->HandleRearmAllSensorAlarms();
+                } else {
+                    $variableID = @$this->GetIDForIdent('RearmAllSensorAlarms');
+                    if ($variableID !== false && $variableID > 0) {
+                        SetValueBoolean($variableID, false);
+                    }
+                }
+                break;
+
             case 'PublishMessageTrafficCounters':
                 $this->PublishMessageTrafficCounters();
                 break;
@@ -597,6 +630,14 @@ class AlarmResponseManager extends IPSModule
     {
         if (!$this->IsHeartbeatPayload($payload)) {
             return '';
+        }
+
+        $outputSensorDetail = $payload['_armm_output_sensor_detail'] ?? [];
+        if (is_array($outputSensorDetail)) {
+            $token = $this->ExtractContentValueFromSensorDetail($outputSensorDetail);
+            if ($token !== '') {
+                return $token;
+            }
         }
 
         $trigger = $payload['target_trigger_details'] ?? [];
@@ -2999,8 +3040,543 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
 
+    private function IsImportedConfigurationRowActive(array $row): bool
+    {
+        if (!array_key_exists('Active', $row)) {
+            return true;
+        }
+
+        return (bool) $row['Active'];
+    }
+
+
+    private function BuildSensorGroupMembershipMapFromImportedConfig(): array
+    {
+        $empty = [
+            'sensor_groups'     => [],
+            'mapped_group_keys' => []
+        ];
+
+        $raw = $this->ReadPropertyString('ImportedModule1ConfigJson');
+        if (trim($raw) === '') {
+            return $empty;
+        }
+
+        $config = json_decode($raw, true);
+        if (!is_array($config)) {
+            return $empty;
+        }
+
+        $activeClassIDs = [];
+        $classFilterDefined = false;
+        $classRows = $config['ClassList'] ?? [];
+        if (is_array($classRows)) {
+            foreach ($classRows as $row) {
+                if (!is_array($row)) {
+                    continue;
+                }
+
+                $classID = trim((string) ($row['ClassID'] ?? ''));
+                if ($classID === '') {
+                    continue;
+                }
+
+                $classFilterDefined = true;
+                if ($this->IsImportedConfigurationRowActive($row)) {
+                    $activeClassIDs[$classID] = true;
+                }
+            }
+        }
+
+        $activeGroupNames = [];
+        $groupFilterDefined = false;
+        $groupRows = $config['GroupList'] ?? [];
+        if (is_array($groupRows)) {
+            foreach ($groupRows as $row) {
+                if (!is_array($row)) {
+                    continue;
+                }
+
+                $groupName = trim((string) ($row['GroupName'] ?? ''));
+                if ($groupName === '') {
+                    continue;
+                }
+
+                $groupFilterDefined = true;
+                if ($this->IsImportedConfigurationRowActive($row)) {
+                    $activeGroupNames[$groupName] = true;
+                }
+            }
+        }
+
+        $targetGroups = [];
+        $dispatchRows = $config['GroupDispatch'] ?? [];
+        if (is_array($dispatchRows)) {
+            foreach ($dispatchRows as $row) {
+                if (!is_array($row) || !$this->IsImportedConfigurationRowActive($row)) {
+                    continue;
+                }
+
+                if ((int) ($row['InstanceID'] ?? 0) !== $this->InstanceID) {
+                    continue;
+                }
+
+                $groupName = trim((string) ($row['GroupName'] ?? ''));
+                if ($groupName === '') {
+                    continue;
+                }
+
+                if ($groupFilterDefined && !isset($activeGroupNames[$groupName])) {
+                    continue;
+                }
+
+                $targetGroups[$groupName] = $this->MakeGroupKey($groupName);
+            }
+        }
+
+        if (count($targetGroups) === 0) {
+            return $empty;
+        }
+
+        $classToGroups = [];
+        $memberRows = $config['GroupMembers'] ?? [];
+        if (is_array($memberRows)) {
+            foreach ($memberRows as $row) {
+                if (!is_array($row) || !$this->IsImportedConfigurationRowActive($row)) {
+                    continue;
+                }
+
+                $groupName = trim((string) ($row['GroupName'] ?? ''));
+                $classID = trim((string) ($row['ClassID'] ?? ''));
+
+                if ($groupName === '' || $classID === '' || !isset($targetGroups[$groupName])) {
+                    continue;
+                }
+
+                if ($classFilterDefined && !isset($activeClassIDs[$classID])) {
+                    continue;
+                }
+
+                $classToGroups[$classID][$targetGroups[$groupName]] = true;
+            }
+        }
+
+        if (count($classToGroups) === 0) {
+            return $empty;
+        }
+
+        $sensorGroups = [];
+        $mappedGroupKeys = [];
+        $sensorRows = $config['SensorList'] ?? [];
+        if (is_array($sensorRows)) {
+            foreach ($sensorRows as $row) {
+                if (!is_array($row) || !$this->IsImportedConfigurationRowActive($row)) {
+                    continue;
+                }
+
+                $variableID = (int) ($row['VariableID'] ?? $row['variable_id'] ?? 0);
+                $classID = trim((string) ($row['ClassID'] ?? ''));
+
+                if ($variableID <= 0 || $classID === '' || !isset($classToGroups[$classID])) {
+                    continue;
+                }
+
+                $sensorID = (string) $variableID;
+                foreach ($classToGroups[$classID] as $groupKey => $_) {
+                    $sensorGroups[$sensorID][$groupKey] = true;
+                    $mappedGroupKeys[$groupKey] = true;
+                }
+            }
+        }
+
+        ksort($sensorGroups, SORT_NUMERIC);
+        ksort($mappedGroupKeys, SORT_STRING);
+
+        foreach ($sensorGroups as &$groupSet) {
+            ksort($groupSet, SORT_STRING);
+        }
+        unset($groupSet);
+
+        return [
+            'sensor_groups'     => $sensorGroups,
+            'mapped_group_keys' => $mappedGroupKeys
+        ];
+    }
+
+
+    private function GetSensorGroupMembershipMap(): array
+    {
+        $raw = $this->GetBuffer('SensorGroupMembershipMap');
+        $map = json_decode($raw, true);
+
+        if (
+            is_array($map)
+            && isset($map['sensor_groups'])
+            && is_array($map['sensor_groups'])
+            && isset($map['mapped_group_keys'])
+            && is_array($map['mapped_group_keys'])
+        ) {
+            return $map;
+        }
+
+        $map = $this->BuildSensorGroupMembershipMapFromImportedConfig();
+        $this->SetBuffer('SensorGroupMembershipMap', json_encode($map));
+
+        return $map;
+    }
+
+
+    private function ExtractPhysicalVariableIDFromDetail(array $detail): string
+    {
+        $fields = [
+            'VariableID',
+            'variable_id',
+            'VariableId',
+            'variableId',
+            'SensorVariableID',
+            'sensor_variable_id',
+            'ObjectID',
+            'object_id'
+        ];
+
+        foreach ($fields as $field) {
+            if (!array_key_exists($field, $detail)) {
+                continue;
+            }
+
+            $value = $detail[$field];
+            if (!is_numeric($value)) {
+                continue;
+            }
+
+            $variableID = (int) $value;
+            if ($variableID > 0) {
+                return (string) $variableID;
+            }
+        }
+
+        return '';
+    }
+
+
+    private function BuildTargetActiveSensorDetailMap(array $payload): array
+    {
+        $details = $payload['target_active_sensor_details'] ?? null;
+        if (!is_array($details)) {
+            return [];
+        }
+
+        $result = [];
+        foreach ($details as $detail) {
+            if (!is_array($detail)) {
+                continue;
+            }
+
+            $sensorID = $this->ExtractPhysicalVariableIDFromDetail($detail);
+            if ($sensorID === '') {
+                continue;
+            }
+
+            $result[$sensorID] = $detail;
+        }
+
+        ksort($result, SORT_NUMERIC);
+        return $result;
+    }
+
+
+    private function ReadSensorAlarmLatchState(): array
+    {
+        $state = [
+            'schema'            => 1,
+            'initialized'       => false,
+            'active_sensor_ids' => [],
+            'delivered'         => []
+        ];
+
+        $raw = $this->ReadAttributeString('SensorAlarmLatchState');
+        $decoded = json_decode($raw, true);
+        if (!is_array($decoded)) {
+            return $state;
+        }
+
+        $state['initialized'] = (bool) ($decoded['initialized'] ?? false);
+
+        $activeSensorIDs = $decoded['active_sensor_ids'] ?? [];
+        if (is_array($activeSensorIDs)) {
+            $keys = array_keys($activeSensorIDs);
+            $isList = count($activeSensorIDs) === 0
+                || ($keys === range(0, count($activeSensorIDs) - 1));
+
+            foreach ($activeSensorIDs as $key => $value) {
+                $sensorID = $isList ? trim((string) $value) : trim((string) $key);
+                if ($sensorID !== '' && is_numeric($sensorID) && (int) $sensorID > 0) {
+                    $state['active_sensor_ids'][(string) ((int) $sensorID)] = true;
+                }
+            }
+        }
+
+        $delivered = $decoded['delivered'] ?? [];
+        if (is_array($delivered)) {
+            foreach ($delivered as $sensorIDRaw => $responses) {
+                $sensorID = trim((string) $sensorIDRaw);
+                if ($sensorID === '' || !ctype_digit($sensorID) || (int) $sensorID <= 0 || !is_array($responses)) {
+                    continue;
+                }
+
+                foreach ($responses as $responseKeyRaw => $flag) {
+                    $responseKey = trim((string) $responseKeyRaw);
+                    if ($responseKey !== '' && (bool) $flag) {
+                        $state['delivered'][(string) ((int) $sensorID)][$responseKey] = true;
+                    }
+                }
+            }
+        }
+
+        ksort($state['active_sensor_ids'], SORT_NUMERIC);
+        ksort($state['delivered'], SORT_NUMERIC);
+
+        return $state;
+    }
+
+
+    private function WriteSensorAlarmLatchState(array $state): void
+    {
+        $activeSensorIDs = $state['active_sensor_ids'] ?? [];
+        $delivered = $state['delivered'] ?? [];
+
+        if (!is_array($activeSensorIDs)) {
+            $activeSensorIDs = [];
+        }
+        if (!is_array($delivered)) {
+            $delivered = [];
+        }
+
+        ksort($activeSensorIDs, SORT_NUMERIC);
+        ksort($delivered, SORT_NUMERIC);
+        foreach ($delivered as &$responses) {
+            if (is_array($responses)) {
+                ksort($responses, SORT_STRING);
+            }
+        }
+        unset($responses);
+
+        $this->WriteAttributeString('SensorAlarmLatchState', json_encode([
+            'schema'            => 1,
+            'initialized'       => (bool) ($state['initialized'] ?? false),
+            'active_sensor_ids' => array_values(array_map('strval', array_keys($activeSensorIDs))),
+            'delivered'         => $delivered
+        ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+    }
+
+
+    private function ReconcileSensorAlarmLatchState(array &$state, array $currentSensorDetails): array
+    {
+        $wasInitialized = (bool) ($state['initialized'] ?? false);
+        $dirty = false;
+
+        $previousActive = $state['active_sensor_ids'] ?? [];
+        if (!is_array($previousActive)) {
+            $previousActive = [];
+        }
+
+        $currentActive = [];
+        foreach ($currentSensorDetails as $sensorID => $_) {
+            $currentActive[(string) $sensorID] = true;
+        }
+        ksort($currentActive, SORT_NUMERIC);
+
+        foreach ($previousActive as $sensorID => $_) {
+            if (isset($currentActive[$sensorID])) {
+                continue;
+            }
+
+            if (isset($state['delivered'][$sensorID])) {
+                unset($state['delivered'][$sensorID]);
+            }
+            $dirty = true;
+        }
+
+        $delivered = $state['delivered'] ?? [];
+        if (is_array($delivered)) {
+            foreach ($delivered as $sensorID => $_) {
+                if (isset($currentActive[$sensorID])) {
+                    continue;
+                }
+
+                unset($state['delivered'][$sensorID]);
+                $dirty = true;
+            }
+        }
+
+        if ($previousActive !== $currentActive) {
+            $state['active_sensor_ids'] = $currentActive;
+            $dirty = true;
+        }
+
+        if (!$wasInitialized) {
+            $state['initialized'] = true;
+            $dirty = true;
+        }
+
+        return [
+            'baseline' => !$wasInitialized,
+            'dirty'    => $dirty
+        ];
+    }
+
+
+    private function GetMappedActiveSensorDetailsForGroup(
+        array $activeSensorDetails,
+        string $groupKey,
+        array $membershipMap
+    ): array {
+        $sensorGroups = $membershipMap['sensor_groups'] ?? [];
+        if (!is_array($sensorGroups)) {
+            return [];
+        }
+
+        $result = [];
+        foreach ($activeSensorDetails as $sensorID => $detail) {
+            if (!isset($sensorGroups[$sensorID]) || !is_array($sensorGroups[$sensorID])) {
+                continue;
+            }
+
+            if (!isset($sensorGroups[$sensorID][$groupKey])) {
+                continue;
+            }
+
+            $result[$sensorID] = $detail;
+        }
+
+        ksort($result, SORT_NUMERIC);
+        return $result;
+    }
+
+
+    private function BuildSensorResponseKey(string $groupKey, string $ruleID, string $outputID): string
+    {
+        return hash('sha256', $groupKey . "\x1f" . $ruleID . "\x1f" . $outputID);
+    }
+
+
+    private function IsSensorResponseLatched(array $state, $sensorID, string $responseKey): bool
+    {
+        $sensorID = trim((string) $sensorID);
+        return $sensorID !== '' && isset($state['delivered'][$sensorID][$responseKey]);
+    }
+
+
+    private function MarkSensorResponseLatched(array &$state, $sensorID, string $responseKey): bool
+    {
+        $sensorID = trim((string) $sensorID);
+
+        if ($sensorID === '' || $responseKey === '') {
+            return false;
+        }
+
+        if (isset($state['delivered'][$sensorID][$responseKey])) {
+            return false;
+        }
+
+        $state['delivered'][$sensorID][$responseKey] = true;
+        return true;
+    }
+
+
+    private function CountSensorResponseLatches(array $state): int
+    {
+        $count = 0;
+        $delivered = $state['delivered'] ?? [];
+        if (!is_array($delivered)) {
+            return 0;
+        }
+
+        foreach ($delivered as $responses) {
+            if (is_array($responses)) {
+                $count += count($responses);
+            }
+        }
+
+        return $count;
+    }
+
+
+    private function BuildOutputSensorPayload(array $payload, $sensorID, array $sensorDetail): array
+    {
+        $sensorID = trim((string) $sensorID);
+        $payload['_armm_output_sensor_id'] = $sensorID;
+        $payload['_armm_output_sensor_detail'] = $sensorDetail;
+        return $payload;
+    }
+
+
+    private function HandleRearmAllSensorAlarms(): void
+    {
+        $variableID = @$this->GetIDForIdent('RearmAllSensorAlarms');
+
+        if (!$this->EnterPayloadProcessorLock(5000)) {
+            $this->LogMessage(
+                'Administrative action failed: sensor alarm latches could not be re-armed because payload processing is busy.',
+                KL_MESSAGE
+            );
+
+            if ($variableID !== false && $variableID > 0) {
+                SetValueBoolean($variableID, false);
+            }
+            return;
+        }
+
+        try {
+            $state = $this->ReadSensorAlarmLatchState();
+            $clearedCount = $this->CountSensorResponseLatches($state);
+
+            $state['delivered'] = [];
+            $state['initialized'] = true;
+            $this->WriteSensorAlarmLatchState($state);
+
+            $this->LogMessage(
+                'Administrative action: all sensor alarm latches re-armed. Cleared entries=' . $clearedCount,
+                KL_MESSAGE
+            );
+        } finally {
+            $this->LeavePayloadProcessorLock();
+
+            if ($variableID !== false && $variableID > 0) {
+                SetValueBoolean($variableID, false);
+            }
+        }
+    }
+
+
+    public function DebugGetSensorAlarmLatchState(): string
+    {
+        return $this->ReadAttributeString('SensorAlarmLatchState');
+    }
+
+
     private function ReevaluateCurrentAlarmContext(array $payload, array $house): void
     {
+        $sensorSnapshotAuthoritative = array_key_exists('target_active_sensor_details', $payload)
+            && is_array($payload['target_active_sensor_details']);
+
+        $latchState = $this->ReadSensorAlarmLatchState();
+        $latchStateDirty = false;
+        $latchBaseline = false;
+        $activeSensorDetails = [];
+        $sensorMembershipMap = [
+            'sensor_groups'     => [],
+            'mapped_group_keys' => []
+        ];
+
+        if ($sensorSnapshotAuthoritative) {
+            $activeSensorDetails = $this->BuildTargetActiveSensorDetailMap($payload);
+            $reconcileResult = $this->ReconcileSensorAlarmLatchState($latchState, $activeSensorDetails);
+            $latchBaseline = (bool) ($reconcileResult['baseline'] ?? false);
+            $latchStateDirty = (bool) ($reconcileResult['dirty'] ?? false);
+            $sensorMembershipMap = $this->GetSensorGroupMembershipMap();
+        }
+
         $targetGroups = $payload['target_active_groups'] ?? [];
         if (!is_array($targetGroups) || count($targetGroups) === 0) {
             $this->AppendHeartbeatAuditForPayload($payload, 'NOT_WRITTEN', [
@@ -3012,6 +3588,11 @@ document.addEventListener("DOMContentLoaded", () => {
             $this->WriteAttributeString('LastActiveOutputIDs', '[]');
             $this->WriteAttributeString('ActiveOutputMatchKeys', '[]');
             $this->WriteActiveOutputInputContentSignatureSet([]);
+
+            if ($latchStateDirty) {
+                $this->WriteSensorAlarmLatchState($latchState);
+            }
+
             $this->DebugLog('ReevaluateCurrentAlarmContext: no active target groups, live path and active output matches cleared', KL_MESSAGE);
             return;
         }
@@ -3036,6 +3617,11 @@ document.addEventListener("DOMContentLoaded", () => {
         $queueSeq = 0;
         $heartbeatOutputCandidateCreated = false;
 
+        $mappedGroupKeys = $sensorMembershipMap['mapped_group_keys'] ?? [];
+        if (!is_array($mappedGroupKeys)) {
+            $mappedGroupKeys = [];
+        }
+
         foreach ($targetGroups as $groupLabelRaw) {
             $groupLabel = trim((string) $groupLabelRaw);
             if ($groupLabel === '') {
@@ -3044,6 +3630,19 @@ document.addEventListener("DOMContentLoaded", () => {
 
             $groupKey = $this->MakeGroupKey($groupLabel);
             $activeGroupsForView[$groupLabel] = true;
+
+            $mappedSensorDetailsForGroup = [];
+            $useSensorLatchesForGroup = false;
+
+            if ($sensorSnapshotAuthoritative && isset($mappedGroupKeys[$groupKey])) {
+                $mappedSensorDetailsForGroup = $this->GetMappedActiveSensorDetailsForGroup(
+                    $activeSensorDetails,
+                    $groupKey,
+                    $sensorMembershipMap
+                );
+
+                $useSensorLatchesForGroup = count($mappedSensorDetailsForGroup) > 0;
+            }
 
             $ruleIDs = $this->FindMatchingRuleIDsForGroupAndState($groupLabel, $houseState);
             $this->DebugLog('ReevaluateCurrentAlarmContext: group=' . $groupLabel . ' matched rules=' . json_encode($ruleIDs), KL_MESSAGE);
@@ -3122,6 +3721,102 @@ document.addEventListener("DOMContentLoaded", () => {
                     $currentInputContentSignatures[$matchKey] = $inputContentSignature;
                     $activeOutputIDsForView[$outputID] = true;
 
+                    if ($useSensorLatchesForGroup) {
+                        $sensorResponseKey = $this->BuildSensorResponseKey($groupKey, $ruleID, $outputID);
+                        $unlatchedCount = 0;
+
+                        foreach ($mappedSensorDetailsForGroup as $sensorID => $sensorDetail) {
+                            if ($latchBaseline) {
+                                if ($this->MarkSensorResponseLatched($latchState, $sensorID, $sensorResponseKey)) {
+                                    $latchStateDirty = true;
+                                }
+                                continue;
+                            }
+
+                            if ($this->IsSensorResponseLatched($latchState, $sensorID, $sensorResponseKey)) {
+                                continue;
+                            }
+
+                            $unlatchedCount++;
+                            $queueSeq++;
+                            $candidatePayload = $this->BuildOutputSensorPayload($payload, $sensorID, $sensorDetail);
+                            $candidateKey = $matchKey . '|sensor:' . $sensorID;
+
+                            $candidate = [
+                                'MatchKey'              => $matchKey,
+                                'CandidateKey'          => $candidateKey,
+                                'InputContentSignature' => $inputContentSignature,
+                                'OutputID'              => $outputID,
+                                'GroupLabel'            => $groupLabel,
+                                'GroupKey'              => $groupKey,
+                                'RuleID'                => $ruleID,
+                                'Severity'              => $severity,
+                                'Priority'              => $priority,
+                                'QueueSeq'              => $queueSeq,
+                                'Resource'              => $resource,
+                                'Payload'               => $candidatePayload,
+                                'UsesSensorLatch'       => true,
+                                'SensorID'              => $sensorID,
+                                'SensorResponseKey'     => $sensorResponseKey
+                            ];
+
+                            if ($this->IsHeartbeatOutputResource($resource)) {
+                                $heartbeatOutputCandidateCreated = true;
+
+                                $this->AppendHeartbeatAuditForPayload($candidatePayload, 'OUTPUT_CANDIDATE', [
+                                    'output_id' => $outputID,
+                                    'match_key' => $matchKey,
+                                    'rule_id' => $ruleID,
+                                    'severity' => $severity,
+                                    'sensor_id' => $sensorID,
+                                    'sensor_latch' => true
+                                ]);
+                            }
+
+                            if (!isset($candidatesByOutputID[$outputID])) {
+                                $candidatesByOutputID[$outputID] = [];
+                            }
+
+                            if (!isset($candidatesByOutputID[$outputID][$candidateKey])) {
+                                $candidatesByOutputID[$outputID][$candidateKey] = $candidate;
+                                continue;
+                            }
+
+                            $existing = $candidatesByOutputID[$outputID][$candidateKey];
+                            $replace = false;
+
+                            if ($candidate['Priority'] > $existing['Priority']) {
+                                $replace = true;
+                            } elseif ($candidate['Priority'] === $existing['Priority'] && $candidate['QueueSeq'] > $existing['QueueSeq']) {
+                                $replace = true;
+                            }
+
+                            if ($replace) {
+                                $candidatesByOutputID[$outputID][$candidateKey] = $candidate;
+                            }
+                        }
+
+                        if ($latchBaseline) {
+                            $this->DebugLog(
+                                'ReevaluateCurrentAlarmContext: adopted active sensors as latch baseline'
+                                    . ' group=' . $groupLabel
+                                    . ' OutputID=' . $outputID
+                                    . ' rule=' . $ruleID,
+                                KL_MESSAGE
+                            );
+                        } elseif ($unlatchedCount === 0) {
+                            $this->DebugLog(
+                                'ReevaluateCurrentAlarmContext: all active sensors already latched'
+                                    . ' group=' . $groupLabel
+                                    . ' OutputID=' . $outputID
+                                    . ' rule=' . $ruleID,
+                                KL_MESSAGE
+                            );
+                        }
+
+                        continue;
+                    }
+
                     if (
                         $inputContentSignature !== ''
                         && isset($previousMatchKeys[$matchKey])
@@ -3162,6 +3857,7 @@ document.addEventListener("DOMContentLoaded", () => {
                     $queueSeq++;
                     $candidate = [
                         'MatchKey'              => $matchKey,
+                        'CandidateKey'          => $matchKey,
                         'InputContentSignature' => $inputContentSignature,
                         'OutputID'              => $outputID,
                         'GroupLabel'            => $groupLabel,
@@ -3170,7 +3866,11 @@ document.addEventListener("DOMContentLoaded", () => {
                         'Severity'              => $severity,
                         'Priority'              => $priority,
                         'QueueSeq'              => $queueSeq,
-                        'Resource'              => $resource
+                        'Resource'              => $resource,
+                        'Payload'               => $payload,
+                        'UsesSensorLatch'       => false,
+                        'SensorID'              => '',
+                        'SensorResponseKey'     => ''
                     ];
 
                     if ($this->IsHeartbeatOutputResource($resource)) {
@@ -3181,7 +3881,8 @@ document.addEventListener("DOMContentLoaded", () => {
                             'match_key' => $matchKey,
                             'rule_id' => $ruleID,
                             'severity' => $severity,
-                            'input_content_signature' => $inputContentSignature
+                            'input_content_signature' => $inputContentSignature,
+                            'sensor_latch' => false
                         ]);
                     }
 
@@ -3212,7 +3913,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
         if ($this->IsHeartbeatPayload($payload) && !$heartbeatOutputCandidateCreated) {
             $this->AppendHeartbeatAuditForPayload($payload, 'NO_HEARTBEAT_OUTPUT_CANDIDATE', [
-                'note' => 'may_have_been_suppressed_or_no_assignment'
+                'note' => 'may_have_been_latched_suppressed_or_no_assignment'
             ]);
         }
 
@@ -3259,6 +3960,14 @@ document.addEventListener("DOMContentLoaded", () => {
                 $ruleID = (string) ($candidate['RuleID'] ?? '');
                 $severity = (string) ($candidate['Severity'] ?? '');
                 $resource = $candidate['Resource'] ?? null;
+                $candidatePayload = $candidate['Payload'] ?? $payload;
+                $usesSensorLatch = (bool) ($candidate['UsesSensorLatch'] ?? false);
+                $sensorID = trim((string) ($candidate['SensorID'] ?? ''));
+                $sensorResponseKey = trim((string) ($candidate['SensorResponseKey'] ?? ''));
+
+                if (!is_array($candidatePayload)) {
+                    $candidatePayload = $payload;
+                }
 
                 if (!is_array($resource) || $matchKey === '' || $groupLabel === '') {
                     continue;
@@ -3266,12 +3975,13 @@ document.addEventListener("DOMContentLoaded", () => {
 
                 if ($throttlingEnabled && $remainingSlots <= 0) {
                     if ($this->IsHeartbeatOutputResource($resource)) {
-                        $this->AppendHeartbeatAuditForPayload($payload, 'NOT_WRITTEN', [
+                        $this->AppendHeartbeatAuditForPayload($candidatePayload, 'NOT_WRITTEN', [
                             'reason' => 'throttled',
                             'output_id' => $outputID,
                             'match_key' => $matchKey,
                             'rule_id' => $ruleID,
-                            'remaining_slots' => $remainingSlots
+                            'remaining_slots' => $remainingSlots,
+                            'sensor_id' => $sensorID
                         ]);
                     }
 
@@ -3279,19 +3989,25 @@ document.addEventListener("DOMContentLoaded", () => {
                         'ReevaluateCurrentAlarmContext: throttled OutputID=' . $outputID
                             . ' match=' . $matchKey
                             . ' rule=' . $ruleID
-                            . ' severity=' . $severity,
+                            . ' severity=' . $severity
+                            . ($sensorID !== '' ? ' sensor=' . $sensorID : ''),
                         KL_MESSAGE
                     );
                     continue;
                 }
 
                 if ($this->IsOutputKillSwitchActive()) {
+                    if ($usesSensorLatch && $this->MarkSensorResponseLatched($latchState, $sensorID, $sensorResponseKey)) {
+                        $latchStateDirty = true;
+                    }
+
                     if ($this->IsHeartbeatOutputResource($resource)) {
-                        $this->AppendHeartbeatAuditForPayload($payload, 'NOT_WRITTEN', [
+                        $this->AppendHeartbeatAuditForPayload($candidatePayload, 'NOT_WRITTEN', [
                             'reason' => 'output_kill_switch_active',
                             'output_id' => $outputID,
                             'match_key' => $matchKey,
-                            'rule_id' => $ruleID
+                            'rule_id' => $ruleID,
+                            'sensor_id' => $sensorID
                         ]);
                     }
 
@@ -3300,7 +4016,8 @@ document.addEventListener("DOMContentLoaded", () => {
                             . ' match=' . $matchKey
                             . ' OutputID=' . $outputID
                             . ' rule=' . $ruleID
-                            . ' severity=' . $severity,
+                            . ' severity=' . $severity
+                            . ($sensorID !== '' ? ' sensor=' . $sensorID : ''),
                         KL_MESSAGE
                     );
 
@@ -3308,20 +4025,26 @@ document.addEventListener("DOMContentLoaded", () => {
                 }
 
                 if ($this->IsHeartbeatOutputResource($resource)) {
-                    $this->AppendHeartbeatAuditForPayload($payload, 'EXECUTE_ATTEMPT', [
+                    $this->AppendHeartbeatAuditForPayload($candidatePayload, 'EXECUTE_ATTEMPT', [
                         'output_id' => $outputID,
                         'target_object_id' => (int) ($resource['TargetObjectID'] ?? 0),
                         'match_key' => $matchKey,
-                        'rule_id' => $ruleID
+                        'rule_id' => $ruleID,
+                        'sensor_id' => $sensorID
                     ]);
                 }
 
-                $ok = $this->ExecuteOutputResource($resource, $payload, $house, $groupLabel);
+                $ok = $this->ExecuteOutputResource($resource, $candidatePayload, $house, $groupLabel);
+
+                if ($usesSensorLatch && $this->MarkSensorResponseLatched($latchState, $sensorID, $sensorResponseKey)) {
+                    $latchStateDirty = true;
+                }
 
                 if ($this->IsHeartbeatOutputResource($resource)) {
-                    $this->AppendHeartbeatAuditForPayload($payload, 'EXECUTE_RESULT', [
+                    $this->AppendHeartbeatAuditForPayload($candidatePayload, 'EXECUTE_RESULT', [
                         'output_id' => $outputID,
-                        'result' => $ok
+                        'result' => $ok,
+                        'sensor_id' => $sensorID
                     ]);
                 }
 
@@ -3330,6 +4053,7 @@ document.addEventListener("DOMContentLoaded", () => {
                         . ' OutputID=' . $outputID
                         . ' rule=' . $ruleID
                         . ' severity=' . $severity
+                        . ($sensorID !== '' ? ' sensor=' . $sensorID : '')
                         . ' result=' . ($ok ? 'true' : 'false'),
                     KL_MESSAGE
                 );
@@ -3347,10 +4071,15 @@ document.addEventListener("DOMContentLoaded", () => {
         $this->WriteAttributeString('ActiveOutputMatchKeys', json_encode(array_values(array_keys($currentMatchKeys))));
         $this->WriteActiveOutputInputContentSignatureSet($currentInputContentSignatures);
 
+        if ($latchStateDirty) {
+            $this->WriteSensorAlarmLatchState($latchState);
+        }
+
         $this->DebugLog(
             'ReevaluateCurrentAlarmContext: previousMatches=' . count($previousMatchKeys)
                 . ' currentMatches=' . count($currentMatchKeys)
-                . ' newCandidates=' . array_sum(array_map('count', $candidatesByOutputID)),
+                . ' newCandidates=' . array_sum(array_map('count', $candidatesByOutputID))
+                . ' sensorLatches=' . $this->CountSensorResponseLatches($latchState),
             KL_MESSAGE
         );
     }
@@ -4748,6 +5477,11 @@ document.addEventListener("DOMContentLoaded", () => {
             'grandparent_name'  => '',
             'content'           => ''
         ];
+
+        $outputSensorDetail = $payload['_armm_output_sensor_detail'] ?? [];
+        if (is_array($outputSensorDetail)) {
+            $this->MergeOutputMessageDataFromDetail($result, $outputSensorDetail);
+        }
 
         $trigger = $payload['target_trigger_details'] ?? [];
         if (is_array($trigger)) {
