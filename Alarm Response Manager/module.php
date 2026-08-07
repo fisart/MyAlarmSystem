@@ -1,7 +1,7 @@
 <?php
 
 declare(strict_types=1);
-// 7.8.0
+// 7.9.0
 class AlarmResponseManager extends IPSModule
 {
     private const HOUSE_STATES = [
@@ -1949,6 +1949,37 @@ class AlarmResponseManager extends IPSModule
         return $stateFilter;
     }
 
+    private function GetGraphHouseStateFilter(): array
+    {
+        $validStates = ['0', '2', '3', '6', '9'];
+        $raw = trim((string) ($_GET['houseStateFilter'] ?? 'all'));
+
+        if ($raw === '' || strtolower($raw) === 'all') {
+            return $validStates;
+        }
+
+        if (strtolower($raw) === 'none') {
+            return [];
+        }
+
+        $selected = [];
+        foreach (explode(',', $raw) as $stateRaw) {
+            $state = trim((string) $stateRaw);
+            if ($state !== '' && in_array($state, $validStates, true)) {
+                $selected[$state] = true;
+            }
+        }
+
+        $result = [];
+        foreach ($validStates as $state) {
+            if (isset($selected[$state])) {
+                $result[] = $state;
+            }
+        }
+
+        return count($result) > 0 ? $result : $validStates;
+    }
+
     protected function ProcessHookData()
     {
         // 1. Authentication (Secrets / Vault)
@@ -2175,6 +2206,27 @@ body{
     gap:8px;
 }
 
+.house-state-picker-wrap{
+    position:relative;
+    display:none;
+    align-items:center;
+    gap:8px;
+}
+
+.house-state-picker-wrap.visible{
+    display:flex;
+}
+
+.house-state-options{
+    display:grid;
+    gap:7px;
+    margin-top:10px;
+}
+
+.house-state-options label{
+    white-space:nowrap;
+}
+
 .output-picker-button{
     background:#1e1e1e;
     color:#cfcfcf;
@@ -2310,8 +2362,11 @@ let pzInstance = null;
 const moduleInstanceID = ' . (int) $this->InstanceID . ';
 const assignmentEditorStorageKey = "armm_mapping_assignment_editor_" + moduleInstanceID;
 const chartOrientationStorageKey = "armm_mapping_chart_orientation_" + moduleInstanceID;
+const houseStateFilterStorageKey = "armm_mapping_house_state_filter_" + moduleInstanceID;
+const allHouseStates = ["0", "2", "3", "6", "9"];
 let assignmentEditorEnabled = false;
 let chartOrientation = "horizontal";
+let selectedHouseStates = [...allHouseStates];
 ' . $this->BuildMermaidSelectionJavascript() . '
 function attachTouchPinchZoom(svgEl, gestureEl, panZoomInstance) {
     if (!svgEl || !panZoomInstance) {
@@ -2418,6 +2473,23 @@ function getStateFilter() {
     return el ? el.value : "active_eligible";
 }
 
+function getHouseStateFilter() {
+    if (getStateFilter() !== "both") {
+        return "all";
+    }
+
+    const selected = allHouseStates.filter(state => selectedHouseStates.includes(state));
+    if (selected.length === 0) {
+        return "none";
+    }
+
+    if (selected.length === allHouseStates.length) {
+        return "all";
+    }
+
+    return selected.join(",");
+}
+
 function getOutputFilter() {
     const el = document.getElementById("output-filter");
     if (!el) {
@@ -2437,9 +2509,18 @@ function loadMappingUiSettings() {
         chartOrientation = localStorage.getItem(chartOrientationStorageKey) === "vertical"
             ? "vertical"
             : "horizontal";
+
+        const storedHouseStates = localStorage.getItem(houseStateFilterStorageKey);
+        if (storedHouseStates !== null) {
+            const parsed = JSON.parse(storedHouseStates);
+            if (Array.isArray(parsed)) {
+                selectedHouseStates = allHouseStates.filter(state => parsed.includes(state));
+            }
+        }
     } catch (err) {
         assignmentEditorEnabled = false;
         chartOrientation = "horizontal";
+        selectedHouseStates = [...allHouseStates];
     }
 }
 
@@ -2457,6 +2538,7 @@ function updateMappingUiControls() {
     const editorPanel = document.getElementById("assignment-editor-panel");
     const orientationToggle = document.getElementById("chart-orientation-toggle");
     const orientationState = document.getElementById("chart-orientation-state");
+    const houseStateWrap = document.getElementById("house-state-picker-wrap");
 
     if (editorToggle) {
         editorToggle.checked = assignmentEditorEnabled;
@@ -2479,6 +2561,15 @@ function updateMappingUiControls() {
         orientationState.textContent = chartOrientation === "vertical" ? "Vertical" : "Horizontal";
     }
 
+    if (houseStateWrap) {
+        houseStateWrap.classList.toggle("visible", getStateFilter() === "both");
+    }
+
+    document.querySelectorAll(".house-state-option").forEach(cb => {
+        cb.checked = selectedHouseStates.includes(cb.value);
+    });
+
+    updateHouseStateSummary();
     updateAssignmentSelectionPanel();
 }
 
@@ -2494,6 +2585,33 @@ function resizeCurrentGraphToContainer() {
     } catch (err) {
         console.warn("Graph resize failed", err);
     }
+}
+
+function updateHouseStateSummary() {
+    const summaryEl = document.getElementById("house-state-summary");
+    if (!summaryEl) {
+        return;
+    }
+
+    const selected = allHouseStates.filter(state => selectedHouseStates.includes(state));
+    if (selected.length === allHouseStates.length) {
+        summaryEl.textContent = "All states";
+    } else if (selected.length === 0) {
+        summaryEl.textContent = "None";
+    } else {
+        summaryEl.textContent = selected.length + " selected";
+    }
+}
+
+function setAllHouseStatesSelected(selected) {
+    selectedHouseStates = selected ? [...allHouseStates] : [];
+    saveMappingUiSetting(houseStateFilterStorageKey, JSON.stringify(selectedHouseStates));
+
+    document.querySelectorAll(".house-state-option").forEach(cb => {
+        cb.checked = selectedHouseStates.includes(cb.value);
+    });
+
+    updateHouseStateSummary();
 }
 
 function updateOutputSummary() {
@@ -2551,6 +2669,7 @@ async function fetchAndUpdateGraph() {
             + "&depth=" + encodeURIComponent(getDepthFilter())
             + "&showConditions=" + encodeURIComponent(getShowConditionsFilter())
             + "&stateFilter=" + encodeURIComponent(getStateFilter())
+            + "&houseStateFilter=" + encodeURIComponent(getHouseStateFilter())
             + "&outputFilter=" + encodeURIComponent(getOutputFilter())
             + "&orientation=" + encodeURIComponent(getChartOrientationFilter()),
             { credentials: "same-origin" }
@@ -2685,6 +2804,62 @@ document.addEventListener("DOMContentLoaded", () => {
     const stateFilter = document.getElementById("state-filter");
     if (stateFilter) {
         stateFilter.addEventListener("change", async () => {
+            updateMappingUiControls();
+            lastGraphString = "";
+            await fetchAndUpdateGraph();
+        });
+    }
+
+    document.querySelectorAll(".house-state-option").forEach(cb => {
+        cb.addEventListener("change", async () => {
+            selectedHouseStates = Array.from(document.querySelectorAll(".house-state-option:checked"))
+                .map(option => option.value)
+                .filter(state => allHouseStates.includes(state));
+            saveMappingUiSetting(houseStateFilterStorageKey, JSON.stringify(selectedHouseStates));
+            updateHouseStateSummary();
+            lastGraphString = "";
+            await fetchAndUpdateGraph();
+        });
+    });
+
+    const houseStateButton = document.getElementById("open-house-state-popup");
+    if (houseStateButton) {
+        houseStateButton.addEventListener("click", (ev) => {
+            ev.preventDefault();
+            ev.stopPropagation();
+            const popup = document.getElementById("house-state-popup");
+            if (popup) {
+                popup.classList.toggle("open");
+            }
+        });
+    }
+
+    const houseStateClose = document.getElementById("close-house-state-popup");
+    if (houseStateClose) {
+        houseStateClose.addEventListener("click", (ev) => {
+            ev.preventDefault();
+            const popup = document.getElementById("house-state-popup");
+            if (popup) {
+                popup.classList.remove("open");
+            }
+        });
+    }
+
+    const houseStateAll = document.getElementById("select-all-house-states");
+    if (houseStateAll) {
+        houseStateAll.addEventListener("click", async (ev) => {
+            ev.preventDefault();
+            setAllHouseStatesSelected(true);
+            lastGraphString = "";
+            await fetchAndUpdateGraph();
+        });
+    }
+
+    const houseStateNone = document.getElementById("clear-all-house-states");
+    if (houseStateNone) {
+        houseStateNone.addEventListener("click", async (ev) => {
+            ev.preventDefault();
+            setAllHouseStatesSelected(false);
             lastGraphString = "";
             await fetchAndUpdateGraph();
         });
@@ -2741,18 +2916,20 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     document.addEventListener("click", (ev) => {
-        const popup = document.getElementById("output-popup");
-        const wrap = document.querySelector(".output-picker-wrap");
-
-        if (!popup || !wrap) {
-            return;
+        const outputPopup = document.getElementById("output-popup");
+        const outputWrap = document.querySelector(".output-picker-wrap");
+        if (outputPopup && outputWrap && !outputWrap.contains(ev.target)) {
+            outputPopup.classList.remove("open");
         }
 
-        if (!wrap.contains(ev.target)) {
-            popup.classList.remove("open");
+        const houseStatePopup = document.getElementById("house-state-popup");
+        const houseStateWrap = document.getElementById("house-state-picker-wrap");
+        if (houseStatePopup && houseStateWrap && !houseStateWrap.contains(ev.target)) {
+            houseStatePopup.classList.remove("open");
         }
     });
 
+    updateHouseStateSummary();
     updateOutputSummary();
     fetchAndUpdateGraph();
     setInterval(fetchAndUpdateGraph, 2000);
@@ -2786,6 +2963,32 @@ document.addEventListener("DOMContentLoaded", () => {
             <option value="passive">Only Passive</option>
         </select>
     </label>
+
+    <div id="house-state-picker-wrap" class="house-state-picker-wrap">
+        <span>House States:</span>
+        <button id="open-house-state-popup" type="button" class="output-picker-button">Select states</button>
+        <span id="house-state-summary" class="output-summary">All states</span>
+
+        <div id="house-state-popup" class="output-popup">
+            <div class="output-popup-header">
+                <strong>House state filter</strong>
+                <a href="#" id="close-house-state-popup" class="output-popup-link">Close</a>
+            </div>
+
+            <div class="output-popup-actions">
+                <a href="#" id="select-all-house-states" class="output-popup-link">All</a>
+                <a href="#" id="clear-all-house-states" class="output-popup-link">None</a>
+            </div>
+
+            <div class="house-state-options">
+                <label><input type="checkbox" class="house-state-option" value="0" checked> Disarmed [0]</label>
+                <label><input type="checkbox" class="house-state-option" value="2" checked> Exit Delay [2]</label>
+                <label><input type="checkbox" class="house-state-option" value="3" checked> Armed External [3]</label>
+                <label><input type="checkbox" class="house-state-option" value="6" checked> Armed Internal [6]</label>
+                <label><input type="checkbox" class="house-state-option" value="9" checked> Alarm [9]</label>
+            </div>
+        </div>
+    </div>
 
     <label style="white-space:nowrap;">
         <input type="checkbox" id="show-conditions" checked> Show conditions
@@ -6748,6 +6951,7 @@ JS;
         $depth = $this->GetGraphDepth();
         $showConditions = $this->GetShowConditions();
         $stateFilter = $this->GetGraphStateFilter();
+        $houseStateFilter = $this->GetGraphHouseStateFilter();
         $orientation = strtoupper(trim((string) ($_GET['orientation'] ?? 'LR')));
         if (!in_array($orientation, ['LR', 'TB'], true)) {
             $orientation = 'LR';
@@ -6801,6 +7005,39 @@ JS;
             $groupKey = trim((string) ($rule['GroupKey'] ?? ''));
             return $groupKey !== '' && isset($visibleGroupKeys[$groupKey]);
         }));
+
+        if ($stateFilter === 'both') {
+            $selectedHouseStates = array_fill_keys($houseStateFilter, true);
+
+            $rules = array_values(array_filter($rules, static function (array $rule) use ($selectedHouseStates): bool {
+                $houseState = trim((string) ($rule['HouseState'] ?? ''));
+                return $houseState !== '' && isset($selectedHouseStates[$houseState]);
+            }));
+
+            $houseStateRuleIDs = [];
+            $houseStateGroupKeys = [];
+            foreach ($rules as $rule) {
+                $ruleID = trim((string) ($rule['RuleID'] ?? ''));
+                $groupKey = trim((string) ($rule['GroupKey'] ?? ''));
+
+                if ($ruleID !== '') {
+                    $houseStateRuleIDs[$ruleID] = true;
+                }
+                if ($groupKey !== '') {
+                    $houseStateGroupKeys[$groupKey] = true;
+                }
+            }
+
+            $assignments = array_values(array_filter($assignments, static function (array $assignment) use ($houseStateRuleIDs): bool {
+                $ruleID = trim((string) ($assignment['RuleID'] ?? ''));
+                return $ruleID !== '' && isset($houseStateRuleIDs[$ruleID]);
+            }));
+
+            $groups = array_values(array_filter($groups, static function (array $group) use ($houseStateGroupKeys): bool {
+                $groupKey = trim((string) ($group['GroupKey'] ?? ''));
+                return $groupKey !== '' && isset($houseStateGroupKeys[$groupKey]);
+            }));
+        }
 
         usort($groups, static function (array $a, array $b): int {
             return strnatcasecmp((string) ($a['GroupLabel'] ?? ''), (string) ($b['GroupLabel'] ?? ''));
@@ -7082,8 +7319,12 @@ JS;
             $noteNode = 'N_' . substr(md5('no_groups_' . (string) $this->InstanceID), 0, 10);
 
             $noteText = 'No groups selected for current state filter';
-            if ($hasOutputFilter) {
-                $noteText = 'No paths for selected outputs and current state filter';
+            if ($stateFilter === 'both' && count($houseStateFilter) === 0) {
+                $noteText = 'No house states selected';
+            } elseif ($hasOutputFilter) {
+                $noteText = 'No paths for selected outputs and current filters';
+            } elseif ($stateFilter === 'both') {
+                $noteText = 'No paths for selected house states';
             }
 
             $lines[] = $noteNode . '["' . $this->MermaidEscape($noteText) . '"]';
