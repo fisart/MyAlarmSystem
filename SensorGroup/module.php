@@ -1,5 +1,5 @@
 <?php
-// Version2.12.3
+// Version2.12.4
 declare(strict_types=1);
 
 class SensorGroup extends IPSModule
@@ -659,9 +659,39 @@ class SensorGroup extends IPSModule
         foreach ($messages as $senderID => $messageList) {
             $this->UnregisterMessage($senderID, VM_UPDATE);
         }
+        // Register primary sensor variables and, for LEVEL/ONCE rules using
+        // dynamic comparison, their reference variables. Registration is
+        // deduplicated so a shared reference variable creates only one VM_UPDATE
+        // subscription. CHANGE mode ignores comparison fields by design.
+        $sensorMessageIDs = [];
         foreach ($cleanSensors as $row) {
-            if (($row['VariableID'] ?? 0) > 0 && IPS_VariableExists($row['VariableID'])) $this->RegisterMessage($row['VariableID'], VM_UPDATE);
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $variableID = (int)($row['VariableID'] ?? 0);
+            if ($variableID > 0 && IPS_VariableExists($variableID)) {
+                $sensorMessageIDs[$variableID] = true;
+            }
+
+            $triggerMode = isset($row['TriggerMode']) ? (int)$row['TriggerMode'] : 0;
+            $comparisonSource = isset($row['ComparisonSource']) ? (int)$row['ComparisonSource'] : 0;
+            $comparisonVariableID = isset($row['ComparisonVariableID']) ? (int)$row['ComparisonVariableID'] : 0;
+
+            if (
+                $triggerMode !== 1 &&
+                $comparisonSource === 1 &&
+                $comparisonVariableID > 0 &&
+                IPS_VariableExists($comparisonVariableID)
+            ) {
+                $sensorMessageIDs[$comparisonVariableID] = true;
+            }
         }
+
+        foreach (array_keys($sensorMessageIDs) as $sensorMessageID) {
+            $this->RegisterMessage((int)$sensorMessageID, VM_UPDATE);
+        }
+
         $this->RegisterSensors('TamperList');
         foreach ($cleanBedrooms as $bed) {
             $vid = $bed['ActiveVariableID'] ?? 0;
@@ -1736,6 +1766,11 @@ class SensorGroup extends IPSModule
                         $exRow['ClassID'] = $classID;
                         $exRow['Active'] = $this->IsConfigRowActive($exRow);
 
+                        // Dynamic comparison defaults. Existing rows without
+                        // these fields remain static and fully backward compatible.
+                        $exRow['ComparisonSource'] = ((int)($exRow['ComparisonSource'] ?? 0) === 1) ? 1 : 0;
+                        $exRow['ComparisonVariableID'] = max(0, (int)($exRow['ComparisonVariableID'] ?? 0));
+
                         if (!isset($exRow['TriggerMode'])) {
                             $exRow['TriggerMode'] = 0;
                         } else {
@@ -2509,6 +2544,11 @@ class SensorGroup extends IPSModule
             // Backward compatible: missing Active means true.
             $s['Active'] = $this->IsConfigRowActive($s);
 
+            // Dynamic comparison defaults. Missing fields mean the historic
+            // static ComparisonValue behavior.
+            $s['ComparisonSource'] = ((int)($s['ComparisonSource'] ?? 0) === 1) ? 1 : 0;
+            $s['ComparisonVariableID'] = max(0, (int)($s['ComparisonVariableID'] ?? 0));
+
             if (!isset($s['TriggerMode'])) {
                 $s['TriggerMode'] = 0;
             } else {
@@ -3066,38 +3106,57 @@ class SensorGroup extends IPSModule
 
                     $match = $this->CheckSensorRule($s);
 
-                    // FIX: Capture the Specific Trigger Event (Even if Match is FALSE/OFF)
-                    // We need this because the "Group Loop" later only looks at Active classes.
-                    // If we don't capture this here, an "OFF" event is masked by other "ON" sensors.
-                    if ($TriggeringID > 0 && (int)($s['VariableID'] ?? 0) === (int)$TriggeringID) {
-                        $pID = IPS_GetParent($TriggeringID);
+                    $sensorVariableID = (int)($s['VariableID'] ?? 0);
+                    $isDirectTriggerForSensor = (
+                        $TriggeringID > 0 &&
+                        $sensorVariableID === (int)$TriggeringID
+                    );
+                    $isReferenceTriggerForSensor = (
+                        $TriggeringID > 0 &&
+                        $this->IsDynamicComparisonReferenceTrigger($s, (int)$TriggeringID)
+                    );
+
+                    // Capture the affected sensor as the trigger anchor. When a
+                    // reference variable caused the reevaluation, the alarm sensor
+                    // remains the left-hand VariableID; the reference variable is
+                    // never exposed as the alarm sensor in the existing payload API.
+                    if (($isDirectTriggerForSensor || $isReferenceTriggerForSensor) && $sensorVariableID > 0 && IPS_VariableExists($sensorVariableID)) {
+                        $pID = IPS_GetParent($sensorVariableID);
                         $gpID = ($pID > 0) ? IPS_GetParent($pID) : 0;
                         $specificTriggerEvent = [
-                            'variable_id' => $TriggeringID,
-                            'value_raw'   => GetValue($TriggeringID),
+                            'variable_id' => $sensorVariableID,
+                            'value_raw'   => GetValue($sensorVariableID),
                             'tag'         => $className,
                             'class_id'    => $classID,
                             'class_name'  => $className,
-                            'var_name'    => IPS_GetName($TriggeringID),
+                            'var_name'    => IPS_GetName($sensorVariableID),
                             'parent_name' => ($pID > 0) ? IPS_GetName($pID) : "Root",
                             'grandparent_name' => ($gpID > 0) ? IPS_GetName($gpID) : "",
-                            'value_human' => GetValueFormatted($TriggeringID),
-                            'smart_label' => $this->GetSmartLabel($TriggeringID, $labelMode)
+                            'value_human' => GetValueFormatted($sensorVariableID),
+                            'smart_label' => $this->GetSmartLabel($sensorVariableID, $labelMode)
                         ];
                     }
 
-                    if ($TriggeringID > 0 && (int)($s['VariableID'] ?? 0) === (int)$TriggeringID) {
+                    if ($isDirectTriggerForSensor || $isReferenceTriggerForSensor) {
                         $curVal = null;
                         $curType = 'n/a';
-                        if (IPS_VariableExists($TriggeringID)) {
-                            $curVal = GetValue($TriggeringID);
+                        if ($sensorVariableID > 0 && IPS_VariableExists($sensorVariableID)) {
+                            $curVal = GetValue($sensorVariableID);
                             $curType = gettype($curVal);
                         }
 
+                        $comparisonDebug = $s['ComparisonValue'] ?? null;
+                        if ($this->IsDynamicComparisonRow($s)) {
+                            $referenceID = (int)($s['ComparisonVariableID'] ?? 0);
+                            $comparisonDebug = ($referenceID > 0 && IPS_VariableExists($referenceID))
+                                ? GetValue($referenceID)
+                                : null;
+                        }
+
                         if ($this->ReadPropertyBoolean('DebugMode')) $this->LogMessage(
-                            "CHK: EVAL TrigSensor vid={$TriggeringID} class={$className} classID={$classID}" .
+                            "CHK: EVAL TrigSensor vid={$sensorVariableID} class={$className} classID={$classID}" .
                                 " op=" . (string)($s['Operator'] ?? '') .
-                                " target=" . json_encode($s['ComparisonValue'] ?? null) .
+                                " target=" . json_encode($comparisonDebug) .
                                 " curType={$curType} curVal=" . json_encode($curVal) .
                                 " match=" . (int)$match,
                             KL_MESSAGE
@@ -3127,9 +3186,12 @@ class SensorGroup extends IPSModule
 
                         $activeSensorDetailsMap[$vid] = $sensorDetail;
 
-                        // === BUGFIX 1: Capture details for ANY active sensor, prioritize specific trigger ===
-                        if ($lastTriggerDetails === null || $vid == $TriggeringID) {
-                            if ($vid == $TriggeringID) {
+                        // Capture details for any active sensor. A direct
+                        // sensor update keeps the existing COUNT trigger semantics.
+                        // A dynamic reference update may prioritize this sensor for
+                        // payload context, but must NOT increment COUNT.
+                        if ($lastTriggerDetails === null || $isDirectTriggerForSensor || $isReferenceTriggerForSensor) {
+                            if ($isDirectTriggerForSensor) {
                                 $triggerInClass = true;
                             }
 
@@ -3320,20 +3382,33 @@ class SensorGroup extends IPSModule
                     }
                 }
 
-                // 2. Check Door Sensors (via ClassID lookup)
+                // 2. Check Door Sensors (via ClassID lookup). A dynamic
+                // comparison reference can also change a bedroom-door class, so
+                // include the affected sensor class without changing BEDROOM_SYNC.
                 if (!$shouldSendSync) {
-                    // Find which Class the trigger belongs to
-                    $triggerClassID = '';
+                    $triggerClassIDs = [];
                     foreach ($sensorList as $s) {
-                        if ((int)($s['VariableID'] ?? 0) === $TriggeringID) {
-                            $triggerClassID = $s['ClassID'];
-                            break;
+                        if (!is_array($s)) {
+                            continue;
+                        }
+
+                        $isDirectSensorTrigger = ((int)($s['VariableID'] ?? 0) === (int)$TriggeringID);
+                        $isReferenceSensorTrigger = $this->IsDynamicComparisonReferenceTrigger($s, (int)$TriggeringID);
+
+                        if (!$isDirectSensorTrigger && !$isReferenceSensorTrigger) {
+                            continue;
+                        }
+
+                        $triggerClassID = trim((string)($s['ClassID'] ?? ''));
+                        if ($triggerClassID !== '') {
+                            $triggerClassIDs[$triggerClassID] = true;
                         }
                     }
 
-                    if ($triggerClassID !== '') {
+                    if (count($triggerClassIDs) > 0) {
                         foreach ($bedList as $b) {
-                            if (($b['BedroomDoorClassID'] ?? '') === $triggerClassID) {
+                            $bedroomDoorClassID = trim((string)($b['BedroomDoorClassID'] ?? ''));
+                            if ($bedroomDoorClassID !== '' && isset($triggerClassIDs[$bedroomDoorClassID])) {
                                 $shouldSendSync = true;
                                 break;
                             }
@@ -3740,6 +3815,67 @@ class SensorGroup extends IPSModule
         }
     }
 
+    private function IsDynamicComparisonRow(array $row): bool
+    {
+        // CHANGE mode intentionally ignores comparison fields. Dynamic
+        // comparison is supported for LEVEL and ONCE only.
+        $triggerMode = isset($row['TriggerMode']) ? (int)$row['TriggerMode'] : 0;
+        return $triggerMode !== 1 && ((int)($row['ComparisonSource'] ?? 0) === 1);
+    }
+
+    private function IsDynamicComparisonReferenceTrigger(array $row, int $triggeringID): bool
+    {
+        if ($triggeringID <= 0 || !$this->IsDynamicComparisonRow($row)) {
+            return false;
+        }
+
+        return (int)($row['ComparisonVariableID'] ?? 0) === $triggeringID;
+    }
+
+    private function AreDynamicComparisonValuesCompatible($sensorValue, $referenceValue): bool
+    {
+        // Explicitly allow only the agreed type combinations:
+        // bool<->bool, string<->string, and numeric int/float combinations.
+        if (is_bool($sensorValue) || is_bool($referenceValue)) {
+            return is_bool($sensorValue) && is_bool($referenceValue);
+        }
+
+        if (is_string($sensorValue) || is_string($referenceValue)) {
+            return is_string($sensorValue) && is_string($referenceValue);
+        }
+
+        $sensorNumeric = is_int($sensorValue) || is_float($sensorValue);
+        $referenceNumeric = is_int($referenceValue) || is_float($referenceValue);
+
+        return $sensorNumeric && $referenceNumeric;
+    }
+
+    private function ResolveSensorComparisonTarget(array $row, $sensorValue, &$target): bool
+    {
+        if (!$this->IsDynamicComparisonRow($row)) {
+            $target = $row['ComparisonValue'] ?? '';
+            return true;
+        }
+
+        $referenceID = (int)($row['ComparisonVariableID'] ?? 0);
+        if ($referenceID <= 0 || !IPS_VariableExists($referenceID)) {
+            return false;
+        }
+
+        $referenceValue = GetValue($referenceID);
+        if (!$this->AreDynamicComparisonValuesCompatible($sensorValue, $referenceValue)) {
+            return false;
+        }
+
+        // Preserve the existing EvaluateRule() conversion semantics. For a
+        // Boolean sensor, pass the dynamic Boolean as the same static-style
+        // representation that the existing rule evaluator already understands.
+        $target = is_bool($sensorValue)
+            ? ($referenceValue ? '1' : '0')
+            : $referenceValue;
+        return true;
+    }
+
     private function CheckSensorRule($row)
     {
         $id = (int)($row['VariableID'] ?? 0);
@@ -3755,19 +3891,33 @@ class SensorGroup extends IPSModule
 
         $val = GetValue($id);
 
-        // LEVEL = existing behavior
+        // LEVEL = existing behavior, optionally comparing against the
+        // current value of another IP-Symcon variable.
         if ($triggerMode === 0) {
             if (isset($row['Invert'])) {
                 return $row['Invert'] ? !$val : $val;
             }
-            return $this->EvaluateRule($val, $row['Operator'], $row['ComparisonValue']);
+
+            $comparisonTarget = null;
+            if (!$this->ResolveSensorComparisonTarget($row, $val, $comparisonTarget)) {
+                return false;
+            }
+
+            return $this->EvaluateRule($val, $row['Operator'], $comparisonTarget);
         }
 
-        // ONCE = pulse once on false->true condition edge, then block until condition clears
+        // ONCE = pulse once on false->true condition edge, then block until condition clears.
+        // The condition can use either a static value or a dynamic reference variable.
         if ($triggerMode === 2) {
-            $conditionActive = isset($row['Invert'])
-                ? (bool)($row['Invert'] ? !$val : $val)
-                : $this->EvaluateRule($val, $row['Operator'], $row['ComparisonValue']);
+            if (isset($row['Invert'])) {
+                $conditionActive = (bool)($row['Invert'] ? !$val : $val);
+            } else {
+                $comparisonTarget = null;
+                if (!$this->ResolveSensorComparisonTarget($row, $val, $comparisonTarget)) {
+                    return false;
+                }
+                $conditionActive = $this->EvaluateRule($val, $row['Operator'], $comparisonTarget);
+            }
 
             $conditionStateMap = $this->ReadSensorConditionStateMap();
             $pulseUntilMap = $this->ReadSensorPulseUntilMap();
@@ -4519,7 +4669,16 @@ class SensorGroup extends IPSModule
                 $opMap = ['=', '!=', '>', '<', '>=', '<='];
                 $opIdx = (int) ($s['Operator'] ?? 0);
                 $ruleOp = $opMap[$opIdx] ?? '=';
-                $rule = $ruleOp . " " . (string) ($s['ComparisonValue'] ?? '');
+
+                if ($this->IsDynamicComparisonRow($s)) {
+                    $referenceID = (int)($s['ComparisonVariableID'] ?? 0);
+                    $referenceName = ($referenceID > 0 && IPS_VariableExists($referenceID))
+                        ? IPS_GetName($referenceID)
+                        : 'MISSING';
+                    $rule = $ruleOp . ' VAR ' . $referenceName . ' (' . $referenceID . ')';
+                } else {
+                    $rule = $ruleOp . " " . (string) ($s['ComparisonValue'] ?? '');
+                }
 
                 $name = IPS_VariableExists($vid) ? IPS_GetName($vid) : "MISSING";
                 $pName = (string) ($s['ParentName'] ?? 'Unknown');
@@ -5080,6 +5239,11 @@ class SensorGroup extends IPSModule
 
             $s['Active'] = $this->IsConfigRowActive($s);
 
+            // Dynamic comparison defaults. Missing fields mean the historic
+            // static ComparisonValue behavior.
+            $s['ComparisonSource'] = ((int)($s['ComparisonSource'] ?? 0) === 1) ? 1 : 0;
+            $s['ComparisonVariableID'] = max(0, (int)($s['ComparisonVariableID'] ?? 0));
+
             if (!isset($s['TriggerMode'])) {
                 $s['TriggerMode'] = 0;
             } else {
@@ -5220,7 +5384,9 @@ class SensorGroup extends IPSModule
                                     ["caption" => "Loc (P)", "name" => "ParentName", "width" => "100px"],
                                     ["caption" => "Area (GP)", "name" => "GrandParentName", "width" => "100px"],
                                     ["caption" => "Op", "name" => "Operator", "width" => "100px", "edit" => ["type" => "Select", "options" => [["caption" => "=", "value" => 0], ["caption" => "!=", "value" => 1], ["caption" => ">", "value" => 2], ["caption" => "<", "value" => 3], ["caption" => ">=", "value" => 4], ["caption" => "<=", "value" => 5]]]],
+                                    ["caption" => "Source", "name" => "ComparisonSource", "width" => "100px", "edit" => ["type" => "Select", "options" => [["caption" => "STATIC", "value" => 0], ["caption" => "VARIABLE", "value" => 1]]]],
                                     ["caption" => "Value", "name" => "ComparisonValue", "width" => "100px", "edit" => ["type" => "ValidationTextBox"]],
+                                    ["caption" => "Reference Variable", "name" => "ComparisonVariableID", "width" => "200px", "edit" => ["type" => "SelectVariable"]],
                                     ["caption" => "Mode", "name" => "TriggerMode", "width" => "100px", "edit" => ["type" => "Select", "options" => [["caption" => "LEVEL", "value" => 0], ["caption" => "CHANGE", "value" => 1], ["caption" => "ONCE", "value" => 2]]]],
                                     ["caption" => "Pulse Width in Seconds", "name" => "PulseSeconds", "width" => "80px", "edit" => ["type" => "ValidationTextBox"]],
                                     ["caption" => "Action", "name" => "Action", "width" => "80px", "edit" => ["type" => "Button", "caption" => "Delete", "onClick" => "IPS_RequestAction(\$id, 'DEL_SENS_$safeID', \$VariableID);"]]
@@ -5831,12 +5997,24 @@ class SensorGroup extends IPSModule
                     'text'  => 'Numeric comparisons for integer or float variables. The configured Value is converted to a number when the monitored variable is numeric.'
                 ],
                 [
+                    'title' => 'Source - STATIC',
+                    'text'  => 'LEVEL and ONCE compare the sensor against the configured Value. Existing sensor rows without a Source field are treated as STATIC for backward compatibility.'
+                ],
+                [
+                    'title' => 'Source - VARIABLE',
+                    'text'  => 'LEVEL and ONCE compare the sensor against the current value of Reference Variable. Changes of the reference variable also trigger reevaluation. The reference variable is only an input and does not become the alarm sensor in payloads.'
+                ],
+                [
                     'title' => 'Value',
-                    'text'  => 'Comparison value used by LEVEL and ONCE. Boolean values accept 1 or true for true. Numeric variables use a numeric value. String equality uses the configured text.'
+                    'text'  => 'Used when Source is STATIC. Boolean values accept 1 or true for true. Numeric variables use a numeric value. String equality uses the configured text.'
+                ],
+                [
+                    'title' => 'Reference Variable',
+                    'text'  => 'Used when Source is VARIABLE. Supported type combinations are Boolean-to-Boolean, String-to-String, and numeric Integer/Float combinations. An invalid or incompatible reference makes the rule inactive. CHANGE mode ignores Source, Value, and Reference Variable.'
                 ],
                 [
                     'title' => 'Mode - LEVEL',
-                    'text'  => 'The sensor rule remains active for as long as the current variable value satisfies Op and Value. Pulse Width is ignored. Repeated evaluations continue to see the sensor as active.'
+                    'text'  => 'The sensor rule remains active for as long as the current variable value satisfies Op against the selected Source (static Value or Reference Variable). Pulse Width is ignored. Repeated evaluations continue to see the sensor as active.'
                 ],
                 [
                     'title' => 'Mode - CHANGE',
@@ -5844,7 +6022,7 @@ class SensorGroup extends IPSModule
                 ],
                 [
                     'title' => 'Mode - ONCE',
-                    'text'  => 'Op and Value define a condition. A false-to-true condition edge starts one pulse. The condition must become false before the sensor is re-armed for another pulse. The first observation only initializes the condition state and does not trigger.'
+                    'text'  => 'Op and the selected Source (static Value or Reference Variable) define a condition. A false-to-true condition edge starts one pulse. The condition must become false before the sensor is re-armed for another pulse. The first observation only initializes the condition state and does not trigger.'
                 ],
                 [
                     'title' => 'Pulse Width in Seconds',
@@ -6245,7 +6423,9 @@ class SensorGroup extends IPSModule
                     $currentRules[] = [
                         'VariableID' => $row['VariableID'],
                         'Operator' => 0,
+                        'ComparisonSource' => 0,
                         'ComparisonValue' => "1",
+                        'ComparisonVariableID' => 0,
                         'ClassID' => $TargetClassID
                     ];
                     $added = true;
