@@ -1,5 +1,5 @@
 <?php
-// Version2.12.4
+// Version2.12.5
 declare(strict_types=1);
 
 class SensorGroup extends IPSModule
@@ -4261,6 +4261,97 @@ class SensorGroup extends IPSModule
             }));
         }
 
+        // Optional presentation-only group filter.
+        // Group IDs are used in the browser filter so the selection survives a group rename.
+        // This filter changes only the Mermaid projection; it does not change alarm configuration.
+        if (isset($_GET['api']) && isset($_GET['groupFilter'])) {
+            $groupFilterRaw = (string)$_GET['groupFilter'];
+
+            if ($groupFilterRaw === 'NONE') {
+                header("Content-Type: text/plain; charset=utf-8");
+                echo "graph " . $graphDirection . "\n";
+                echo "classDef grey fill:#37474f,stroke:#546e7a,stroke-width:1px,color:#eee;\n";
+                echo "EMPTY[\"No Groups Selected\"]:::grey\n";
+                return;
+            }
+
+            $requestedGroupIDs = json_decode($groupFilterRaw, true);
+            if (!is_array($requestedGroupIDs)) {
+                $requestedGroupIDs = [];
+            }
+
+            $requestedGroupIDMap = [];
+            foreach ($requestedGroupIDs as $groupIDRaw) {
+                $groupID = trim((string)$groupIDRaw);
+                if ($groupID !== '') {
+                    $requestedGroupIDMap[$groupID] = true;
+                }
+            }
+
+            if (count($requestedGroupIDMap) === 0) {
+                header("Content-Type: text/plain; charset=utf-8");
+                echo "graph " . $graphDirection . "\n";
+                echo "classDef grey fill:#37474f,stroke:#546e7a,stroke-width:1px,color:#eee;\n";
+                echo "EMPTY[\"No Groups Selected\"]:::grey\n";
+                return;
+            }
+
+            $selectedGroupNames = [];
+            foreach ($groupList as $groupRow) {
+                if (!is_array($groupRow)) {
+                    continue;
+                }
+
+                $groupID = trim((string)($groupRow['GroupID'] ?? ''));
+                $groupName = trim((string)($groupRow['GroupName'] ?? ''));
+
+                if ($groupID !== '' && $groupName !== '' && isset($requestedGroupIDMap[$groupID])) {
+                    $selectedGroupNames[$groupName] = true;
+                }
+            }
+
+            if (count($selectedGroupNames) === 0) {
+                header("Content-Type: text/plain; charset=utf-8");
+                echo "graph " . $graphDirection . "\n";
+                echo "classDef grey fill:#37474f,stroke:#546e7a,stroke-width:1px,color:#eee;\n";
+                echo "EMPTY[\"No Matching Groups\"]:::grey\n";
+                return;
+            }
+
+            $groupList = array_values(array_filter($groupList, function ($g) use ($selectedGroupNames) {
+                return isset($selectedGroupNames[(string)($g['GroupName'] ?? '')]);
+            }));
+
+            $groupDispatch = array_values(array_filter($groupDispatch, function ($d) use ($selectedGroupNames) {
+                return isset($selectedGroupNames[(string)($d['GroupName'] ?? '')]);
+            }));
+
+            $groupMembers = array_values(array_filter($groupMembers, function ($m) use ($selectedGroupNames) {
+                return isset($selectedGroupNames[(string)($m['GroupName'] ?? '')]);
+            }));
+
+            $bedroomList = array_values(array_filter($bedroomList, function ($b) use ($selectedGroupNames) {
+                return isset($selectedGroupNames[(string)($b['GroupName'] ?? '')]);
+            }));
+
+            // Reduce the sensor working set to classes that can still be visible after the group filter.
+            $selectedClassIDs = [];
+            foreach ($groupMembers as $memberRow) {
+                if (!is_array($memberRow)) {
+                    continue;
+                }
+
+                $classID = trim((string)($memberRow['ClassID'] ?? ''));
+                if ($classID !== '') {
+                    $selectedClassIDs[$classID] = true;
+                }
+            }
+
+            $sensorList = array_values(array_filter($sensorList, function ($s) use ($selectedClassIDs) {
+                return isset($selectedClassIDs[(string)($s['ClassID'] ?? '')]);
+            }));
+        }
+
         // Maps
         $classMap = [];
         foreach ($classList as $c) {
@@ -4723,6 +4814,33 @@ class SensorGroup extends IPSModule
                 </label>";
         }
 
+        $groupCheckboxesHTML = '';
+        foreach ($groupList as $groupRow) {
+            if (!is_array($groupRow)) {
+                continue;
+            }
+
+            $groupID = trim((string)($groupRow['GroupID'] ?? ''));
+            $groupName = trim((string)($groupRow['GroupName'] ?? ''));
+
+            if ($groupID === '' || $groupName === '') {
+                continue;
+            }
+
+            $groupIDHtml = htmlspecialchars($groupID, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+            $groupNameHtml = htmlspecialchars($groupName, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+
+            $groupCheckboxesHTML .=
+                '<label class="group-filter-item">' .
+                '<input type="checkbox" class="group-filter" value="' . $groupIDHtml . '" checked onchange="groupFilterChanged()"> ' .
+                $groupNameHtml .
+                '</label>';
+        }
+
+        if ($groupCheckboxesHTML === '') {
+            $groupCheckboxesHTML = '<span class="group-filter-empty">- No groups -</span>';
+        }
+
         echo '<!DOCTYPE html>
                 <html>
                 <head>
@@ -4737,8 +4855,23 @@ class SensorGroup extends IPSModule
                     }
                     .header{flex-shrink:0;text-align:center;margin-bottom:12px;border-bottom:1px solid #333;padding-bottom:10px;}
                     .header h2{margin:0;color:#4CAF50;}
-                    .filter-bar{ background:#333; padding:10px; border-radius:6px; display:inline-block; margin-top:10px; }
+                    .filter-bar{ background:#333; padding:10px; border-radius:6px; display:inline-block; margin-top:10px; position:relative; overflow:visible; }
                     .filter-bar input{ transform:scale(1.15); margin-right:6px; }
+                    .group-filter-panel{ display:inline-block; position:relative; margin-left:18px; vertical-align:middle; text-align:left; }
+                    .group-filter-panel summary{ cursor:pointer; user-select:none; color:#cfcfcf; }
+                    .group-filter-menu{
+                        position:absolute; z-index:1000; top:calc(100% + 8px); right:0;
+                        width:340px; max-width:calc(100vw - 50px); max-height:55vh; overflow:auto;
+                        background:#2b2b2b; border:1px solid #555; border-radius:6px; padding:8px;
+                        box-shadow:0 6px 18px rgba(0,0,0,.45);
+                    }
+                    .group-filter-actions{
+                        position:sticky; top:-8px; background:#2b2b2b; padding:8px 4px;
+                        border-bottom:1px solid #444; margin-bottom:4px; z-index:1;
+                    }
+                    .group-filter-actions a{ color:#9ecbff; margin-right:14px; }
+                    .group-filter-item{ display:block; padding:5px 4px; cursor:pointer; white-space:normal; }
+                    .group-filter-empty{ display:block; padding:8px 4px; color:#aaa; }
                     .container{
                         flex-grow:1;background:#252526;border-radius:8px;width:100%;
                         border:1px solid #444;overflow:hidden;position:relative;
@@ -4872,6 +5005,7 @@ class SensorGroup extends IPSModule
                     };
 
                     const directionStorageKey = "MyAlarmFlowDirection_' . $this->InstanceID . '";
+                    const groupStorageKey = "MyAlarmFlowGroups_' . $this->InstanceID . '";
                     let resetViewportOnNextRender = false;
 
                     window.getBedroomFilter = function () {
@@ -4896,6 +5030,64 @@ class SensorGroup extends IPSModule
                         window.forceRefresh();
                     };
 
+                    window.getGroupFilterString = function () {
+                        const boxes = Array.from(document.querySelectorAll(".group-filter"));
+                        const checked = boxes.filter(b => b.checked);
+
+                        if (checked.length === 0) {
+                            return "NONE";
+                        }
+
+                        return JSON.stringify(checked.map(b => b.value));
+                    };
+
+                    window.updateGroupFilterSummary = function () {
+                        const boxes = Array.from(document.querySelectorAll(".group-filter"));
+                        const checked = boxes.filter(b => b.checked);
+                        const summary = document.getElementById("group-filter-summary");
+
+                        if (!summary) {
+                            return;
+                        }
+
+                        if (boxes.length === 0 || checked.length === 0) {
+                            summary.textContent = "None";
+                        } else if (checked.length === boxes.length) {
+                            summary.textContent = "All";
+                        } else {
+                            summary.textContent = checked.length + "/" + boxes.length;
+                        }
+                    };
+
+                    window.persistGroupFilterSelection = function () {
+                        const boxes = Array.from(document.querySelectorAll(".group-filter"));
+                        const checkedValues = boxes.filter(b => b.checked).map(b => b.value);
+
+                        try {
+                            // "All" is represented by no stored override. This ensures newly added
+                            // groups automatically appear selected when the user previously chose All.
+                            if (boxes.length > 0 && checkedValues.length === boxes.length) {
+                                localStorage.removeItem(groupStorageKey);
+                            } else {
+                                localStorage.setItem(groupStorageKey, JSON.stringify(checkedValues));
+                            }
+                        } catch (e) {
+                            // Browser storage is optional. Filtering still works for this page session.
+                        }
+
+                        window.updateGroupFilterSummary();
+                    };
+
+                    window.groupFilterChanged = function () {
+                        window.persistGroupFilterSelection();
+                        window.forceRefresh();
+                    };
+
+                    window.setAllGroups = function (checked) {
+                        document.querySelectorAll(".group-filter").forEach(b => b.checked = checked);
+                        window.groupFilterChanged();
+                    };
+
                     window.forceRefresh = function () {
                         lastGraphString = "";
                         fetchAndUpdateGraph();
@@ -4913,6 +5105,7 @@ class SensorGroup extends IPSModule
                             const url = location.pathname
                                 + "?api=1&t=" + Date.now()
                                 + "&targetFilter=" + encodeURIComponent(window.getFilterString())
+                                + "&groupFilter=" + encodeURIComponent(window.getGroupFilterString())
                                 + "&depth=" + encodeURIComponent(window.getDepthFilter())
                                 + "&state=" + encodeURIComponent(window.getStateFilter())
                                 + "&showBedrooms=" + encodeURIComponent(window.getBedroomFilter())
@@ -5018,6 +5211,23 @@ class SensorGroup extends IPSModule
                         // Use the default horizontal layout when browser storage is unavailable.
                     }
 
+                    try {
+                        const savedGroupsRaw = localStorage.getItem(groupStorageKey);
+                        if (savedGroupsRaw !== null) {
+                            const savedGroups = JSON.parse(savedGroupsRaw);
+                            if (Array.isArray(savedGroups)) {
+                                const selected = new Set(savedGroups.map(v => String(v)));
+                                document.querySelectorAll(".group-filter").forEach(b => {
+                                    b.checked = selected.has(String(b.value));
+                                });
+                            }
+                        }
+                    } catch (e) {
+                        // Invalid/unavailable browser storage falls back to all groups selected.
+                    }
+
+                    window.updateGroupFilterSummary();
+
                     fetchAndUpdateGraph();
                     setInterval(fetchAndUpdateGraph, 2000);
                 </script>
@@ -5032,6 +5242,16 @@ class SensorGroup extends IPSModule
                         <a href="#" onclick="setAllTargets(true); return false;" style="color:#9ecbff; margin-right:12px;">All</a>
                         <a href="#" onclick="setAllTargets(false); return false;" style="color:#9ecbff; margin-right:18px;">None</a>
                         ' . $checkboxesHTML . '
+                        <details class="group-filter-panel">
+                            <summary>Groups: <span id="group-filter-summary">All</span></summary>
+                            <div class="group-filter-menu">
+                                <div class="group-filter-actions">
+                                    <a href="#" onclick="setAllGroups(true); return false;">All</a>
+                                    <a href="#" onclick="setAllGroups(false); return false;">None</a>
+                                </div>
+                                ' . $groupCheckboxesHTML . '
+                            </div>
+                        </details>
                         <span style="margin-left:18px;">Depth:</span>
                         <select id="depth-filter" onchange="forceRefresh()" style="margin-left:8px;">
                             <option value="groups">Groups</option>
