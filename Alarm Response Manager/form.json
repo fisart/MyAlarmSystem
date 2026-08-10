@@ -875,9 +875,7 @@
               "width": "1px",
               "add": "",
               "visible": false,
-              "edit": {
-                "type": "ValidationTextBox"
-              }
+              "save": true
             },
             {
               "caption": "Group",
