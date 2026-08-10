@@ -1,7 +1,7 @@
 <?php
 
 declare(strict_types=1);
-// 7.9.0
+// 7.10.0
 class AlarmResponseManager extends IPSModule
 {
     private const HOUSE_STATES = [
@@ -62,6 +62,7 @@ class AlarmResponseManager extends IPSModule
         $this->RegisterPropertyString('VisibleGraphGroups', '[]');
         $this->RegisterPropertyString('AssignmentMatrixConfig', '[]');
         $this->RegisterPropertyString('GroupStateMatrixConfig', '[]');
+        $this->RegisterPropertyString('GroupMessageTextConfig', '[]');
 
         $this->RegisterPropertyString('OutputResources', '[]');
         $this->RegisterPropertyString('GroupStateRules', '[]');
@@ -136,6 +137,13 @@ class AlarmResponseManager extends IPSModule
         $this->SetBuffer(
             'SensorGroupMembershipMap',
             is_string($sensorGroupMembershipJson) ? $sensorGroupMembershipJson : '{"sensor_groups":{},"mapped_group_keys":{}}'
+        );
+
+        $groupMessageTextMap = $this->BuildGroupMessageTextMap();
+        $groupMessageTextJson = json_encode($groupMessageTextMap, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        $this->SetBuffer(
+            'GroupMessageTextMap',
+            is_string($groupMessageTextJson) ? $groupMessageTextJson : '{}'
         );
 
         $rearmVariableID = @$this->GetIDForIdent('RearmAllSensorAlarms');
@@ -777,7 +785,7 @@ class AlarmResponseManager extends IPSModule
             $outputName = trim((string) ($resource['OutputID'] ?? 'screen'));
         }
 
-        $message = $this->BuildOutputMessageText($resource, $payload);
+        $message = $this->BuildOutputMessageText($resource, $payload, $groupLabel);
 
         $lines = [];
         $lines[] = '<div style="background:#252526;border:1px solid #444;border-radius:8px;padding:12px;margin-bottom:10px;">';
@@ -913,12 +921,14 @@ class AlarmResponseManager extends IPSModule
         $groupStateMatrixConfig = $config['GroupStateMatrixConfig'];
         $ruleOutputAssignments = $config['RuleOutputAssignments'];
         $assignmentMatrixConfig = $config['AssignmentMatrixConfig'] ?? [];
+        $groupMessageTextConfig = $config['GroupMessageTextConfig'] ?? [];
 
         IPS_SetProperty($this->InstanceID, 'OutputResources', json_encode(array_values($outputResources)));
         IPS_SetProperty($this->InstanceID, 'GroupStateRules', json_encode(array_values($groupStateRules)));
         IPS_SetProperty($this->InstanceID, 'GroupStateMatrixConfig', json_encode(array_values($groupStateMatrixConfig)));
         IPS_SetProperty($this->InstanceID, 'RuleOutputAssignments', json_encode(array_values($ruleOutputAssignments)));
         IPS_SetProperty($this->InstanceID, 'AssignmentMatrixConfig', json_encode(array_values($assignmentMatrixConfig)));
+        IPS_SetProperty($this->InstanceID, 'GroupMessageTextConfig', json_encode(array_values($groupMessageTextConfig)));
         IPS_ApplyChanges($this->InstanceID);
 
         $this->SetStatus(205);
@@ -950,6 +960,10 @@ class AlarmResponseManager extends IPSModule
             throw new Exception('Backup JSON field AssignmentMatrixConfig must be an array.');
         }
 
+        if (array_key_exists('GroupMessageTextConfig', $config) && !is_array($config['GroupMessageTextConfig'])) {
+            throw new Exception('Backup JSON field GroupMessageTextConfig must be an array.');
+        }
+
         foreach ($config['OutputResources'] as $index => $row) {
             if (!is_array($row)) {
                 throw new Exception('OutputResources row ' . $index . ' is invalid.');
@@ -972,6 +986,14 @@ class AlarmResponseManager extends IPSModule
             foreach ($config['AssignmentMatrixConfig'] as $index => $row) {
                 if (!is_array($row)) {
                     throw new Exception('AssignmentMatrixConfig row ' . $index . ' is invalid.');
+                }
+            }
+        }
+
+        if (array_key_exists('GroupMessageTextConfig', $config)) {
+            foreach ($config['GroupMessageTextConfig'] as $index => $row) {
+                if (!is_array($row)) {
+                    throw new Exception('GroupMessageTextConfig row ' . $index . ' is invalid.');
                 }
             }
         }
@@ -1182,6 +1204,7 @@ class AlarmResponseManager extends IPSModule
                 'UseSensorName'      => (bool) ($row['UseSensorName'] ?? true),
                 'UseParentName'      => (bool) ($row['UseParentName'] ?? false),
                 'UseGrandparentName' => (bool) ($row['UseGrandparentName'] ?? false),
+                'UseGroupText'       => (bool) ($row['UseGroupText'] ?? false),
                 'UseContent'         => (bool) ($row['UseContent'] ?? false),
                 'SuffixText'         => (string) ($row['SuffixText'] ?? ''),
                 'EmailAddress'       => (string) ($row['EmailAddress'] ?? ''),
@@ -1193,6 +1216,7 @@ class AlarmResponseManager extends IPSModule
                 'SensorOrder'        => (int) ($row['SensorOrder'] ?? 20),
                 'ParentOrder'        => (int) ($row['ParentOrder'] ?? 30),
                 'GrandparentOrder'   => (int) ($row['GrandparentOrder'] ?? 40),
+                'GroupTextOrder'     => (int) ($row['GroupTextOrder'] ?? 40),
                 'ContentOrder'       => (int) ($row['ContentOrder'] ?? 50),
                 'SuffixOrder'        => (int) ($row['SuffixOrder'] ?? 60)
             ];
@@ -1267,7 +1291,8 @@ class AlarmResponseManager extends IPSModule
                 'GroupStateRules'        => $this->readListProperty('GroupStateRules'),
                 'GroupStateMatrixConfig' => $this->readListProperty('GroupStateMatrixConfig'),
                 'RuleOutputAssignments'  => $this->readListProperty('RuleOutputAssignments'),
-                'AssignmentMatrixConfig' => $this->readListProperty('AssignmentMatrixConfig')
+                'AssignmentMatrixConfig' => $this->readListProperty('AssignmentMatrixConfig'),
+                'GroupMessageTextConfig' => $this->readListProperty('GroupMessageTextConfig')
             ]
         ];
 
@@ -1333,6 +1358,7 @@ class AlarmResponseManager extends IPSModule
                 'UseSensorName'      => (bool) ($row['UseSensorName'] ?? true),
                 'UseParentName'      => (bool) ($row['UseParentName'] ?? false),
                 'UseGrandparentName' => (bool) ($row['UseGrandparentName'] ?? false),
+                'UseGroupText'       => (bool) ($row['UseGroupText'] ?? false),
                 'UseContent'         => (bool) ($row['UseContent'] ?? false),
                 'SuffixText'         => (string) ($row['SuffixText'] ?? ''),
                 'EmailAddress'       => (string) ($row['EmailAddress'] ?? ''),
@@ -1344,6 +1370,7 @@ class AlarmResponseManager extends IPSModule
                 'SensorOrder'        => (int) ($row['SensorOrder'] ?? 20),
                 'ParentOrder'        => (int) ($row['ParentOrder'] ?? 30),
                 'GrandparentOrder'   => (int) ($row['GrandparentOrder'] ?? 40),
+                'GroupTextOrder'     => (int) ($row['GroupTextOrder'] ?? 40),
                 'ContentOrder'       => (int) ($row['ContentOrder'] ?? 50),
                 'SuffixOrder'        => (int) ($row['SuffixOrder'] ?? 60),
                 'TypeLabel'          => $typeLabels[$typeID] ?? '[missing type]',
@@ -1355,12 +1382,149 @@ class AlarmResponseManager extends IPSModule
         $ruleMatrixValues = $this->BuildGroupStateMatrixPropertyValues($importedGroups, $flatGroupStateRules);
         $this->setListValues($form, 'GroupStateMatrixConfig', $ruleMatrixValues);
 
+        $groupMessageTextValues = $this->BuildGroupMessageTextPropertyValues($importedGroups);
+        $this->setListValues($form, 'GroupMessageTextConfig', $groupMessageTextValues);
+
         $assignmentMatrixValues = $this->BuildAssignmentMatrixPropertyValues($importedGroups, $groupStateRules);
         $this->setListValues($form, 'AssignmentMatrixConfig', $assignmentMatrixValues);
 
         return json_encode($form);
     }
 
+
+
+    private function NormalizeGroupMessageTextRows(array $rows, array $importedGroups): array
+    {
+        $validGroups = [];
+        foreach ($importedGroups as $group) {
+            if (!is_array($group)) {
+                continue;
+            }
+
+            $groupKey = trim((string) ($group['GroupKey'] ?? ''));
+            $groupLabel = trim((string) ($group['GroupLabel'] ?? $groupKey));
+            if ($groupKey !== '') {
+                $validGroups[$groupKey] = $groupLabel !== '' ? $groupLabel : $groupKey;
+            }
+        }
+
+        $normalizedByGroup = [];
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $groupKey = trim((string) ($row['GroupKey'] ?? ''));
+            if ($groupKey === '' || !isset($validGroups[$groupKey])) {
+                continue;
+            }
+
+            $normalizedByGroup[$groupKey] = [
+                'GroupKey'   => $groupKey,
+                'GroupLabel' => $validGroups[$groupKey],
+                'GroupText'  => (string) ($row['GroupText'] ?? '')
+            ];
+        }
+
+        return $normalizedByGroup;
+    }
+
+
+    private function BuildGroupMessageTextPropertyValues(array $importedGroups): array
+    {
+        $storedByGroup = $this->NormalizeGroupMessageTextRows(
+            $this->readListProperty('GroupMessageTextConfig'),
+            $importedGroups
+        );
+
+        $result = [];
+        foreach ($importedGroups as $group) {
+            if (!is_array($group)) {
+                continue;
+            }
+
+            $groupKey = trim((string) ($group['GroupKey'] ?? ''));
+            $groupLabel = trim((string) ($group['GroupLabel'] ?? $groupKey));
+            if ($groupKey === '') {
+                continue;
+            }
+
+            $stored = $storedByGroup[$groupKey] ?? [];
+            $result[] = [
+                'GroupKey'   => $groupKey,
+                'GroupLabel' => $groupLabel !== '' ? $groupLabel : $groupKey,
+                'GroupText'  => (string) ($stored['GroupText'] ?? '')
+            ];
+        }
+
+        return array_values($result);
+    }
+
+
+    private function BuildGroupMessageTextMap(): array
+    {
+        $importedGroups = $this->ExtractImportedGroupsFromConfig();
+        $rowsByGroup = $this->NormalizeGroupMessageTextRows(
+            $this->readListProperty('GroupMessageTextConfig'),
+            $importedGroups
+        );
+
+        $map = [];
+        foreach ($rowsByGroup as $groupKey => $row) {
+            $text = trim((string) ($row['GroupText'] ?? ''));
+            if ($text !== '') {
+                $map[$groupKey] = $text;
+            }
+        }
+
+        ksort($map, SORT_STRING);
+        return $map;
+    }
+
+
+    private function GetGroupMessageText(string $groupLabel): string
+    {
+        $groupLabel = trim($groupLabel);
+        if ($groupLabel === '') {
+            return '';
+        }
+
+        $groupKey = $this->MakeGroupKey($groupLabel);
+        $raw = $this->GetBuffer('GroupMessageTextMap');
+
+        if ($raw === '') {
+            $map = $this->BuildGroupMessageTextMap();
+            $encoded = json_encode($map, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+            $raw = is_string($encoded) ? $encoded : '{}';
+            $this->SetBuffer('GroupMessageTextMap', $raw);
+        }
+
+        /*
+         * Avoid repeated JSON parsing in the output path. The cache is keyed by
+         * instance and invalidates automatically whenever ApplyChanges() writes
+         * a different buffer value.
+         */
+        static $cacheByInstance = [];
+        $instanceKey = (string) $this->InstanceID;
+
+        if (
+            !isset($cacheByInstance[$instanceKey])
+            || ($cacheByInstance[$instanceKey]['raw'] ?? null) !== $raw
+        ) {
+            $decoded = json_decode($raw, true);
+            $cacheByInstance[$instanceKey] = [
+                'raw' => $raw,
+                'map' => is_array($decoded) ? $decoded : []
+            ];
+        }
+
+        $map = $cacheByInstance[$instanceKey]['map'] ?? [];
+        if (!is_array($map)) {
+            return '';
+        }
+
+        return trim((string) ($map[$groupKey] ?? ''));
+    }
 
 
     private function BuildGroupStateMatrixPropertyValues(array $importedGroups, array $flatGroupStateRules): array
@@ -5377,7 +5541,7 @@ document.addEventListener("DOMContentLoaded", () => {
             case 'json_payload':
                 $houseStateID = (string) ((int) ($house['system_state_id'] ?? 0));
                 $houseStateName = (string) ($house['system_state_name'] ?? $this->labelFromOptions(self::HOUSE_STATES, $houseStateID));
-                $message = $this->BuildOutputMessageText($resource, $payload);
+                $message = $this->BuildOutputMessageText($resource, $payload, $groupLabel);
 
                 return json_encode([
                     'group' => $groupLabel,
@@ -5391,7 +5555,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
             case 'message_text':
             default:
-                return $this->BuildOutputMessageText($resource, $payload);
+                return $this->BuildOutputMessageText($resource, $payload, $groupLabel);
         }
     }
 
@@ -5399,7 +5563,7 @@ document.addEventListener("DOMContentLoaded", () => {
     {
         $typeID = trim((string) ($resource['TypeID'] ?? ''));
         $targetObjectID = (int) ($resource['TargetObjectID'] ?? 0);
-        $message = $this->BuildOutputMessageText($resource, $payload);
+        $message = $this->BuildOutputMessageText($resource, $payload, $groupLabel);
 
         $this->DebugLog('SendScriptOutputResource: TypeID=' . $typeID, KL_MESSAGE);
         $this->DebugLog('SendScriptOutputResource: TargetObjectID=' . $targetObjectID, KL_MESSAGE);
@@ -5449,7 +5613,7 @@ document.addEventListener("DOMContentLoaded", () => {
         $typeID = trim((string) ($resource['TypeID'] ?? ''));
         $targetObjectID = (int) ($resource['TargetObjectID'] ?? 0);
         $phoneNumber = trim((string) ($resource['PhoneNumber'] ?? ''));
-        $message = $this->BuildOutputMessageText($resource, $payload);
+        $message = $this->BuildOutputMessageText($resource, $payload, $groupLabel);
 
         $this->DebugLog('SendVoipOutputResource: TypeID=' . $typeID, KL_MESSAGE);
         $this->DebugLog('SendVoipOutputResource: TargetObjectID=' . $targetObjectID, KL_MESSAGE);
@@ -5492,7 +5656,7 @@ document.addEventListener("DOMContentLoaded", () => {
         $typeID = trim((string) ($resource['TypeID'] ?? ''));
         $targetObjectID = (int) ($resource['TargetObjectID'] ?? 0);
         $title = $this->BuildEmailSubject($groupLabel, $house);
-        $message = $this->BuildOutputMessageText($resource, $payload);
+        $message = $this->BuildOutputMessageText($resource, $payload, $groupLabel);
 
         $this->DebugLog('SendNotificationOutputResource: TypeID=' . $typeID, KL_MESSAGE);
         $this->DebugLog('SendNotificationOutputResource: TargetObjectID=' . $targetObjectID, KL_MESSAGE);
@@ -5572,7 +5736,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     private function BuildEmailBody(array $resource, array $payload, array $house, string $groupLabel): string
     {
-        $message = $this->BuildOutputMessageText($resource, $payload);
+        $message = $this->BuildOutputMessageText($resource, $payload, $groupLabel);
 
         $stateID = (string) ((int) ($house['system_state_id'] ?? 0));
         $stateLabel = $this->labelFromOptions(self::HOUSE_STATES, $stateID);
@@ -5589,7 +5753,7 @@ document.addEventListener("DOMContentLoaded", () => {
         return implode("\n", $lines);
     }
 
-    private function BuildOutputMessageText(array $resource, array $payload): string
+    private function BuildOutputMessageText(array $resource, array $payload, string $groupLabel): string
     {
         $prefix = trim((string) ($resource['PrefixText'] ?? ''));
         $suffix = trim((string) ($resource['SuffixText'] ?? ''));
@@ -5599,6 +5763,7 @@ document.addEventListener("DOMContentLoaded", () => {
         $sensorName = (string) ($messageData['sensor_name'] ?? '');
         $parentName = (string) ($messageData['parent_name'] ?? '');
         $grandparentName = (string) ($messageData['grandparent_name'] ?? '');
+        $groupText = $this->GetGroupMessageText($groupLabel);
         $content = (string) ($messageData['content'] ?? '');
 
         $parts = [];
@@ -5628,6 +5793,13 @@ document.addEventListener("DOMContentLoaded", () => {
             $parts[] = [
                 'order' => (int) ($resource['GrandparentOrder'] ?? 40),
                 'text'  => $grandparentName
+            ];
+        }
+
+        if ((bool) ($resource['UseGroupText'] ?? false) && $groupText !== '') {
+            $parts[] = [
+                'order' => (int) ($resource['GroupTextOrder'] ?? 40),
+                'text'  => $groupText
             ];
         }
 
@@ -6057,6 +6229,9 @@ document.addEventListener("DOMContentLoaded", () => {
         }
         if ($targetObjectID > 0) {
             $parts[] = 'ObjID: ' . $targetObjectID;
+        }
+        if ((bool) ($row['UseGroupText'] ?? false)) {
+            $parts[] = 'Group text';
         }
         if ($actionValueMode !== '') {
             $parts[] = 'Mode: ' . $actionValueMode;

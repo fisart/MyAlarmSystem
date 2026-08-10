@@ -2,7 +2,7 @@
   "elements": [
     {
       "type": "Label",
-      "caption": "Module 3 configuration: output resources, group-state rules and rule-output assignments."
+      "caption": "Module 3 configuration: output resources, group-state rules, group message texts and rule-output assignments."
     },
     {
       "type": "SelectInstance",
@@ -161,6 +161,15 @@
               }
             },
             {
+              "caption": "Group Text",
+              "name": "UseGroupText",
+              "width": "80px",
+              "add": false,
+              "edit": {
+                "type": "CheckBox"
+              }
+            },
+            {
               "caption": "Content",
               "name": "UseContent",
               "width": "70px",
@@ -265,6 +274,15 @@
               }
             },
             {
+              "caption": "Group Text Ord",
+              "name": "GroupTextOrder",
+              "width": "100px",
+              "add": 40,
+              "edit": {
+                "type": "NumberSpinner"
+              }
+            },
+            {
               "caption": "Content Ord",
               "name": "ContentOrder",
               "width": "85px",
@@ -358,6 +376,11 @@
             },
             {
               "type": "CheckBox",
+              "name": "UseGroupText",
+              "caption": "Use Group Text"
+            },
+            {
+              "type": "CheckBox",
               "name": "UseContent",
               "caption": "Use Content"
             },
@@ -419,6 +442,11 @@
               "type": "NumberSpinner",
               "name": "GrandparentOrder",
               "caption": "Grandparent Order"
+            },
+            {
+              "type": "NumberSpinner",
+              "name": "GroupTextOrder",
+              "caption": "Group Text Order"
             },
             {
               "type": "NumberSpinner",
@@ -825,7 +853,56 @@
     },
     {
       "type": "ExpansionPanel",
-      "caption": "3. Rule Output Assignments — define which outputs are used for each group/state rule",
+      "caption": "3. Group Message Texts — optional free text associated with each Module 1 group",
+      "expanded": false,
+      "items": [
+        {
+          "type": "Label",
+          "caption": "Enter optional group-level text here. An output includes it only when Use Group Text is enabled for that output."
+        },
+        {
+          "type": "List",
+          "name": "GroupMessageTextConfig",
+          "caption": "Group Message Texts",
+          "rowCount": 8,
+          "add": false,
+          "delete": false,
+          "loadValuesFromConfiguration": false,
+          "columns": [
+            {
+              "caption": "GroupKey",
+              "name": "GroupKey",
+              "width": "1px",
+              "add": "",
+              "visible": false,
+              "edit": {
+                "type": "ValidationTextBox"
+              }
+            },
+            {
+              "caption": "Group",
+              "name": "GroupLabel",
+              "width": "220px",
+              "add": "",
+              "save": false
+            },
+            {
+              "caption": "Free Text",
+              "name": "GroupText",
+              "width": "auto",
+              "add": "",
+              "edit": {
+                "type": "ValidationTextBox"
+              }
+            }
+          ],
+          "values": []
+        }
+      ]
+    },
+    {
+      "type": "ExpansionPanel",
+      "caption": "4. Rule Output Assignments — define which outputs are used for each group/state rule",
       "items": [
         {
           "type": "List",
@@ -940,11 +1017,11 @@
     },
     {
       "type": "ExpansionPanel",
-      "caption": "4. Configuration Backup",
+      "caption": "5. Configuration Backup",
       "items": [
         {
           "type": "Label",
-          "caption": "Full configuration backup — includes output resources, group-state rules, rule-output assignments and matrix configuration."
+          "caption": "Full configuration backup — includes output resources, group-state rules, group message texts, rule-output assignments and matrix configuration."
         },
         {
           "type": "ValidationTextBox",
