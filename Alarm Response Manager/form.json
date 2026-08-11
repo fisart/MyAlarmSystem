@@ -2,7 +2,7 @@
   "elements": [
     {
       "type": "Label",
-      "caption": "Module 3 configuration: output resources, group-state rules, group message texts and rule-output assignments."
+      "caption": "Module 3 configuration: output resources, group-state rules, group message texts, output bundles and assignments."
     },
     {
       "type": "SelectInstance",
@@ -900,12 +900,224 @@
     },
     {
       "type": "ExpansionPanel",
-      "caption": "4. Rule Output Assignments — define which outputs are used for each group/state rule",
+      "caption": "4. Output Bundles — define reusable named sets of output resources",
+      "expanded": false,
+      "items": [
+        {
+          "type": "Label",
+          "caption": "Bundles are a configuration layer only. They reference existing OutputIDs and do not copy output settings."
+        },
+        {
+          "type": "List",
+          "name": "OutputBundles",
+          "caption": "Output Bundles",
+          "rowCount": 8,
+          "add": true,
+          "delete": true,
+          "loadValuesFromConfiguration": false,
+          "sort": {
+            "column": "Name",
+            "direction": "ascending"
+          },
+          "columns": [
+            {
+              "caption": "Active",
+              "name": "Active",
+              "width": "70px",
+              "add": true,
+              "edit": {
+                "type": "CheckBox"
+              }
+            },
+            {
+              "caption": "BundleID",
+              "name": "BundleID",
+              "width": "1px",
+              "add": "",
+              "visible": false,
+              "save": true
+            },
+            {
+              "caption": "Bundle Name",
+              "name": "Name",
+              "width": "260px",
+              "add": "",
+              "edit": {
+                "type": "ValidationTextBox"
+              }
+            },
+            {
+              "caption": "Members",
+              "name": "MemberSummary",
+              "width": "140px",
+              "add": "",
+              "save": false
+            }
+          ],
+          "values": []
+        },
+        {
+          "type": "Label",
+          "caption": "Bundle Members — add one row for each output that belongs to a bundle. An output may belong to multiple bundles."
+        },
+        {
+          "type": "List",
+          "name": "OutputBundleMembers",
+          "caption": "Bundle Members",
+          "rowCount": 10,
+          "add": true,
+          "delete": true,
+          "loadValuesFromConfiguration": false,
+          "columns": [
+            {
+              "caption": "Bundle",
+              "name": "BundleID",
+              "width": "280px",
+              "add": "",
+              "edit": {
+                "type": "Select",
+                "options": []
+              }
+            },
+            {
+              "caption": "Output",
+              "name": "OutputID",
+              "width": "auto",
+              "add": "",
+              "edit": {
+                "type": "Select",
+                "options": []
+              }
+            }
+          ],
+          "values": []
+        }
+      ]
+    },
+    {
+      "type": "ExpansionPanel",
+      "caption": "5. Bundle Assignments — assign bundles to each group and house state",
+      "expanded": false,
+      "items": [
+        {
+          "type": "Label",
+          "caption": "Abbreviations: D = Disarmed, E = Exit Delay, AE = Armed External, AI = Armed Internal, A = Alarm"
+        },
+        {
+          "type": "List",
+          "name": "BundleAssignmentMatrixConfig",
+          "caption": "Bundle Assignment Matrix",
+          "rowCount": 12,
+          "add": false,
+          "delete": false,
+          "loadValuesFromConfiguration": false,
+          "columns": [
+            {
+              "caption": "BundleID",
+              "name": "BundleID",
+              "width": "1px",
+              "add": "",
+              "visible": false,
+              "save": true
+            },
+            {
+              "caption": "GroupKey",
+              "name": "GroupKey",
+              "width": "1px",
+              "add": "",
+              "visible": false,
+              "save": true
+            },
+            {
+              "caption": "Group",
+              "name": "GroupLabel",
+              "width": "220px",
+              "add": "",
+              "save": false
+            },
+            {
+              "caption": "Bundle",
+              "name": "BundleLabel",
+              "width": "220px",
+              "add": "",
+              "save": false
+            },
+            {
+              "caption": "All",
+              "name": "AllStates",
+              "width": "50px",
+              "add": false,
+              "edit": {
+                "type": "CheckBox"
+              }
+            },
+            {
+              "caption": "None",
+              "name": "NoneStates",
+              "width": "60px",
+              "add": false,
+              "edit": {
+                "type": "CheckBox"
+              }
+            },
+            {
+              "caption": "Disarmed",
+              "name": "HS_0",
+              "width": "75px",
+              "add": false,
+              "edit": {
+                "type": "CheckBox"
+              }
+            },
+            {
+              "caption": "Exit Delay",
+              "name": "HS_2",
+              "width": "75px",
+              "add": false,
+              "edit": {
+                "type": "CheckBox"
+              }
+            },
+            {
+              "caption": "Armed Ext",
+              "name": "HS_3",
+              "width": "80px",
+              "add": false,
+              "edit": {
+                "type": "CheckBox"
+              }
+            },
+            {
+              "caption": "Armed Int",
+              "name": "HS_6",
+              "width": "80px",
+              "add": false,
+              "edit": {
+                "type": "CheckBox"
+              }
+            },
+            {
+              "caption": "Alarm",
+              "name": "HS_9",
+              "width": "65px",
+              "add": false,
+              "edit": {
+                "type": "CheckBox"
+              }
+            }
+          ],
+          "values": []
+        }
+      ]
+    },
+    {
+      "type": "ExpansionPanel",
+      "caption": "6. Direct Output Assignments — advanced / exceptional assignments",
       "items": [
         {
           "type": "List",
           "name": "AssignmentMatrixConfig",
-          "caption": "Rule Output Matrix",
+          "caption": "Direct Rule Output Matrix",
           "rowCount": 12,
           "add": false,
           "delete": false,
@@ -1015,11 +1227,11 @@
     },
     {
       "type": "ExpansionPanel",
-      "caption": "5. Configuration Backup",
+      "caption": "7. Configuration Backup",
       "items": [
         {
           "type": "Label",
-          "caption": "Full configuration backup — includes output resources, group-state rules, group message texts, rule-output assignments and matrix configuration."
+          "caption": "Full configuration backup — includes output resources, rules, group texts, bundles, bundle members, bundle assignments and direct assignments."
         },
         {
           "type": "ValidationTextBox",

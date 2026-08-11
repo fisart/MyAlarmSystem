@@ -1,7 +1,7 @@
 <?php
 
 declare(strict_types=1);
-// 7.10.0
+// 7.11.0
 class AlarmResponseManager extends IPSModule
 {
     private const HOUSE_STATES = [
@@ -63,6 +63,9 @@ class AlarmResponseManager extends IPSModule
         $this->RegisterPropertyString('AssignmentMatrixConfig', '[]');
         $this->RegisterPropertyString('GroupStateMatrixConfig', '[]');
         $this->RegisterPropertyString('GroupMessageTextConfig', '[]');
+        $this->RegisterPropertyString('OutputBundles', '[]');
+        $this->RegisterPropertyString('OutputBundleMembers', '[]');
+        $this->RegisterPropertyString('BundleAssignmentMatrixConfig', '[]');
 
         $this->RegisterPropertyString('OutputResources', '[]');
         $this->RegisterPropertyString('GroupStateRules', '[]');
@@ -145,6 +148,14 @@ class AlarmResponseManager extends IPSModule
             'GroupMessageTextMap',
             is_string($groupMessageTextJson) ? $groupMessageTextJson : '{}'
         );
+
+        $bundleRuntimeCache = $this->BuildBundleRuntimeCache();
+        $bundleRuntimeCacheJson = json_encode($bundleRuntimeCache, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        $this->SetBuffer(
+            'BundleRuntimeCache',
+            is_string($bundleRuntimeCacheJson) ? $bundleRuntimeCacheJson : '{"expanded_assignments":[],"bundle_rule_assignments":[],"bundles":{},"members":{}}'
+        );
+        $this->LogBundleConfigurationAnomalies($bundleRuntimeCache['anomalies'] ?? []);
 
         $rearmVariableID = @$this->GetIDForIdent('RearmAllSensorAlarms');
         if ($rearmVariableID !== false && $rearmVariableID > 0) {
@@ -914,6 +925,7 @@ class AlarmResponseManager extends IPSModule
 
         $this->ValidateImportConfiguration($data);
 
+        $schema = (string) ($data['schema'] ?? '');
         $config = $data['config'];
 
         $outputResources = $config['OutputResources'];
@@ -923,22 +935,36 @@ class AlarmResponseManager extends IPSModule
         $assignmentMatrixConfig = $config['AssignmentMatrixConfig'] ?? [];
         $groupMessageTextConfig = $config['GroupMessageTextConfig'] ?? [];
 
+        $outputBundles = [];
+        $outputBundleMembers = [];
+        $bundleAssignmentMatrixConfig = [];
+
+        if ($schema === 'ARMM.ConfigBackup.v2') {
+            $outputBundles = $config['OutputBundles'] ?? [];
+            $outputBundleMembers = $config['OutputBundleMembers'] ?? [];
+            $bundleAssignmentMatrixConfig = $config['BundleAssignmentMatrixConfig'] ?? [];
+        }
+
         IPS_SetProperty($this->InstanceID, 'OutputResources', json_encode(array_values($outputResources)));
         IPS_SetProperty($this->InstanceID, 'GroupStateRules', json_encode(array_values($groupStateRules)));
         IPS_SetProperty($this->InstanceID, 'GroupStateMatrixConfig', json_encode(array_values($groupStateMatrixConfig)));
         IPS_SetProperty($this->InstanceID, 'RuleOutputAssignments', json_encode(array_values($ruleOutputAssignments)));
         IPS_SetProperty($this->InstanceID, 'AssignmentMatrixConfig', json_encode(array_values($assignmentMatrixConfig)));
         IPS_SetProperty($this->InstanceID, 'GroupMessageTextConfig', json_encode(array_values($groupMessageTextConfig)));
+        IPS_SetProperty($this->InstanceID, 'OutputBundles', json_encode(array_values($outputBundles)));
+        IPS_SetProperty($this->InstanceID, 'OutputBundleMembers', json_encode(array_values($outputBundleMembers)));
+        IPS_SetProperty($this->InstanceID, 'BundleAssignmentMatrixConfig', json_encode(array_values($bundleAssignmentMatrixConfig)));
         IPS_ApplyChanges($this->InstanceID);
 
         $this->SetStatus(205);
-        $this->LogMessage('ImportConfiguration: backup JSON imported from ConfigBackupJson', KL_MESSAGE);
+        $this->LogMessage('ImportConfiguration: backup JSON imported from ConfigBackupJson schema=' . $schema, KL_MESSAGE);
     }
 
 
     private function ValidateImportConfiguration(array $data): void
     {
-        if (($data['schema'] ?? '') !== 'ARMM.ConfigBackup.v1') {
+        $schema = (string) ($data['schema'] ?? '');
+        if (!in_array($schema, ['ARMM.ConfigBackup.v1', 'ARMM.ConfigBackup.v2'], true)) {
             throw new Exception('Unsupported backup schema.');
         }
 
@@ -956,44 +982,42 @@ class AlarmResponseManager extends IPSModule
             }
         }
 
-        if (array_key_exists('AssignmentMatrixConfig', $config) && !is_array($config['AssignmentMatrixConfig'])) {
-            throw new Exception('Backup JSON field AssignmentMatrixConfig must be an array.');
-        }
-
-        if (array_key_exists('GroupMessageTextConfig', $config) && !is_array($config['GroupMessageTextConfig'])) {
-            throw new Exception('Backup JSON field GroupMessageTextConfig must be an array.');
-        }
-
-        foreach ($config['OutputResources'] as $index => $row) {
-            if (!is_array($row)) {
-                throw new Exception('OutputResources row ' . $index . ' is invalid.');
+        foreach (['AssignmentMatrixConfig', 'GroupMessageTextConfig'] as $key) {
+            if (array_key_exists($key, $config) && !is_array($config[$key])) {
+                throw new Exception('Backup JSON field ' . $key . ' must be an array.');
             }
         }
 
-        foreach ($config['GroupStateRules'] as $index => $row) {
-            if (!is_array($row)) {
-                throw new Exception('GroupStateRules row ' . $index . ' is invalid.');
-            }
-        }
-
-        foreach ($config['RuleOutputAssignments'] as $index => $row) {
-            if (!is_array($row)) {
-                throw new Exception('RuleOutputAssignments row ' . $index . ' is invalid.');
-            }
-        }
-
-        if (array_key_exists('AssignmentMatrixConfig', $config)) {
-            foreach ($config['AssignmentMatrixConfig'] as $index => $row) {
-                if (!is_array($row)) {
-                    throw new Exception('AssignmentMatrixConfig row ' . $index . ' is invalid.');
+        if ($schema === 'ARMM.ConfigBackup.v2') {
+            foreach (['OutputBundles', 'OutputBundleMembers', 'BundleAssignmentMatrixConfig'] as $key) {
+                if (!array_key_exists($key, $config)) {
+                    throw new Exception('Backup JSON v2 is missing ' . $key . '.');
+                }
+                if (!is_array($config[$key])) {
+                    throw new Exception('Backup JSON field ' . $key . ' must be an array.');
                 }
             }
         }
 
-        if (array_key_exists('GroupMessageTextConfig', $config)) {
-            foreach ($config['GroupMessageTextConfig'] as $index => $row) {
+        foreach (
+            [
+                'OutputResources',
+                'GroupStateRules',
+                'RuleOutputAssignments',
+                'AssignmentMatrixConfig',
+                'GroupMessageTextConfig',
+                'OutputBundles',
+                'OutputBundleMembers',
+                'BundleAssignmentMatrixConfig'
+            ] as $key
+        ) {
+            if (!array_key_exists($key, $config)) {
+                continue;
+            }
+
+            foreach ($config[$key] as $index => $row) {
                 if (!is_array($row)) {
-                    throw new Exception('GroupMessageTextConfig row ' . $index . ' is invalid.');
+                    throw new Exception($key . ' row ' . $index . ' is invalid.');
                 }
             }
         }
@@ -1117,7 +1141,7 @@ class AlarmResponseManager extends IPSModule
 
         if ($schema === 'ARMM.OutputResources.v1') {
             $resources = $data['OutputResources'] ?? null;
-        } elseif ($schema === 'ARMM.ConfigBackup.v1') {
+        } elseif (in_array($schema, ['ARMM.ConfigBackup.v1', 'ARMM.ConfigBackup.v2'], true)) {
             $resources = $data['config']['OutputResources'] ?? null;
         } else {
             throw new Exception('Unsupported output resources import schema.');
@@ -1281,25 +1305,28 @@ class AlarmResponseManager extends IPSModule
     public function ExportConfiguration(): void
     {
         $export = [
-            'schema' => 'ARMM.ConfigBackup.v1',
-            'module' => 'ARMResponseManagerMock',
+            'schema' => 'ARMM.ConfigBackup.v2',
+            'module' => 'ARMResponseManager',
             'exported_at' => time(),
             'instance_id' => $this->InstanceID,
             'target_name' => $this->GetModule1TargetDisplayName(),
             'config' => [
-                'OutputResources'        => $this->readListProperty('OutputResources'),
-                'GroupStateRules'        => $this->readListProperty('GroupStateRules'),
-                'GroupStateMatrixConfig' => $this->readListProperty('GroupStateMatrixConfig'),
-                'RuleOutputAssignments'  => $this->readListProperty('RuleOutputAssignments'),
-                'AssignmentMatrixConfig' => $this->readListProperty('AssignmentMatrixConfig'),
-                'GroupMessageTextConfig' => $this->readListProperty('GroupMessageTextConfig')
+                'OutputResources'                 => $this->readListProperty('OutputResources'),
+                'GroupStateRules'                 => $this->readListProperty('GroupStateRules'),
+                'GroupStateMatrixConfig'          => $this->readListProperty('GroupStateMatrixConfig'),
+                'RuleOutputAssignments'           => $this->readListProperty('RuleOutputAssignments'),
+                'AssignmentMatrixConfig'          => $this->readListProperty('AssignmentMatrixConfig'),
+                'GroupMessageTextConfig'          => $this->readListProperty('GroupMessageTextConfig'),
+                'OutputBundles'                   => $this->readListProperty('OutputBundles'),
+                'OutputBundleMembers'             => $this->readListProperty('OutputBundleMembers'),
+                'BundleAssignmentMatrixConfig'    => $this->readListProperty('BundleAssignmentMatrixConfig')
             ]
         ];
 
         IPS_SetProperty($this->InstanceID, 'ConfigBackupJson', json_encode($export, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
         IPS_ApplyChanges($this->InstanceID);
         $this->SetStatus(204);
-        $this->LogMessage('ExportConfiguration: backup JSON written to ConfigBackupJson', KL_MESSAGE);
+        $this->LogMessage('ExportConfiguration: backup JSON v2 written to ConfigBackupJson', KL_MESSAGE);
     }
 
     public function GetConfigurationForm()
@@ -1322,6 +1349,10 @@ class AlarmResponseManager extends IPSModule
         $outputTypes = $this->GetBuiltInOutputTypes();
 
         $outputResources = $this->EnsureListRowIDsPersisted('OutputResources', 'OutputID', 'out_');
+        $outputBundles = $this->EnsureListRowIDsPersisted('OutputBundles', 'BundleID', 'bundle_');
+        $outputBundles = $this->NormalizeOutputBundleRows($outputBundles);
+        $outputBundleMembers = $this->readListProperty('OutputBundleMembers');
+
         $flatGroupStateRules = $this->EnsureListRowIDsPersisted('GroupStateRules', 'RuleID', 'rule_');
         $groupStateRules = $this->GetEffectiveGroupStateRules();
         $groupStateRules = $this->EnsureEffectiveRuleIDs($groupStateRules);
@@ -1332,9 +1363,13 @@ class AlarmResponseManager extends IPSModule
 
         $typeOptions = $this->buildTypeOptions($outputTypes, $outputResources);
         $typeLabels = $this->buildTypeLabels($outputTypes, $outputResources);
+        $bundleOptions = $this->buildBundleOptions($outputBundles, $outputBundleMembers);
+        $bundleMemberOutputOptions = $this->buildBundleMemberOutputOptions($outputResources, $outputBundleMembers);
 
         $this->setListColumnOptions($form, 'OutputResources', 'TypeID', $typeOptions);
         $this->setListFormFieldOptions($form, 'OutputResources', 'TypeID', $typeOptions);
+        $this->setListColumnOptions($form, 'OutputBundleMembers', 'BundleID', $bundleOptions);
+        $this->setListColumnOptions($form, 'OutputBundleMembers', 'OutputID', $bundleMemberOutputOptions);
 
         foreach (['0', '2', '3', '6', '9'] as $state) {
             $this->setListColumnOptions($form, 'GroupStateMatrixConfig', 'S_' . $state . '_CondGroupKey', $groupOptions);
@@ -1384,6 +1419,15 @@ class AlarmResponseManager extends IPSModule
 
         $groupMessageTextValues = $this->BuildGroupMessageTextPropertyValues($importedGroups);
         $this->setListValues($form, 'GroupMessageTextConfig', $groupMessageTextValues);
+
+        $bundleValues = $this->BuildOutputBundlePropertyValues($outputBundles, $outputBundleMembers);
+        $this->setListValues($form, 'OutputBundles', $bundleValues);
+
+        $bundleMemberValues = $this->BuildOutputBundleMemberPropertyValues($outputBundleMembers);
+        $this->setListValues($form, 'OutputBundleMembers', $bundleMemberValues);
+
+        $bundleAssignmentValues = $this->BuildBundleAssignmentMatrixPropertyValues($importedGroups, $outputBundles);
+        $this->setListValues($form, 'BundleAssignmentMatrixConfig', $bundleAssignmentValues);
 
         $assignmentMatrixValues = $this->BuildAssignmentMatrixPropertyValues($importedGroups, $groupStateRules);
         $this->setListValues($form, 'AssignmentMatrixConfig', $assignmentMatrixValues);
@@ -1524,6 +1568,663 @@ class AlarmResponseManager extends IPSModule
         }
 
         return trim((string) ($map[$groupKey] ?? ''));
+    }
+
+
+    private function NormalizeOutputBundleRows(array $rows): array
+    {
+        $result = [];
+
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $bundleID = trim((string) ($row['BundleID'] ?? ''));
+            if ($bundleID === '') {
+                continue;
+            }
+
+            $result[] = [
+                'Active'   => (bool) ($row['Active'] ?? true),
+                'BundleID' => $bundleID,
+                'Name'     => trim((string) ($row['Name'] ?? ''))
+            ];
+        }
+
+        return array_values($result);
+    }
+
+
+    private function BuildOutputBundlePropertyValues(array $bundles, array $memberRows): array
+    {
+        $memberCounts = [];
+        foreach ($memberRows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $bundleID = trim((string) ($row['BundleID'] ?? ''));
+            $outputID = trim((string) ($row['OutputID'] ?? ''));
+            if ($bundleID === '' || $outputID === '') {
+                continue;
+            }
+
+            $memberCounts[$bundleID][$outputID] = true;
+        }
+
+        $values = [];
+        foreach ($bundles as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $bundleID = trim((string) ($row['BundleID'] ?? ''));
+            if ($bundleID === '') {
+                continue;
+            }
+
+            $count = isset($memberCounts[$bundleID]) && is_array($memberCounts[$bundleID])
+                ? count($memberCounts[$bundleID])
+                : 0;
+
+            $values[] = [
+                'Active'        => (bool) ($row['Active'] ?? true),
+                'BundleID'      => $bundleID,
+                'Name'          => (string) ($row['Name'] ?? ''),
+                'MemberSummary' => $count . ($count === 1 ? ' output' : ' outputs')
+            ];
+        }
+
+        return array_values($values);
+    }
+
+
+    private function BuildOutputBundleMemberPropertyValues(array $memberRows): array
+    {
+        $values = [];
+        foreach ($memberRows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $bundleID = trim((string) ($row['BundleID'] ?? ''));
+            $outputID = trim((string) ($row['OutputID'] ?? ''));
+            if ($bundleID === '' && $outputID === '') {
+                continue;
+            }
+
+            $values[] = [
+                'BundleID' => $bundleID,
+                'OutputID' => $outputID
+            ];
+        }
+
+        return array_values($values);
+    }
+
+
+    private function buildBundleOptions(array $bundles, array $memberRows = []): array
+    {
+        $options = [['caption' => '', 'value' => '']];
+        $used = ['' => true];
+
+        foreach ($bundles as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $bundleID = trim((string) ($row['BundleID'] ?? ''));
+            if ($bundleID === '' || isset($used[$bundleID])) {
+                continue;
+            }
+
+            $name = trim((string) ($row['Name'] ?? ''));
+            $caption = $name !== '' ? $name : $bundleID;
+            if (!(bool) ($row['Active'] ?? true)) {
+                $caption .= ' [inactive]';
+            }
+
+            $options[] = ['caption' => $caption, 'value' => $bundleID];
+            $used[$bundleID] = true;
+        }
+
+        foreach ($memberRows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $bundleID = trim((string) ($row['BundleID'] ?? ''));
+            if ($bundleID === '' || isset($used[$bundleID])) {
+                continue;
+            }
+
+            $options[] = ['caption' => '[missing bundle] ' . $bundleID, 'value' => $bundleID];
+            $used[$bundleID] = true;
+        }
+
+        return $options;
+    }
+
+
+    private function buildBundleMemberOutputOptions(array $outputResources, array $memberRows): array
+    {
+        $options = [['caption' => '', 'value' => '']];
+        $used = ['' => true];
+
+        foreach ($outputResources as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $outputID = trim((string) ($row['OutputID'] ?? ''));
+            if ($outputID === '' || isset($used[$outputID])) {
+                continue;
+            }
+
+            $name = trim((string) ($row['Name'] ?? ''));
+            $caption = $name !== '' ? $name : $outputID;
+            if (!(bool) ($row['Active'] ?? true)) {
+                $caption .= ' [inactive output]';
+            }
+
+            $options[] = ['caption' => $caption, 'value' => $outputID];
+            $used[$outputID] = true;
+        }
+
+        foreach ($memberRows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $outputID = trim((string) ($row['OutputID'] ?? ''));
+            if ($outputID === '' || isset($used[$outputID])) {
+                continue;
+            }
+
+            $options[] = ['caption' => '[missing output] ' . $outputID, 'value' => $outputID];
+            $used[$outputID] = true;
+        }
+
+        return $options;
+    }
+
+
+    private function NormalizeBundleAssignmentMatrixRow(array $row): array
+    {
+        foreach (['HS_0', 'HS_2', 'HS_3', 'HS_6', 'HS_9', 'AllStates', 'NoneStates'] as $key) {
+            $row[$key] = (bool) ($row[$key] ?? false);
+        }
+
+        if ($row['AllStates']) {
+            $row['HS_0'] = true;
+            $row['HS_2'] = true;
+            $row['HS_3'] = true;
+            $row['HS_6'] = true;
+            $row['HS_9'] = true;
+            $row['NoneStates'] = false;
+        } elseif ($row['NoneStates']) {
+            $row['HS_0'] = false;
+            $row['HS_2'] = false;
+            $row['HS_3'] = false;
+            $row['HS_6'] = false;
+            $row['HS_9'] = false;
+            $row['AllStates'] = false;
+        } else {
+            $all = $row['HS_0'] && $row['HS_2'] && $row['HS_3'] && $row['HS_6'] && $row['HS_9'];
+            $none = !$row['HS_0'] && !$row['HS_2'] && !$row['HS_3'] && !$row['HS_6'] && !$row['HS_9'];
+            $row['AllStates'] = $all;
+            $row['NoneStates'] = $none;
+        }
+
+        return $row;
+    }
+
+
+    private function NormalizeBundleAssignmentMatrixRows(array $rows, array $importedGroups, array $bundles): array
+    {
+        $validGroups = [];
+        foreach ($importedGroups as $group) {
+            if (!is_array($group)) {
+                continue;
+            }
+
+            $groupKey = trim((string) ($group['GroupKey'] ?? ''));
+            $groupLabel = trim((string) ($group['GroupLabel'] ?? $groupKey));
+            if ($groupKey !== '') {
+                $validGroups[$groupKey] = $groupLabel !== '' ? $groupLabel : $groupKey;
+            }
+        }
+
+        $validBundles = [];
+        foreach ($bundles as $bundle) {
+            if (!is_array($bundle)) {
+                continue;
+            }
+
+            $bundleID = trim((string) ($bundle['BundleID'] ?? ''));
+            $bundleName = trim((string) ($bundle['Name'] ?? $bundleID));
+            if ($bundleID !== '') {
+                $validBundles[$bundleID] = $bundleName !== '' ? $bundleName : $bundleID;
+            }
+        }
+
+        $normalized = [];
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $bundleID = trim((string) ($row['BundleID'] ?? ''));
+            $groupKey = trim((string) ($row['GroupKey'] ?? ''));
+            if ($bundleID === '' || $groupKey === '') {
+                continue;
+            }
+
+            if (!isset($validBundles[$bundleID]) || !isset($validGroups[$groupKey])) {
+                continue;
+            }
+
+            $row['BundleLabel'] = $validBundles[$bundleID];
+            $row['GroupLabel'] = $validGroups[$groupKey];
+            $normalized[] = $this->NormalizeBundleAssignmentMatrixRow($row);
+        }
+
+        return array_values($normalized);
+    }
+
+
+    private function BuildBundleAssignmentMatrixPropertyValues(array $importedGroups, array $bundles): array
+    {
+        $storedRows = $this->readListProperty('BundleAssignmentMatrixConfig');
+        $storedRows = $this->NormalizeBundleAssignmentMatrixRows($storedRows, $importedGroups, $bundles);
+
+        $storedMap = [];
+        foreach ($storedRows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $bundleID = trim((string) ($row['BundleID'] ?? ''));
+            $groupKey = trim((string) ($row['GroupKey'] ?? ''));
+            if ($bundleID !== '' && $groupKey !== '') {
+                $storedMap[$bundleID . '|' . $groupKey] = $row;
+            }
+        }
+
+        $values = [];
+        foreach ($bundles as $bundle) {
+            if (!is_array($bundle)) {
+                continue;
+            }
+
+            $bundleID = trim((string) ($bundle['BundleID'] ?? ''));
+            $bundleName = trim((string) ($bundle['Name'] ?? $bundleID));
+            if ($bundleID === '') {
+                continue;
+            }
+
+            foreach ($importedGroups as $group) {
+                if (!is_array($group)) {
+                    continue;
+                }
+
+                $groupKey = trim((string) ($group['GroupKey'] ?? ''));
+                $groupLabel = trim((string) ($group['GroupLabel'] ?? $groupKey));
+                if ($groupKey === '') {
+                    continue;
+                }
+
+                $row = $storedMap[$bundleID . '|' . $groupKey] ?? [
+                    'BundleID'   => $bundleID,
+                    'BundleLabel'=> $bundleName !== '' ? $bundleName : $bundleID,
+                    'GroupKey'   => $groupKey,
+                    'GroupLabel' => $groupLabel !== '' ? $groupLabel : $groupKey,
+                    'AllStates'  => false,
+                    'NoneStates' => false,
+                    'HS_0'       => false,
+                    'HS_2'       => false,
+                    'HS_3'       => false,
+                    'HS_6'       => false,
+                    'HS_9'       => false
+                ];
+
+                $row['BundleLabel'] = $bundleName !== '' ? $bundleName : $bundleID;
+                $row['GroupLabel'] = $groupLabel !== '' ? $groupLabel : $groupKey;
+                $values[] = $this->NormalizeBundleAssignmentMatrixRow($row);
+            }
+        }
+
+        return array_values($values);
+    }
+
+
+    private function BuildEffectiveBundleRuleAssignmentsFromMatrixRows(
+        array $matrixRows,
+        array $groupStateRules,
+        array $bundlesByID
+    ): array {
+        $ruleMap = $this->BuildGroupStateRuleMap($groupStateRules);
+        $result = [];
+
+        foreach ($matrixRows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $row = $this->NormalizeBundleAssignmentMatrixRow($row);
+            $bundleID = trim((string) ($row['BundleID'] ?? ''));
+            $groupKey = trim((string) ($row['GroupKey'] ?? ''));
+            if ($bundleID === '' || $groupKey === '' || !isset($bundlesByID[$bundleID])) {
+                continue;
+            }
+
+            foreach (['0', '2', '3', '6', '9'] as $state) {
+                if (!(bool) ($row['HS_' . $state] ?? false)) {
+                    continue;
+                }
+
+                $ruleID = $ruleMap[$groupKey . '|' . $state] ?? '';
+                if ($ruleID === '') {
+                    continue;
+                }
+
+                $result[] = [
+                    'Active'        => true,
+                    'AssignmentID'  => 'basgmat_' . substr(md5($bundleID . '|' . $groupKey . '|' . $state), 0, 12),
+                    'RuleID'        => $ruleID,
+                    'BundleID'      => $bundleID,
+                    'GroupKey'      => $groupKey,
+                    'HouseState'    => $state,
+                    'BundleActive'  => (bool) ($bundlesByID[$bundleID]['Active'] ?? true)
+                ];
+            }
+        }
+
+        return array_values($result);
+    }
+
+
+    private function BuildBundleRuntimeCache(): array
+    {
+        $anomalies = [];
+        $bundlesByID = [];
+
+        foreach ($this->readListProperty('OutputBundles') as $index => $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $bundleID = trim((string) ($row['BundleID'] ?? ''));
+            if ($bundleID === '') {
+                continue;
+            }
+
+            if (isset($bundlesByID[$bundleID])) {
+                $anomalies[] = 'Duplicate BundleID: ' . $bundleID;
+                continue;
+            }
+
+            $bundlesByID[$bundleID] = [
+                'BundleID' => $bundleID,
+                'Name'     => trim((string) ($row['Name'] ?? '')),
+                'Active'   => (bool) ($row['Active'] ?? true)
+            ];
+        }
+
+        $validOutputIDs = [];
+        foreach ($this->readListProperty('OutputResources') as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $outputID = trim((string) ($row['OutputID'] ?? ''));
+            if ($outputID !== '') {
+                $validOutputIDs[$outputID] = true;
+            }
+        }
+
+        $members = [];
+        foreach ($this->readListProperty('OutputBundleMembers') as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $bundleID = trim((string) ($row['BundleID'] ?? ''));
+            $outputID = trim((string) ($row['OutputID'] ?? ''));
+            if ($bundleID === '' || $outputID === '') {
+                continue;
+            }
+
+            if (!isset($bundlesByID[$bundleID])) {
+                $anomalies[] = 'Bundle member references missing BundleID=' . $bundleID;
+                continue;
+            }
+
+            if (!isset($validOutputIDs[$outputID])) {
+                $anomalies[] = 'Bundle ' . $bundleID . ' references missing OutputID=' . $outputID;
+                continue;
+            }
+
+            $members[$bundleID][$outputID] = true;
+        }
+
+        foreach ($members as &$outputSet) {
+            if (is_array($outputSet)) {
+                ksort($outputSet, SORT_STRING);
+            }
+        }
+        unset($outputSet);
+
+        $rules = $this->GetEffectiveGroupStateRules();
+        $rules = $this->EnsureEffectiveRuleIDs($rules);
+        $ruleMap = $this->BuildGroupStateRuleMap($rules);
+
+        $validGroupKeys = [];
+        foreach ($this->ExtractImportedGroupsFromConfig() as $group) {
+            if (!is_array($group)) {
+                continue;
+            }
+            $groupKey = trim((string) ($group['GroupKey'] ?? ''));
+            if ($groupKey !== '') {
+                $validGroupKeys[$groupKey] = true;
+            }
+        }
+
+        $matrixRows = $this->readListProperty('BundleAssignmentMatrixConfig');
+        $bundleRuleAssignments = [];
+
+        foreach ($matrixRows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $row = $this->NormalizeBundleAssignmentMatrixRow($row);
+            $bundleID = trim((string) ($row['BundleID'] ?? ''));
+            $groupKey = trim((string) ($row['GroupKey'] ?? ''));
+            if ($bundleID === '' || $groupKey === '') {
+                continue;
+            }
+
+            if (!isset($bundlesByID[$bundleID])) {
+                $anomalies[] = 'Bundle assignment references missing BundleID=' . $bundleID;
+                continue;
+            }
+
+            if (!isset($validGroupKeys[$groupKey])) {
+                $anomalies[] = 'Bundle assignment references missing GroupKey=' . $groupKey;
+                continue;
+            }
+
+            foreach (['0', '2', '3', '6', '9'] as $state) {
+                if (!(bool) ($row['HS_' . $state] ?? false)) {
+                    continue;
+                }
+
+                $ruleID = $ruleMap[$groupKey . '|' . $state] ?? '';
+                if ($ruleID === '') {
+                    $anomalies[] = 'Bundle assignment has no RuleID for BundleID=' . $bundleID
+                        . ' GroupKey=' . $groupKey . ' HouseState=' . $state;
+                    continue;
+                }
+
+                $assignmentID = 'basgmat_' . substr(md5($bundleID . '|' . $groupKey . '|' . $state), 0, 12);
+                $bundleRuleAssignments[] = [
+                    'Active'        => true,
+                    'AssignmentID'  => $assignmentID,
+                    'RuleID'        => $ruleID,
+                    'BundleID'      => $bundleID,
+                    'GroupKey'      => $groupKey,
+                    'HouseState'    => $state,
+                    'BundleActive'  => (bool) ($bundlesByID[$bundleID]['Active'] ?? true)
+                ];
+            }
+        }
+
+        $expandedAssignments = [];
+        $expandedSeen = [];
+
+        foreach ($bundleRuleAssignments as $assignment) {
+            $bundleID = trim((string) ($assignment['BundleID'] ?? ''));
+            $ruleID = trim((string) ($assignment['RuleID'] ?? ''));
+            if ($bundleID === '' || $ruleID === '') {
+                continue;
+            }
+
+            if (!(bool) ($bundlesByID[$bundleID]['Active'] ?? false)) {
+                continue;
+            }
+
+            $outputSet = $members[$bundleID] ?? [];
+            if (!is_array($outputSet)) {
+                continue;
+            }
+
+            foreach (array_keys($outputSet) as $outputID) {
+                $key = $ruleID . '|' . $outputID;
+                if (isset($expandedSeen[$key])) {
+                    continue;
+                }
+
+                $expandedSeen[$key] = true;
+                $expandedAssignments[] = [
+                    'Active'       => true,
+                    'AssignmentID' => 'basgexp_' . substr(md5($ruleID . '|' . $bundleID . '|' . $outputID), 0, 12),
+                    'RuleID'       => $ruleID,
+                    'OutputID'     => $outputID,
+                    'Source'       => 'bundle',
+                    'BundleID'     => $bundleID
+                ];
+            }
+        }
+
+        ksort($bundlesByID, SORT_STRING);
+        ksort($members, SORT_STRING);
+        $anomalies = array_values(array_unique($anomalies));
+        sort($anomalies, SORT_STRING);
+
+        return [
+            'schema'                  => 1,
+            'bundles'                 => $bundlesByID,
+            'members'                 => $members,
+            'bundle_rule_assignments' => array_values($bundleRuleAssignments),
+            'expanded_assignments'    => array_values($expandedAssignments),
+            'anomalies'               => $anomalies
+        ];
+    }
+
+
+    private function GetBundleRuntimeCache(): array
+    {
+        $raw = $this->GetBuffer('BundleRuntimeCache');
+        if ($raw === '') {
+            $cache = $this->BuildBundleRuntimeCache();
+            $encoded = json_encode($cache, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+            $raw = is_string($encoded) ? $encoded : '{}';
+            $this->SetBuffer('BundleRuntimeCache', $raw);
+        }
+
+        static $cacheByInstance = [];
+        $instanceKey = (string) $this->InstanceID;
+
+        if (
+            !isset($cacheByInstance[$instanceKey])
+            || ($cacheByInstance[$instanceKey]['raw'] ?? null) !== $raw
+        ) {
+            $decoded = json_decode($raw, true);
+            $cacheByInstance[$instanceKey] = [
+                'raw'  => $raw,
+                'data' => is_array($decoded) ? $decoded : []
+            ];
+        }
+
+        $data = $cacheByInstance[$instanceKey]['data'] ?? [];
+        return is_array($data) ? $data : [];
+    }
+
+
+    private function GetBundleExpandedRuleOutputAssignments(): array
+    {
+        $cache = $this->GetBundleRuntimeCache();
+        $rows = $cache['expanded_assignments'] ?? [];
+        return is_array($rows) ? array_values($rows) : [];
+    }
+
+
+    private function GetBundleRuleAssignmentsForGraph(): array
+    {
+        $cache = $this->GetBundleRuntimeCache();
+        $rows = $cache['bundle_rule_assignments'] ?? [];
+        return is_array($rows) ? array_values($rows) : [];
+    }
+
+
+    private function GetBundleDefinitionsForGraph(): array
+    {
+        $cache = $this->GetBundleRuntimeCache();
+        $bundles = $cache['bundles'] ?? [];
+        return is_array($bundles) ? $bundles : [];
+    }
+
+
+    private function GetBundleMembersForGraph(): array
+    {
+        $cache = $this->GetBundleRuntimeCache();
+        $members = $cache['members'] ?? [];
+        return is_array($members) ? $members : [];
+    }
+
+
+    private function LogBundleConfigurationAnomalies($anomalies): void
+    {
+        if (!is_array($anomalies)) {
+            $anomalies = [];
+        }
+
+        $anomalies = array_values(array_unique(array_map('strval', $anomalies)));
+        sort($anomalies, SORT_STRING);
+
+        $signature = count($anomalies) > 0
+            ? hash('sha256', json_encode($anomalies, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE))
+            : '';
+
+        if ($this->GetBuffer('BundleConfigAnomalySignature') === $signature) {
+            return;
+        }
+
+        $this->SetBuffer('BundleConfigAnomalySignature', $signature);
+
+        if ($signature === '') {
+            return;
+        }
+
+        $preview = array_slice($anomalies, 0, 8);
+        $message = 'Output bundle configuration anomalies=' . count($anomalies) . ': ' . implode(' | ', $preview);
+        if (count($anomalies) > count($preview)) {
+            $message .= ' | ...';
+        }
+
+        $this->LogMessage($message, KL_MESSAGE);
     }
 
 
@@ -2085,7 +2786,7 @@ class AlarmResponseManager extends IPSModule
         return $ruleMap;
     }
 
-    private function GetEffectiveRuleOutputAssignments(): array
+    private function GetEffectiveDirectRuleOutputAssignments(): array
     {
         $matrixRows = $this->readListProperty('AssignmentMatrixConfig');
 
@@ -2100,6 +2801,55 @@ class AlarmResponseManager extends IPSModule
         $groupStateRules = $this->EnsureEffectiveRuleIDs($groupStateRules);
 
         return $this->BuildEffectiveRuleOutputAssignmentsFromMatrixRows($matrixRows, $groupStateRules);
+    }
+
+
+    private function GetEffectiveRuleOutputAssignments(): array
+    {
+        $result = [];
+        $seen = [];
+
+        foreach ($this->GetEffectiveDirectRuleOutputAssignments() as $row) {
+            if (!is_array($row) || !(bool) ($row['Active'] ?? true)) {
+                continue;
+            }
+
+            $ruleID = trim((string) ($row['RuleID'] ?? ''));
+            $outputID = trim((string) ($row['OutputID'] ?? ''));
+            if ($ruleID === '' || $outputID === '') {
+                continue;
+            }
+
+            $key = $ruleID . '|' . $outputID;
+            if (isset($seen[$key])) {
+                continue;
+            }
+
+            $seen[$key] = true;
+            $result[] = $row;
+        }
+
+        foreach ($this->GetBundleExpandedRuleOutputAssignments() as $row) {
+            if (!is_array($row) || !(bool) ($row['Active'] ?? true)) {
+                continue;
+            }
+
+            $ruleID = trim((string) ($row['RuleID'] ?? ''));
+            $outputID = trim((string) ($row['OutputID'] ?? ''));
+            if ($ruleID === '' || $outputID === '') {
+                continue;
+            }
+
+            $key = $ruleID . '|' . $outputID;
+            if (isset($seen[$key])) {
+                continue;
+            }
+
+            $seen[$key] = true;
+            $result[] = $row;
+        }
+
+        return array_values($result);
     }
 
     private function GetGraphStateFilter(): string
@@ -2250,9 +3000,15 @@ class AlarmResponseManager extends IPSModule
             return;
         }
 
-        // 2b. Assignment matrix API
+        // 2b. Direct output assignment matrix API
         if (isset($_GET['assignment_api'])) {
             $this->HandleAssignmentMatrixApi();
+            return;
+        }
+
+        // 2c. Bundle assignment matrix API
+        if (isset($_GET['bundle_assignment_api'])) {
+            $this->HandleBundleAssignmentMatrixApi();
             return;
         }
 
@@ -2525,10 +3281,12 @@ let lastGraphString = "";
 let pzInstance = null;
 const moduleInstanceID = ' . (int) $this->InstanceID . ';
 const assignmentEditorStorageKey = "armm_mapping_assignment_editor_" + moduleInstanceID;
+const assignmentTypeStorageKey = "armm_mapping_assignment_type_" + moduleInstanceID;
 const chartOrientationStorageKey = "armm_mapping_chart_orientation_" + moduleInstanceID;
 const houseStateFilterStorageKey = "armm_mapping_house_state_filter_" + moduleInstanceID;
 const allHouseStates = ["0", "2", "3", "6", "9"];
 let assignmentEditorEnabled = false;
+let assignmentType = "bundle";
 let chartOrientation = "horizontal";
 let selectedHouseStates = [...allHouseStates];
 ' . $this->BuildMermaidSelectionJavascript() . '
@@ -2670,6 +3428,7 @@ function getChartOrientationFilter() {
 function loadMappingUiSettings() {
     try {
         assignmentEditorEnabled = localStorage.getItem(assignmentEditorStorageKey) === "1";
+        assignmentType = localStorage.getItem(assignmentTypeStorageKey) === "direct" ? "direct" : "bundle";
         chartOrientation = localStorage.getItem(chartOrientationStorageKey) === "vertical"
             ? "vertical"
             : "horizontal";
@@ -2683,6 +3442,7 @@ function loadMappingUiSettings() {
         }
     } catch (err) {
         assignmentEditorEnabled = false;
+        assignmentType = "bundle";
         chartOrientation = "horizontal";
         selectedHouseStates = [...allHouseStates];
     }
@@ -3112,6 +3872,7 @@ document.addEventListener("DOMContentLoaded", () => {
         Depth:
         <select id="depth-filter" style="margin-left:8px;">
             <option value="groups">Groups</option>
+            <option value="bundles">Bundles</option>
             <option value="outputs">Outputs</option>
             <option value="full" selected>Full</option>
         </select>
@@ -6356,6 +7117,228 @@ document.addEventListener("DOMContentLoaded", () => {
 
 
 
+    private function HandleBundleAssignmentMatrixApi(): void
+    {
+        header('Content-Type: application/json; charset=utf-8');
+
+        try {
+            $raw = file_get_contents('php://input');
+            $data = json_decode((string) $raw, true);
+
+            if (!is_array($data)) {
+                throw new Exception('Invalid JSON payload.');
+            }
+
+            $action = strtolower(trim((string) ($data['action'] ?? '')));
+            $bundleID = trim((string) ($data['bundle_id'] ?? ''));
+            $groupKey = trim((string) ($data['group_key'] ?? ''));
+            $houseState = trim((string) ($data['house_state'] ?? ''));
+            $editorEnabled = (bool) ($data['editor_enabled'] ?? false);
+
+            if (!$editorEnabled) {
+                throw new Exception('Assignment editor is disabled.');
+            }
+
+            if (!in_array($action, ['assign', 'remove'], true)) {
+                throw new Exception('Invalid action. Expected assign or remove.');
+            }
+
+            $enabled = ($action === 'assign');
+            $result = $this->UpdateBundleAssignmentMatrixConfigCell($bundleID, $groupKey, $houseState, $enabled);
+
+            echo json_encode([
+                'ok'      => true,
+                'action'  => $action,
+                'message' => $enabled ? 'Bundle assignment enabled and verified.' : 'Bundle assignment removed and verified.',
+                'result'  => $result
+            ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        } catch (Throwable $e) {
+            $this->LogMessage('HandleBundleAssignmentMatrixApi failed: ' . $e->getMessage(), KL_MESSAGE);
+
+            echo json_encode([
+                'ok'      => false,
+                'message' => $e->getMessage()
+            ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        }
+    }
+
+
+    private function UpdateBundleAssignmentMatrixConfigCell(
+        string $bundleID,
+        string $groupKey,
+        string $houseState,
+        bool $enabled
+    ): array {
+        $bundleID = trim($bundleID);
+        $groupKey = trim($groupKey);
+        $houseState = trim($houseState);
+
+        if ($bundleID === '') {
+            throw new Exception('BundleID is missing.');
+        }
+        if ($groupKey === '') {
+            throw new Exception('GroupKey is missing.');
+        }
+        if (!in_array($houseState, ['0', '2', '3', '6', '9'], true)) {
+            throw new Exception('Invalid HouseState: ' . $houseState);
+        }
+
+        $importedGroups = $this->ExtractImportedGroupsFromConfig();
+        $groupLabels = [];
+        foreach ($importedGroups as $group) {
+            if (!is_array($group)) {
+                continue;
+            }
+
+            $key = trim((string) ($group['GroupKey'] ?? ''));
+            $label = trim((string) ($group['GroupLabel'] ?? $key));
+            if ($key !== '') {
+                $groupLabels[$key] = $label !== '' ? $label : $key;
+            }
+        }
+
+        if (!isset($groupLabels[$groupKey])) {
+            throw new Exception('GroupKey is not available for this Module 3 instance: ' . $groupKey);
+        }
+
+        $bundles = $this->NormalizeOutputBundleRows($this->readListProperty('OutputBundles'));
+        $bundlesByID = [];
+        foreach ($bundles as $bundle) {
+            $id = trim((string) ($bundle['BundleID'] ?? ''));
+            if ($id !== '') {
+                $bundlesByID[$id] = $bundle;
+            }
+        }
+
+        if (!isset($bundlesByID[$bundleID])) {
+            throw new Exception('BundleID is not available in OutputBundles: ' . $bundleID);
+        }
+
+        $bundleLabel = trim((string) ($bundlesByID[$bundleID]['Name'] ?? $bundleID));
+        if ($bundleLabel === '') {
+            $bundleLabel = $bundleID;
+        }
+
+        $effectiveRules = $this->GetEffectiveGroupStateRules();
+        $effectiveRules = $this->EnsureEffectiveRuleIDs($effectiveRules);
+        $rows = $this->BuildBundleAssignmentMatrixPropertyValues($importedGroups, $bundles);
+
+        $stateField = 'HS_' . $houseState;
+        $found = false;
+
+        foreach ($rows as &$row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            if (
+                trim((string) ($row['BundleID'] ?? '')) !== $bundleID
+                || trim((string) ($row['GroupKey'] ?? '')) !== $groupKey
+            ) {
+                continue;
+            }
+
+            $row['BundleLabel'] = $bundleLabel;
+            $row['GroupLabel'] = $groupLabels[$groupKey];
+            $row['AllStates'] = false;
+            $row['NoneStates'] = false;
+            $row[$stateField] = $enabled;
+            $row = $this->NormalizeBundleAssignmentMatrixRow($row);
+            $found = true;
+            break;
+        }
+        unset($row);
+
+        if (!$found) {
+            $row = [
+                'BundleID'    => $bundleID,
+                'BundleLabel' => $bundleLabel,
+                'GroupKey'    => $groupKey,
+                'GroupLabel'  => $groupLabels[$groupKey],
+                'AllStates'   => false,
+                'NoneStates'  => false,
+                'HS_0'        => false,
+                'HS_2'        => false,
+                'HS_3'        => false,
+                'HS_6'        => false,
+                'HS_9'        => false
+            ];
+            $row[$stateField] = $enabled;
+            $rows[] = $this->NormalizeBundleAssignmentMatrixRow($row);
+        }
+
+        $rows = array_values($rows);
+        IPS_SetProperty($this->InstanceID, 'BundleAssignmentMatrixConfig', json_encode($rows));
+        IPS_ApplyChanges($this->InstanceID);
+
+        $ruleMap = $this->BuildGroupStateRuleMap($effectiveRules);
+        $expectedRuleID = $ruleMap[$groupKey . '|' . $houseState] ?? '';
+        if ($expectedRuleID === '') {
+            throw new Exception(
+                'BundleAssignmentMatrixConfig was written, but no effective RuleID exists for GroupKey='
+                    . $groupKey . ' HouseState=' . $houseState
+            );
+        }
+
+        $effectiveBundleAssignments = $this->BuildEffectiveBundleRuleAssignmentsFromMatrixRows(
+            $rows,
+            $effectiveRules,
+            $bundlesByID
+        );
+
+        $effectiveFound = false;
+        foreach ($effectiveBundleAssignments as $assignment) {
+            if (!is_array($assignment)) {
+                continue;
+            }
+
+            if (
+                trim((string) ($assignment['RuleID'] ?? '')) === $expectedRuleID
+                && trim((string) ($assignment['BundleID'] ?? '')) === $bundleID
+            ) {
+                $effectiveFound = true;
+                break;
+            }
+        }
+
+        if ($enabled && !$effectiveFound) {
+            throw new Exception(
+                'BundleAssignmentMatrixConfig was written, but effective bundle assignment was not produced. RuleID='
+                    . $expectedRuleID . ' BundleID=' . $bundleID
+            );
+        }
+
+        if (!$enabled && $effectiveFound) {
+            throw new Exception(
+                'BundleAssignmentMatrixConfig was written, but effective bundle assignment still exists. RuleID='
+                    . $expectedRuleID . ' BundleID=' . $bundleID
+            );
+        }
+
+        $this->LogMessage(
+            'UpdateBundleAssignmentMatrixConfigCell verified: '
+                . ($enabled ? 'assigned' : 'removed')
+                . ' BundleID=' . $bundleID
+                . ' GroupKey=' . $groupKey
+                . ' HouseState=' . $houseState
+                . ' RuleID=' . $expectedRuleID,
+            KL_MESSAGE
+        );
+
+        return [
+            'bundle_id'        => $bundleID,
+            'bundle_label'     => $bundleLabel,
+            'group_key'        => $groupKey,
+            'group_label'      => $groupLabels[$groupKey],
+            'house_state'      => $houseState,
+            'enabled'          => $enabled,
+            'rule_id'          => $expectedRuleID,
+            'effective_found'  => $effectiveFound,
+            'matrix_row_count' => count($rows)
+        ];
+    }
+
+
     private function HandleAssignmentMatrixApi(): void
     {
         header('Content-Type: application/json; charset=utf-8');
@@ -6666,27 +7649,42 @@ document.addEventListener("DOMContentLoaded", () => {
     <div id="selected-node-type" style="font-weight:bold;margin-bottom:12px;">None</div>
 
     <div style="font-size:12px;color:#999;margin-bottom:6px;">Name</div>
-    <div id="selected-node-title" style="font-weight:bold;margin-bottom:12px;">Click a group, rule, assignment, or output node.</div>
+    <div id="selected-node-title" style="font-weight:bold;margin-bottom:12px;">Click a group, rule, bundle, or output node.</div>
 
     <div style="font-size:12px;color:#999;margin-bottom:6px;">Details</div>
     <pre id="selected-node-detail" style="white-space:pre-wrap;background:#1e1e1e;border:1px solid #333;border-radius:6px;padding:8px;color:#cfcfcf;font-family:Consolas,monospace;font-size:12px;">No node selected.</pre>
 
     <hr style="border:0;border-top:1px solid #444;margin:14px 0;">
 
-    <h3 style="margin:0 0 10px 0;color:#4CAF50;">Output Assignment</h3>
+    <h3 style="margin:0 0 10px 0;color:#4CAF50;">Assignment Editor</h3>
+
+    <label style="display:block;margin-bottom:12px;">
+        <span style="font-size:12px;color:#999;display:block;margin-bottom:6px;">Assignment Type</span>
+        <select id="assignment-type-select" style="width:100%;background:#1e1e1e;color:#cfcfcf;border:1px solid #555;border-radius:4px;padding:6px;">
+            <option value="bundle">Bundles</option>
+            <option value="direct">Direct Outputs (Advanced)</option>
+        </select>
+    </label>
 
     <div style="font-size:12px;color:#999;margin-bottom:6px;">Selected Rule</div>
     <pre id="selected-rule-summary" style="white-space:pre-wrap;background:#1e1e1e;border:1px solid #333;border-radius:6px;padding:8px;color:#cfcfcf;font-family:Consolas,monospace;font-size:12px;">No rule selected.</pre>
 
-    <div style="font-size:12px;color:#999;margin-bottom:6px;">Selected Output</div>
-    <pre id="selected-output-summary" style="white-space:pre-wrap;background:#1e1e1e;border:1px solid #333;border-radius:6px;padding:8px;color:#cfcfcf;font-family:Consolas,monospace;font-size:12px;">No output selected.</pre>
-
-    <div style="display:flex;gap:8px;margin-top:10px;">
-        <button id="assign-output-button" type="button" disabled style="flex:1;background:#2e7d32;color:white;border:1px solid #66bb6a;border-radius:4px;padding:7px;cursor:pointer;">Assign</button>
-        <button id="remove-output-button" type="button" disabled style="flex:1;background:#8e2424;color:white;border:1px solid #ef5350;border-radius:4px;padding:7px;cursor:pointer;">Remove</button>
+    <div id="selected-bundle-wrap">
+        <div style="font-size:12px;color:#999;margin-bottom:6px;">Selected Bundle</div>
+        <pre id="selected-bundle-summary" style="white-space:pre-wrap;background:#1e1e1e;border:1px solid #333;border-radius:6px;padding:8px;color:#cfcfcf;font-family:Consolas,monospace;font-size:12px;">No bundle selected.</pre>
     </div>
 
-    <div id="assignment-action-status" style="margin-top:10px;color:#aaa;font-size:12px;">Select one rule and one output.</div>
+    <div id="selected-output-wrap" style="display:none;">
+        <div style="font-size:12px;color:#999;margin-bottom:6px;">Selected Output</div>
+        <pre id="selected-output-summary" style="white-space:pre-wrap;background:#1e1e1e;border:1px solid #333;border-radius:6px;padding:8px;color:#cfcfcf;font-family:Consolas,monospace;font-size:12px;">No output selected.</pre>
+    </div>
+
+    <div style="display:flex;gap:8px;margin-top:10px;">
+        <button id="assign-selection-button" type="button" disabled style="flex:1;background:#2e7d32;color:white;border:1px solid #66bb6a;border-radius:4px;padding:7px;cursor:pointer;">Assign</button>
+        <button id="remove-selection-button" type="button" disabled style="flex:1;background:#8e2424;color:white;border:1px solid #ef5350;border-radius:4px;padding:7px;cursor:pointer;">Remove</button>
+    </div>
+
+    <div id="assignment-action-status" style="margin-top:10px;color:#aaa;font-size:12px;">Select one rule and one bundle.</div>
 </div>';
     }
 
@@ -6696,6 +7694,7 @@ document.addEventListener("DOMContentLoaded", () => {
 let mermaidNodeMetadata = {};
 let selectedMermaidNodeID = "";
 let selectedAssignmentRule = null;
+let selectedAssignmentBundle = null;
 let selectedAssignmentOutput = null;
 
 window.selectMermaidNode = function(nodeID) {
@@ -6742,6 +7741,24 @@ window.selectMermaidNode = function(nodeID) {
             + "GroupKey: " + (data.group_key || "") + "\n"
             + "HouseState: " + (data.house_state || "") + "\n"
             + "Severity: " + (data.severity || "");
+
+        updateAssignmentSelectionPanel();
+        return;
+    }
+
+    if (meta.type === "bundle") {
+        selectedAssignmentBundle = {
+            bundle_id: data.bundle_id || "",
+            bundle_name: data.bundle_name || data.bundle_id || "",
+            active: !!data.active,
+            member_count: data.member_count || 0
+        };
+
+        titleEl.textContent = data.bundle_name || data.bundle_id || selectedMermaidNodeID;
+        detailEl.textContent =
+            "BundleID: " + (data.bundle_id || "") + "\n"
+            + "Active: " + (!!data.active ? "Yes" : "No") + "\n"
+            + "Members: " + (data.member_count || 0);
 
         updateAssignmentSelectionPanel();
         return;
@@ -6807,17 +7824,14 @@ function extractMermaidNodeMetadata(graphString) {
 
     for (const line of lines) {
         const trimmed = line.trim();
-
         if (!trimmed.startsWith("%%NODE_META ")) {
             continue;
         }
 
         const jsonText = trimmed.substring("%%NODE_META ".length);
-
         try {
             const meta = JSON.parse(jsonText);
             const nodeID = String(meta.node_id || "");
-
             if (nodeID !== "") {
                 result[nodeID] = meta;
             }
@@ -6833,13 +7847,11 @@ function cssEscapeCompat(value) {
     if (window.CSS && typeof window.CSS.escape === "function") {
         return window.CSS.escape(value);
     }
-
     return String(value).replace(/[^a-zA-Z0-9_-]/g, "\\$&");
 }
 
 function findRenderedMermaidNode(svgEl, nodeID) {
     const escaped = cssEscapeCompat(nodeID);
-
     const selectors = [
         "#" + escaped,
         "[id='" + nodeID + "']",
@@ -6868,14 +7880,12 @@ function attachMermaidNodeSelectionHandlers(svgEl) {
 
     Object.keys(mermaidNodeMetadata).forEach((nodeID) => {
         const nodeEl = findRenderedMermaidNode(svgEl, nodeID);
-
         if (!nodeEl) {
             console.warn("Mermaid node element not found for metadata node", nodeID);
             return;
         }
 
         nodeEl.style.cursor = "pointer";
-
         nodeEl.addEventListener("click", function(ev) {
             ev.preventDefault();
             ev.stopPropagation();
@@ -6886,52 +7896,67 @@ function attachMermaidNodeSelectionHandlers(svgEl) {
 
 function updateAssignmentSelectionPanel() {
     const ruleEl = document.getElementById("selected-rule-summary");
+    const bundleEl = document.getElementById("selected-bundle-summary");
     const outputEl = document.getElementById("selected-output-summary");
-    const assignButton = document.getElementById("assign-output-button");
-    const removeButton = document.getElementById("remove-output-button");
+    const bundleWrap = document.getElementById("selected-bundle-wrap");
+    const outputWrap = document.getElementById("selected-output-wrap");
+    const assignButton = document.getElementById("assign-selection-button");
+    const removeButton = document.getElementById("remove-selection-button");
     const statusEl = document.getElementById("assignment-action-status");
+    const typeSelect = document.getElementById("assignment-type-select");
 
-    const hasRule =
-        selectedAssignmentRule
+    if (typeSelect) {
+        typeSelect.value = assignmentType;
+    }
+
+    const hasRule = selectedAssignmentRule
         && selectedAssignmentRule.group_key
         && selectedAssignmentRule.house_state;
-
-    const hasOutput =
-        selectedAssignmentOutput
-        && selectedAssignmentOutput.output_id;
+    const hasBundle = selectedAssignmentBundle && selectedAssignmentBundle.bundle_id;
+    const hasOutput = selectedAssignmentOutput && selectedAssignmentOutput.output_id;
 
     if (ruleEl) {
-        if (hasRule) {
-            ruleEl.textContent =
-                "Rule: " + (selectedAssignmentRule.rule_label || selectedAssignmentRule.rule_id || "") + "\n"
+        ruleEl.textContent = hasRule
+            ? "Rule: " + (selectedAssignmentRule.rule_label || selectedAssignmentRule.rule_id || "") + "\n"
                 + "RuleID: " + (selectedAssignmentRule.rule_id || "") + "\n"
                 + "GroupKey: " + (selectedAssignmentRule.group_key || "") + "\n"
                 + "HouseState: " + (selectedAssignmentRule.house_state || "") + "\n"
-                + "Severity: " + (selectedAssignmentRule.severity || "");
-        } else {
-            ruleEl.textContent = "No rule selected.";
-        }
+                + "Severity: " + (selectedAssignmentRule.severity || "")
+            : "No rule selected.";
+    }
+
+    if (bundleEl) {
+        bundleEl.textContent = hasBundle
+            ? "Bundle: " + (selectedAssignmentBundle.bundle_name || selectedAssignmentBundle.bundle_id || "") + "\n"
+                + "BundleID: " + (selectedAssignmentBundle.bundle_id || "") + "\n"
+                + "Active: " + (selectedAssignmentBundle.active ? "Yes" : "No") + "\n"
+                + "Members: " + (selectedAssignmentBundle.member_count || 0)
+            : "No bundle selected.";
     }
 
     if (outputEl) {
-        if (hasOutput) {
-            outputEl.textContent =
-                "Output: " + (selectedAssignmentOutput.output_name || selectedAssignmentOutput.output_id || "") + "\n"
+        outputEl.textContent = hasOutput
+            ? "Output: " + (selectedAssignmentOutput.output_name || selectedAssignmentOutput.output_id || "") + "\n"
                 + "OutputID: " + (selectedAssignmentOutput.output_id || "") + "\n"
                 + "TypeID: " + (selectedAssignmentOutput.type_id || "") + "\n"
-                + "TargetObjectID: " + (selectedAssignmentOutput.target_object_id || "");
-        } else {
-            outputEl.textContent = "No output selected.";
-        }
+                + "TargetObjectID: " + (selectedAssignmentOutput.target_object_id || "")
+            : "No output selected.";
     }
 
-    const ready = !!(assignmentEditorEnabled && hasRule && hasOutput);
+    if (bundleWrap) {
+        bundleWrap.style.display = assignmentType === "bundle" ? "block" : "none";
+    }
+    if (outputWrap) {
+        outputWrap.style.display = assignmentType === "direct" ? "block" : "none";
+    }
+
+    const hasTarget = assignmentType === "bundle" ? hasBundle : hasOutput;
+    const ready = !!(assignmentEditorEnabled && hasRule && hasTarget);
 
     if (assignButton) {
         assignButton.disabled = !ready;
         assignButton.style.opacity = ready ? "1" : "0.45";
     }
-
     if (removeButton) {
         removeButton.disabled = !ready;
         removeButton.style.opacity = ready ? "1" : "0.45";
@@ -6940,9 +7965,13 @@ function updateAssignmentSelectionPanel() {
     if (statusEl) {
         if (!assignmentEditorEnabled) {
             statusEl.textContent = "Assignment editor is disabled.";
+        } else if (ready) {
+            statusEl.textContent = assignmentType === "bundle"
+                ? "Ready: assign or remove selected bundle for selected rule."
+                : "Ready: assign or remove selected output for selected rule.";
         } else {
-            statusEl.textContent = ready
-                ? "Ready: assign or remove selected output for selected rule."
+            statusEl.textContent = assignmentType === "bundle"
+                ? "Select one rule and one bundle."
                 : "Select one rule and one output.";
         }
     }
@@ -6952,37 +7981,52 @@ async function sendAssignmentMatrixAction(action) {
     const statusEl = document.getElementById("assignment-action-status");
 
     if (!assignmentEditorEnabled) {
-        if (statusEl) {
-            statusEl.textContent = "Assignment editor is disabled.";
-        }
+        if (statusEl) statusEl.textContent = "Assignment editor is disabled.";
         return;
     }
-
-    if (!selectedAssignmentRule || !selectedAssignmentOutput) {
-        if (statusEl) {
-            statusEl.textContent = "Select one rule and one output first.";
-        }
+    if (!selectedAssignmentRule) {
+        if (statusEl) statusEl.textContent = "Select a rule first.";
         return;
     }
 
     const groupKey = String(selectedAssignmentRule.group_key || "");
     const houseState = String(selectedAssignmentRule.house_state || "");
-    const outputID = String(selectedAssignmentOutput.output_id || "");
-
-    if (groupKey === "" || houseState === "" || outputID === "") {
-        if (statusEl) {
-            statusEl.textContent = "Selection is incomplete.";
-        }
+    if (groupKey === "" || houseState === "") {
+        if (statusEl) statusEl.textContent = "Rule selection is incomplete.";
         return;
     }
 
-    if (action === "remove") {
-        const label =
-            (selectedAssignmentOutput.output_name || outputID)
-            + " from "
-            + (selectedAssignmentRule.rule_label || selectedAssignmentRule.rule_id || groupKey);
+    let endpoint = "";
+    let payload = {
+        action: action,
+        group_key: groupKey,
+        house_state: houseState,
+        editor_enabled: true
+    };
+    let targetLabel = "";
 
-        if (!confirm("Remove this output assignment?\n\n" + label)) {
+    if (assignmentType === "bundle") {
+        if (!selectedAssignmentBundle || !selectedAssignmentBundle.bundle_id) {
+            if (statusEl) statusEl.textContent = "Select a bundle first.";
+            return;
+        }
+        endpoint = "?bundle_assignment_api=1&t=" + Date.now();
+        payload.bundle_id = String(selectedAssignmentBundle.bundle_id || "");
+        targetLabel = selectedAssignmentBundle.bundle_name || payload.bundle_id;
+    } else {
+        if (!selectedAssignmentOutput || !selectedAssignmentOutput.output_id) {
+            if (statusEl) statusEl.textContent = "Select an output first.";
+            return;
+        }
+        endpoint = "?assignment_api=1&t=" + Date.now();
+        payload.output_id = String(selectedAssignmentOutput.output_id || "");
+        targetLabel = selectedAssignmentOutput.output_name || payload.output_id;
+    }
+
+    if (action === "remove") {
+        const ruleLabel = selectedAssignmentRule.rule_label || selectedAssignmentRule.rule_id || groupKey;
+        const kind = assignmentType === "bundle" ? "bundle" : "output";
+        if (!confirm("Remove this " + kind + " assignment?\n\n" + targetLabel + " from " + ruleLabel)) {
             return;
         }
     }
@@ -6992,21 +8036,14 @@ async function sendAssignmentMatrixAction(action) {
     }
 
     try {
-        const response = await fetch("?assignment_api=1&t=" + Date.now(), {
+        const response = await fetch(endpoint, {
             method: "POST",
             credentials: "same-origin",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                action: action,
-                group_key: groupKey,
-                house_state: houseState,
-                output_id: outputID,
-                editor_enabled: true
-            })
+            body: JSON.stringify(payload)
         });
 
         const result = await response.json();
-
         if (!result || result.ok !== true) {
             throw new Error(result && result.message ? result.message : "Assignment API failed.");
         }
@@ -7019,7 +8056,6 @@ async function sendAssignmentMatrixAction(action) {
         await fetchAndUpdateGraph();
     } catch (err) {
         console.error("Assignment update failed", err);
-
         if (statusEl) {
             statusEl.textContent = "Error: " + err.message;
         }
@@ -7027,8 +8063,9 @@ async function sendAssignmentMatrixAction(action) {
 }
 
 function attachAssignmentButtonHandlers() {
-    const assignButton = document.getElementById("assign-output-button");
-    const removeButton = document.getElementById("remove-output-button");
+    const assignButton = document.getElementById("assign-selection-button");
+    const removeButton = document.getElementById("remove-selection-button");
+    const typeSelect = document.getElementById("assignment-type-select");
 
     if (assignButton) {
         assignButton.addEventListener("click", async function(ev) {
@@ -7036,11 +8073,17 @@ function attachAssignmentButtonHandlers() {
             await sendAssignmentMatrixAction("assign");
         });
     }
-
     if (removeButton) {
         removeButton.addEventListener("click", async function(ev) {
             ev.preventDefault();
             await sendAssignmentMatrixAction("remove");
+        });
+    }
+    if (typeSelect) {
+        typeSelect.addEventListener("change", function() {
+            assignmentType = typeSelect.value === "direct" ? "direct" : "bundle";
+            saveMappingUiSetting(assignmentTypeStorageKey, assignmentType);
+            updateAssignmentSelectionPanel();
         });
     }
 
@@ -7053,6 +8096,68 @@ document.addEventListener("DOMContentLoaded", () => {
 JS;
     }
 
+
+
+    private function AppendMermaidBundleNode(
+        array &$lines,
+        string $bundleID,
+        array $bundle,
+        int $memberCount,
+        bool $isActive,
+        bool $isEligible,
+        ?string $parentNode,
+        int &$linkCounter,
+        string $edgeStyle = ''
+    ): void {
+        $bundleNode = 'B_' . substr(md5($bundleID), 0, 10);
+        $bundleName = trim((string) ($bundle['Name'] ?? ''));
+        $bundleEnabled = (bool) ($bundle['Active'] ?? true);
+
+        $parts = [];
+        $parts[] = 'Bundle';
+        $parts[] = $bundleName !== '' ? $bundleName : $bundleID;
+        $parts[] = 'Members: ' . $memberCount;
+        if (!$bundleEnabled) {
+            $parts[] = 'INACTIVE';
+        }
+
+        $bundleClass = 'green';
+        if (!$bundleEnabled || $edgeStyle === 'available') {
+            $bundleClass = 'grey';
+        } elseif ($isActive) {
+            $bundleClass = 'red';
+        } elseif ($isEligible) {
+            $bundleClass = 'blue';
+        }
+
+        $lines[] = $this->BuildMermaidNodeMetadataComment($bundleNode, 'bundle', [
+            'bundle_id'    => $bundleID,
+            'bundle_name'  => $bundleName !== '' ? $bundleName : $bundleID,
+            'active'       => $bundleEnabled,
+            'member_count' => $memberCount
+        ]);
+        $lines[] = $bundleNode . '[["' . $this->MermaidEscape(implode("\n", $parts)) . '"]]';
+        $lines[] = 'class ' . $bundleNode . ' ' . $bundleClass . ';';
+        $lines[] = $this->BuildMermaidClickLine($bundleNode);
+
+        if ($parentNode !== null && $parentNode !== '') {
+            $lines[] = $parentNode . ' --> ' . $bundleNode;
+
+            if ($edgeStyle === 'available' || !$bundleEnabled) {
+                $lines[] = 'linkStyle ' . $linkCounter . ' stroke:#546e7a,stroke-width:1px,stroke-dasharray: 6 4;';
+            } else {
+                $stroke = '#a5d6a7';
+                if ($isActive) {
+                    $stroke = '#ff8a80';
+                } elseif ($isEligible) {
+                    $stroke = '#90caf9';
+                }
+                $lines[] = 'linkStyle ' . $linkCounter . ' stroke:' . $stroke . ',stroke-width:2px;';
+            }
+
+            $linkCounter++;
+        }
+    }
 
     private function AppendMermaidOutputNode(
         array &$lines,
@@ -7085,7 +8190,7 @@ JS;
             $outputClass = 'red';
         } elseif ($isEligible) {
             $outputClass = 'blue';
-        } elseif ($parentNode !== null && $edgeStyle === 'available') {
+        } elseif ($parentNode !== null && in_array($edgeStyle, ['available', 'inactive_bundle'], true)) {
             $outputClass = 'grey';
         }
 
@@ -7104,7 +8209,7 @@ JS;
         if ($parentNode !== null && $parentNode !== '') {
             $lines[] = $parentNode . ' --> ' . $outputNode;
 
-            if ($edgeStyle === 'available') {
+            if (in_array($edgeStyle, ['available', 'inactive_bundle'], true)) {
                 $lines[] = 'linkStyle ' . $linkCounter . ' stroke:#546e7a,stroke-width:1px,stroke-dasharray: 6 4;';
             } else {
                 $outputStroke = '#a5d6a7';
@@ -7148,16 +8253,12 @@ JS;
             switch ($stateFilter) {
                 case 'active':
                     return $isActive;
-
                 case 'eligible':
                     return $isEligible && !$isActive;
-
                 case 'active_eligible':
                     return $isActive || $isEligible;
-
                 case 'passive':
                     return !$isActive && !$isEligible;
-
                 case 'both':
                 default:
                     return true;
@@ -7168,7 +8269,11 @@ JS;
         $visibleGroupKeys = array_fill_keys($this->GetVisibleGraphGroupKeys($allGroups), true);
 
         $rules = $this->GetEffectiveGroupStateRules();
-        $assignments = $this->GetEffectiveRuleOutputAssignments();
+        $directAssignments = $this->GetEffectiveDirectRuleOutputAssignments();
+        $effectiveAssignments = $this->GetEffectiveRuleOutputAssignments();
+        $bundleAssignments = $this->GetBundleRuleAssignmentsForGraph();
+        $bundlesByID = $this->GetBundleDefinitionsForGraph();
+        $bundleMembers = $this->GetBundleMembersForGraph();
         $outputs = $this->readListProperty('OutputResources');
 
         $groups = array_values(array_filter($allGroups, function (array $group) use ($visibleGroupKeys): bool {
@@ -7183,53 +8288,137 @@ JS;
 
         if ($stateFilter === 'both') {
             $selectedHouseStates = array_fill_keys($houseStateFilter, true);
-
             $rules = array_values(array_filter($rules, static function (array $rule) use ($selectedHouseStates): bool {
                 $houseState = trim((string) ($rule['HouseState'] ?? ''));
                 return $houseState !== '' && isset($selectedHouseStates[$houseState]);
             }));
+        }
 
-            $houseStateRuleIDs = [];
-            $houseStateGroupKeys = [];
-            foreach ($rules as $rule) {
-                $ruleID = trim((string) ($rule['RuleID'] ?? ''));
-                $groupKey = trim((string) ($rule['GroupKey'] ?? ''));
+        $initialRuleIDs = [];
+        $initialGroupKeys = [];
+        foreach ($rules as $rule) {
+            $ruleID = trim((string) ($rule['RuleID'] ?? ''));
+            $groupKey = trim((string) ($rule['GroupKey'] ?? ''));
+            if ($ruleID !== '') {
+                $initialRuleIDs[$ruleID] = true;
+            }
+            if ($groupKey !== '') {
+                $initialGroupKeys[$groupKey] = true;
+            }
+        }
 
-                if ($ruleID !== '') {
-                    $houseStateRuleIDs[$ruleID] = true;
-                }
-                if ($groupKey !== '') {
-                    $houseStateGroupKeys[$groupKey] = true;
+        $groups = array_values(array_filter($groups, static function (array $group) use ($initialGroupKeys): bool {
+            $groupKey = trim((string) ($group['GroupKey'] ?? ''));
+            return $groupKey !== '' && isset($initialGroupKeys[$groupKey]);
+        }));
+
+        $directAssignments = array_values(array_filter($directAssignments, static function (array $assignment) use ($initialRuleIDs): bool {
+            $ruleID = trim((string) ($assignment['RuleID'] ?? ''));
+            return $ruleID !== '' && isset($initialRuleIDs[$ruleID]);
+        }));
+        $effectiveAssignments = array_values(array_filter($effectiveAssignments, static function (array $assignment) use ($initialRuleIDs): bool {
+            $ruleID = trim((string) ($assignment['RuleID'] ?? ''));
+            return $ruleID !== '' && isset($initialRuleIDs[$ruleID]);
+        }));
+        $bundleAssignments = array_values(array_filter($bundleAssignments, static function (array $assignment) use ($initialRuleIDs): bool {
+            $ruleID = trim((string) ($assignment['RuleID'] ?? ''));
+            return $ruleID !== '' && isset($initialRuleIDs[$ruleID]);
+        }));
+
+        if ($hasOutputFilter) {
+            $matchingRuleIDs = [];
+
+            foreach ($effectiveAssignments as $assignment) {
+                $ruleID = trim((string) ($assignment['RuleID'] ?? ''));
+                $outputID = trim((string) ($assignment['OutputID'] ?? ''));
+                if ($ruleID !== '' && $outputID !== '' && isset($selectedOutputIDs[$outputID])) {
+                    $matchingRuleIDs[$ruleID] = true;
                 }
             }
 
-            $assignments = array_values(array_filter($assignments, static function (array $assignment) use ($houseStateRuleIDs): bool {
-                $ruleID = trim((string) ($assignment['RuleID'] ?? ''));
-                return $ruleID !== '' && isset($houseStateRuleIDs[$ruleID]);
+            if (in_array($depth, ['bundles', 'full'], true)) {
+                foreach ($bundleAssignments as $assignment) {
+                    $ruleID = trim((string) ($assignment['RuleID'] ?? ''));
+                    $bundleID = trim((string) ($assignment['BundleID'] ?? ''));
+                    if ($ruleID === '' || $bundleID === '') {
+                        continue;
+                    }
+
+                    $members = $bundleMembers[$bundleID] ?? [];
+                    if (!is_array($members)) {
+                        continue;
+                    }
+
+                    foreach (array_keys($selectedOutputIDs) as $selectedOutputID) {
+                        if (isset($members[$selectedOutputID])) {
+                            $matchingRuleIDs[$ruleID] = true;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            $rules = array_values(array_filter($rules, static function (array $rule) use ($matchingRuleIDs): bool {
+                $ruleID = trim((string) ($rule['RuleID'] ?? ''));
+                return $ruleID !== '' && isset($matchingRuleIDs[$ruleID]);
             }));
 
-            $groups = array_values(array_filter($groups, static function (array $group) use ($houseStateGroupKeys): bool {
+            $filteredRuleIDs = [];
+            $filteredGroupKeys = [];
+            foreach ($rules as $rule) {
+                $ruleID = trim((string) ($rule['RuleID'] ?? ''));
+                $groupKey = trim((string) ($rule['GroupKey'] ?? ''));
+                if ($ruleID !== '') {
+                    $filteredRuleIDs[$ruleID] = true;
+                }
+                if ($groupKey !== '') {
+                    $filteredGroupKeys[$groupKey] = true;
+                }
+            }
+
+            $groups = array_values(array_filter($groups, static function (array $group) use ($filteredGroupKeys): bool {
                 $groupKey = trim((string) ($group['GroupKey'] ?? ''));
-                return $groupKey !== '' && isset($houseStateGroupKeys[$groupKey]);
+                return $groupKey !== '' && isset($filteredGroupKeys[$groupKey]);
+            }));
+            $directAssignments = array_values(array_filter($directAssignments, static function (array $assignment) use ($filteredRuleIDs, $selectedOutputIDs): bool {
+                $ruleID = trim((string) ($assignment['RuleID'] ?? ''));
+                $outputID = trim((string) ($assignment['OutputID'] ?? ''));
+                return $ruleID !== '' && isset($filteredRuleIDs[$ruleID]) && $outputID !== '' && isset($selectedOutputIDs[$outputID]);
+            }));
+            $effectiveAssignments = array_values(array_filter($effectiveAssignments, static function (array $assignment) use ($filteredRuleIDs, $selectedOutputIDs): bool {
+                $ruleID = trim((string) ($assignment['RuleID'] ?? ''));
+                $outputID = trim((string) ($assignment['OutputID'] ?? ''));
+                return $ruleID !== '' && isset($filteredRuleIDs[$ruleID]) && $outputID !== '' && isset($selectedOutputIDs[$outputID]);
+            }));
+            $bundleAssignments = array_values(array_filter($bundleAssignments, function (array $assignment) use ($filteredRuleIDs, $selectedOutputIDs, $bundleMembers): bool {
+                $ruleID = trim((string) ($assignment['RuleID'] ?? ''));
+                $bundleID = trim((string) ($assignment['BundleID'] ?? ''));
+                if ($ruleID === '' || !isset($filteredRuleIDs[$ruleID]) || $bundleID === '') {
+                    return false;
+                }
+
+                $members = $bundleMembers[$bundleID] ?? [];
+                if (!is_array($members)) {
+                    return false;
+                }
+
+                foreach (array_keys($selectedOutputIDs) as $outputID) {
+                    if (isset($members[$outputID])) {
+                        return true;
+                    }
+                }
+                return false;
             }));
         }
 
         usort($groups, static function (array $a, array $b): int {
             return strnatcasecmp((string) ($a['GroupLabel'] ?? ''), (string) ($b['GroupLabel'] ?? ''));
         });
-
         usort($rules, static function (array $a, array $b): int {
             $ak = (string) ($a['GroupKey'] ?? '') . '|' . (string) ($a['HouseState'] ?? '');
             $bk = (string) ($b['GroupKey'] ?? '') . '|' . (string) ($b['HouseState'] ?? '');
             return strnatcasecmp($ak, $bk);
         });
-
-        usort($assignments, static function (array $a, array $b): int {
-            $ak = (string) ($a['RuleID'] ?? '') . '|' . (string) ($a['OutputID'] ?? '');
-            $bk = (string) ($b['RuleID'] ?? '') . '|' . (string) ($b['OutputID'] ?? '');
-            return strnatcasecmp($ak, $bk);
-        });
-
         usort($outputs, static function (array $a, array $b): int {
             return strnatcasecmp((string) ($a['Name'] ?? ''), (string) ($b['Name'] ?? ''));
         });
@@ -7248,12 +8437,8 @@ JS;
         if (is_array($lastActiveGroups)) {
             foreach ($lastActiveGroups as $groupLabelRaw) {
                 $groupLabel = trim((string) $groupLabelRaw);
-                if ($groupLabel === '') {
-                    continue;
-                }
-                $groupKey = $this->MakeGroupKey($groupLabel);
-                if (isset($visibleGroupKeys[$groupKey])) {
-                    $activeGroups[$groupKey] = true;
+                if ($groupLabel !== '') {
+                    $activeGroups[$this->MakeGroupKey($groupLabel)] = true;
                 }
             }
         }
@@ -7288,44 +8473,11 @@ JS;
             }
         }
 
-        if ($hasOutputFilter) {
-            $assignments = array_values(array_filter($assignments, function (array $assignment) use ($selectedOutputIDs): bool {
-                $outputID = trim((string) ($assignment['OutputID'] ?? ''));
-                return $outputID !== '' && isset($selectedOutputIDs[$outputID]);
-            }));
-
-            $ruleIDsWithFilteredAssignments = [];
-            foreach ($assignments as $assignment) {
-                $ruleID = trim((string) ($assignment['RuleID'] ?? ''));
-                if ($ruleID !== '') {
-                    $ruleIDsWithFilteredAssignments[$ruleID] = true;
-                }
-            }
-
-            $rules = array_values(array_filter($rules, function (array $rule) use ($ruleIDsWithFilteredAssignments): bool {
-                $ruleID = trim((string) ($rule['RuleID'] ?? ''));
-                return $ruleID !== '' && isset($ruleIDsWithFilteredAssignments[$ruleID]);
-            }));
-
-            $groupKeysWithFilteredRules = [];
-            foreach ($rules as $rule) {
-                $groupKey = trim((string) ($rule['GroupKey'] ?? ''));
-                if ($groupKey !== '') {
-                    $groupKeysWithFilteredRules[$groupKey] = true;
-                }
-            }
-
-            $groups = array_values(array_filter($groups, function (array $group) use ($groupKeysWithFilteredRules): bool {
-                $groupKey = trim((string) ($group['GroupKey'] ?? ''));
-                return $groupKey !== '' && isset($groupKeysWithFilteredRules[$groupKey]);
-            }));
-        }
-
         $eligibleRuleIDs = [];
         foreach ($rules as $rule) {
             $ruleID = trim((string) ($rule['RuleID'] ?? ''));
             $groupKey = trim((string) ($rule['GroupKey'] ?? ''));
-            if ($ruleID === '' || $groupKey === '' || !isset($visibleGroupKeys[$groupKey])) {
+            if ($ruleID === '' || $groupKey === '') {
                 continue;
             }
 
@@ -7333,43 +8485,14 @@ JS;
             if ($currentHouseState === null || $ruleState !== $currentHouseState) {
                 continue;
             }
-
             if (!(bool) ($rule['Active'] ?? false)) {
                 continue;
             }
-
-            $conditionOK = true;
-            $conditionGroupKey = trim((string) ($rule['ConditionGroupKey'] ?? ''));
-            $conditionMode = trim((string) ($rule['ConditionMode'] ?? ''));
-
-            if ($conditionGroupKey !== '' && $conditionMode !== '') {
-                $conditionOK = $this->isRuleConditionCurrentlySatisfied($rule);
-            }
-
-            if (!$conditionOK) {
+            if (!$this->DoesRuleGroupConditionMatch($rule)) {
                 continue;
             }
 
             $eligibleRuleIDs[$ruleID] = true;
-        }
-
-        $eligibleAssignmentIDs = [];
-        $eligibleOutputIDs = [];
-        foreach ($assignments as $assignment) {
-            $assignmentID = trim((string) ($assignment['AssignmentID'] ?? ''));
-            $ruleID = trim((string) ($assignment['RuleID'] ?? ''));
-            $outputID = trim((string) ($assignment['OutputID'] ?? ''));
-
-            if ($assignmentID === '' || $ruleID === '' || $outputID === '') {
-                continue;
-            }
-
-            if (!isset($eligibleRuleIDs[$ruleID])) {
-                continue;
-            }
-
-            $eligibleAssignmentIDs[$assignmentID] = true;
-            $eligibleOutputIDs[$outputID] = true;
         }
 
         $groupVisibleMap = [];
@@ -7381,12 +8504,10 @@ JS;
 
             $isActive = isset($activeGroups[$groupKey]);
             $isEligible = false;
-
             foreach ($rules as $rule) {
                 if ((string) ($rule['GroupKey'] ?? '') !== $groupKey) {
                     continue;
                 }
-
                 $ruleID = trim((string) ($rule['RuleID'] ?? ''));
                 if ($ruleID !== '' && isset($eligibleRuleIDs[$ruleID])) {
                     $isEligible = true;
@@ -7404,60 +8525,76 @@ JS;
         foreach ($rules as $rule) {
             $ruleID = trim((string) ($rule['RuleID'] ?? ''));
             $groupKey = trim((string) ($rule['GroupKey'] ?? ''));
-            if ($ruleID === '' || $groupKey === '') {
-                continue;
-            }
-            if (!isset($groupVisibleMap[$groupKey])) {
+            if ($ruleID === '' || $groupKey === '' || !isset($groupVisibleMap[$groupKey])) {
                 continue;
             }
 
             $isActive = isset($activeRuleIDs[$ruleID]);
             $isEligible = isset($eligibleRuleIDs[$ruleID]);
-
-            if ($matchesStateFilter($isActive, $isEligible)) {
-                $ruleVisibleMap[$ruleID] = true;
-                $visibleRules[] = $rule;
-            }
-        }
-
-        $visibleAssignments = [];
-        $visibleAssignmentOutputIDs = [];
-        foreach ($assignments as $assignment) {
-            $assignmentID = trim((string) ($assignment['AssignmentID'] ?? ''));
-            $ruleID = trim((string) ($assignment['RuleID'] ?? ''));
-            $outputID = trim((string) ($assignment['OutputID'] ?? ''));
-
-            if ($assignmentID === '' || $ruleID === '' || $outputID === '') {
+            if (!$matchesStateFilter($isActive, $isEligible)) {
                 continue;
             }
-            if (!isset($ruleVisibleMap[$ruleID])) {
+
+            $visibleRules[] = $rule;
+            $ruleVisibleMap[$ruleID] = true;
+        }
+
+        $visibleDirectAssignments = [];
+        foreach ($directAssignments as $assignment) {
+            $ruleID = trim((string) ($assignment['RuleID'] ?? ''));
+            $outputID = trim((string) ($assignment['OutputID'] ?? ''));
+            if ($ruleID === '' || $outputID === '' || !isset($ruleVisibleMap[$ruleID])) {
                 continue;
             }
 
             $isActive = isset($activeRuleIDs[$ruleID]) && isset($activeOutputIDs[$outputID]);
-            $isEligible = isset($eligibleAssignmentIDs[$assignmentID]);
-
+            $isEligible = isset($eligibleRuleIDs[$ruleID]);
             if ($matchesStateFilter($isActive, $isEligible)) {
-                $visibleAssignments[] = $assignment;
-                $visibleAssignmentOutputIDs[$outputID] = true;
+                $visibleDirectAssignments[] = $assignment;
             }
         }
 
-        $visibleOutputs = [];
-        foreach ($outputsByID as $outputID => $output) {
-            if ($hasOutputFilter && !isset($selectedOutputIDs[$outputID])) {
+        $visibleEffectiveAssignments = [];
+        foreach ($effectiveAssignments as $assignment) {
+            $ruleID = trim((string) ($assignment['RuleID'] ?? ''));
+            $outputID = trim((string) ($assignment['OutputID'] ?? ''));
+            if ($ruleID === '' || $outputID === '' || !isset($ruleVisibleMap[$ruleID])) {
                 continue;
             }
 
-            if (!isset($visibleAssignmentOutputIDs[$outputID])) {
-                continue;
-            }
-
-            $isActive = isset($activeOutputIDs[$outputID]);
-            $isEligible = isset($eligibleOutputIDs[$outputID]);
-
+            $isActive = isset($activeRuleIDs[$ruleID]) && isset($activeOutputIDs[$outputID]);
+            $isEligible = isset($eligibleRuleIDs[$ruleID]);
             if ($matchesStateFilter($isActive, $isEligible)) {
-                $visibleOutputs[$outputID] = true;
+                $visibleEffectiveAssignments[] = $assignment;
+            }
+        }
+
+        $visibleBundleAssignments = [];
+        foreach ($bundleAssignments as $assignment) {
+            $ruleID = trim((string) ($assignment['RuleID'] ?? ''));
+            $bundleID = trim((string) ($assignment['BundleID'] ?? ''));
+            if ($ruleID === '' || $bundleID === '' || !isset($ruleVisibleMap[$ruleID]) || !isset($bundlesByID[$bundleID])) {
+                continue;
+            }
+
+            $bundleEnabled = (bool) ($bundlesByID[$bundleID]['Active'] ?? true);
+            $memberSet = $bundleMembers[$bundleID] ?? [];
+            $hasActiveMember = false;
+            if (is_array($memberSet)) {
+                foreach (array_keys($memberSet) as $outputID) {
+                    if (isset($activeOutputIDs[$outputID])) {
+                        $hasActiveMember = true;
+                        break;
+                    }
+                }
+            }
+
+            $isActive = $bundleEnabled && isset($activeRuleIDs[$ruleID]) && $hasActiveMember;
+            $isEligible = $bundleEnabled && isset($eligibleRuleIDs[$ruleID]);
+            if ($matchesStateFilter($isActive, $isEligible)) {
+                $assignment['_graph_active'] = $isActive;
+                $assignment['_graph_eligible'] = $isEligible;
+                $visibleBundleAssignments[] = $assignment;
             }
         }
 
@@ -7469,19 +8606,35 @@ JS;
         $lines[] = 'classDef grey fill:#37474f,stroke:#546e7a,stroke-width:1px,color:#eee;';
         $lines[] = 'classDef info fill:#1565c0,stroke:#90caf9,stroke-width:2px,color:#fff;';
 
-        $houseStateNode = 'HS_' . substr(md5((string) $this->InstanceID), 0, 10);
+        if (count($groupVisibleMap) === 0) {
+            $noteNode = 'N_' . substr(md5('no_groups_' . (string) $this->InstanceID), 0, 10);
+            $noteText = 'No groups selected for current filters';
+            if ($stateFilter === 'both' && count($houseStateFilter) === 0) {
+                $noteText = 'No house states selected';
+            } elseif ($hasOutputFilter) {
+                $noteText = 'No paths for selected outputs and current filters';
+            }
+            $lines[] = $noteNode . '["' . $this->MermaidEscape($noteText) . '"]';
+            $lines[] = 'class ' . $noteNode . ' grey;';
+            return implode("\n", $lines) . "\n";
+        }
+
+        $linkCounter = 0;
+        $renderedBundleNodes = [];
+        $renderedOutputNodes = [];
+
         if ($depth === 'full') {
+            $houseStateNode = 'HS_' . substr(md5((string) $this->InstanceID), 0, 10);
             if ($cachedHouse !== null) {
                 $houseStateID = (string) ((int) ($cachedHouse['system_state_id'] ?? 0));
                 $houseStateName = trim((string) ($cachedHouse['system_state_name'] ?? ''));
                 $houseEpoch = (string) ($cachedHouse['sync']['last_processed_event_epoch'] ?? '0');
                 $houseSeq = (int) ($cachedHouse['sync']['last_processed_event_seq'] ?? 0);
-
-                $houseParts = [];
-                $houseParts[] = 'House State';
-                $houseParts[] = ($houseStateName !== '' ? $houseStateName : 'Unknown') . ' [' . $houseStateID . ']';
-                $houseParts[] = 'Sync: ' . $houseEpoch . ' / ' . $houseSeq;
-
+                $houseParts = [
+                    'House State',
+                    ($houseStateName !== '' ? $houseStateName : 'Unknown') . ' [' . $houseStateID . ']',
+                    'Sync: ' . $houseEpoch . ' / ' . $houseSeq
+                ];
                 $lines[] = $houseStateNode . '["' . $this->MermaidEscape(implode("\n", $houseParts)) . '"]';
                 $lines[] = 'class ' . $houseStateNode . ' info;';
             } else {
@@ -7489,26 +8642,6 @@ JS;
                 $lines[] = 'class ' . $houseStateNode . ' grey;';
             }
         }
-
-        if (count($groupVisibleMap) === 0) {
-            $noteNode = 'N_' . substr(md5('no_groups_' . (string) $this->InstanceID), 0, 10);
-
-            $noteText = 'No groups selected for current state filter';
-            if ($stateFilter === 'both' && count($houseStateFilter) === 0) {
-                $noteText = 'No house states selected';
-            } elseif ($hasOutputFilter) {
-                $noteText = 'No paths for selected outputs and current filters';
-            } elseif ($stateFilter === 'both') {
-                $noteText = 'No paths for selected house states';
-            }
-
-            $lines[] = $noteNode . '["' . $this->MermaidEscape($noteText) . '"]';
-            $lines[] = 'class ' . $noteNode . ' grey;';
-            return implode("\n", $lines) . "\n";
-        }
-
-        $linkCounter = 0;
-        $renderedOutputNodes = [];
 
         foreach ($groups as $group) {
             $groupKey = trim((string) ($group['GroupKey'] ?? ''));
@@ -7518,10 +8651,9 @@ JS;
 
             $groupNode = 'G_' . substr(md5($groupKey), 0, 10);
             $groupLabel = $groupLabels[$groupKey] ?? $groupKey;
-
             $groupActive = isset($activeGroups[$groupKey]);
             $groupEligible = false;
-            foreach ($rules as $rule) {
+            foreach ($visibleRules as $rule) {
                 if ((string) ($rule['GroupKey'] ?? '') !== $groupKey) {
                     continue;
                 }
@@ -7532,15 +8664,9 @@ JS;
                 }
             }
 
-            $groupClass = 'green';
-            if ($groupActive) {
-                $groupClass = 'red';
-            } elseif ($groupEligible) {
-                $groupClass = 'blue';
-            }
-
+            $groupClass = $groupActive ? 'red' : ($groupEligible ? 'blue' : 'green');
             $lines[] = $this->BuildMermaidNodeMetadataComment($groupNode, 'group', [
-                'group_key'   => $groupKey,
+                'group_key' => $groupKey,
                 'group_label' => $groupLabel
             ]);
             $lines[] = $groupNode . '["' . $this->MermaidEscape($groupLabel) . '"]';
@@ -7559,15 +8685,13 @@ JS;
             $ruleNode = 'R_' . substr(md5($ruleID), 0, 10);
             $ruleActive = isset($activeRuleIDs[$ruleID]);
             $ruleEligible = isset($eligibleRuleIDs[$ruleID]);
-
             $ruleLabel = $this->buildRuleLabel($rule, $groupLabels);
             $severity = trim((string) ($rule['Severity'] ?? ''));
             $conditionText = ($showConditions && $depth !== 'groups')
                 ? $this->buildRuleConditionText($rule, $groupLabels, $visibleGroupKeys)
                 : '';
 
-            $parts = [];
-            $parts[] = $ruleLabel !== '' ? $ruleLabel : $ruleID;
+            $parts = [$ruleLabel !== '' ? $ruleLabel : $ruleID];
             if ($severity !== '') {
                 $parts[] = 'Severity: ' . $severity;
             }
@@ -7576,36 +8700,23 @@ JS;
             }
 
             $lines[] = $this->BuildMermaidNodeMetadataComment($ruleNode, 'rule', [
-                'rule_id'     => $ruleID,
-                'group_key'   => $groupKey,
-                'rule_label'  => $ruleLabel,
+                'rule_id' => $ruleID,
+                'group_key' => $groupKey,
+                'rule_label' => $ruleLabel,
                 'house_state' => trim((string) ($rule['HouseState'] ?? '')),
-                'severity'    => $severity
+                'severity' => $severity
             ]);
             $lines[] = $ruleNode . '["' . $this->MermaidEscape(implode("\n", $parts)) . '"]';
             $lines[] = $groupNode . ' --> ' . $ruleNode;
             $lines[] = $this->BuildMermaidClickLine($ruleNode);
-
-            $ruleClass = 'green';
-            if ($ruleActive) {
-                $ruleClass = 'red';
-            } elseif ($ruleEligible) {
-                $ruleClass = 'blue';
-            }
-            $lines[] = 'class ' . $ruleNode . ' ' . $ruleClass . ';';
-
-            $ruleStroke = '#a5d6a7';
-            if ($ruleActive) {
-                $ruleStroke = '#ff8a80';
-            } elseif ($ruleEligible) {
-                $ruleStroke = '#90caf9';
-            }
-            $lines[] = 'linkStyle ' . $linkCounter . ' stroke:' . $ruleStroke . ',stroke-width:2px;';
+            $lines[] = 'class ' . $ruleNode . ' ' . ($ruleActive ? 'red' : ($ruleEligible ? 'blue' : 'green')) . ';';
+            $lines[] = 'linkStyle ' . $linkCounter . ' stroke:'
+                . ($ruleActive ? '#ff8a80' : ($ruleEligible ? '#90caf9' : '#a5d6a7'))
+                . ',stroke-width:2px;';
             $linkCounter++;
 
             $conditionGroupKey = trim((string) ($rule['ConditionGroupKey'] ?? ''));
             $conditionMode = trim((string) ($rule['ConditionMode'] ?? ''));
-
             if (
                 $depth !== 'groups'
                 && $showConditions
@@ -7616,7 +8727,6 @@ JS;
                 $conditionNode = 'G_' . substr(md5($conditionGroupKey), 0, 10);
                 $conditionLabel = ($conditionMode === 'active') ? 'requires active' : 'requires inactive';
                 $conditionSatisfied = $this->isRuleConditionCurrentlySatisfied($rule);
-
                 $lines[] = $conditionNode . ' -. "' . $this->MermaidEscape($conditionLabel) . '" .-> ' . $ruleNode;
                 $lines[] = 'linkStyle ' . $linkCounter
                     . ' stroke:' . ($conditionSatisfied ? '#ff8a80' : '#90caf9')
@@ -7625,140 +8735,199 @@ JS;
             }
         }
 
-        if ($depth !== 'groups') {
-            foreach ($visibleAssignments as $assignment) {
-                $assignmentID = trim((string) ($assignment['AssignmentID'] ?? ''));
+        if (in_array($depth, ['bundles', 'full'], true)) {
+            foreach ($visibleBundleAssignments as $assignment) {
+                $ruleID = trim((string) ($assignment['RuleID'] ?? ''));
+                $bundleID = trim((string) ($assignment['BundleID'] ?? ''));
+                if ($ruleID === '' || $bundleID === '' || !isset($bundlesByID[$bundleID])) {
+                    continue;
+                }
+
+                $bundle = $bundlesByID[$bundleID];
+                $memberSet = $bundleMembers[$bundleID] ?? [];
+                if (!is_array($memberSet)) {
+                    $memberSet = [];
+                }
+                $memberCount = count($memberSet);
+                $bundleNode = 'B_' . substr(md5($bundleID), 0, 10);
+                $ruleNode = 'R_' . substr(md5($ruleID), 0, 10);
+                $bundleEnabled = (bool) ($bundle['Active'] ?? true);
+                $bundleActive = (bool) ($assignment['_graph_active'] ?? false);
+                $bundleEligible = (bool) ($assignment['_graph_eligible'] ?? false);
+
+                $this->AppendMermaidBundleNode(
+                    $lines,
+                    $bundleID,
+                    $bundle,
+                    $memberCount,
+                    $bundleActive,
+                    $bundleEligible,
+                    $ruleNode,
+                    $linkCounter
+                );
+                $renderedBundleNodes[$bundleID] = true;
+
+                if ($depth !== 'full') {
+                    continue;
+                }
+
+                foreach (array_keys($memberSet) as $outputID) {
+                    if ($hasOutputFilter && !isset($selectedOutputIDs[$outputID])) {
+                        continue;
+                    }
+                    if (!isset($outputsByID[$outputID])) {
+                        continue;
+                    }
+
+                    $outputActive = $bundleEnabled && isset($activeRuleIDs[$ruleID]) && isset($activeOutputIDs[$outputID]);
+                    $outputEligible = $bundleEnabled && isset($eligibleRuleIDs[$ruleID]);
+                    $edgeStyle = $bundleEnabled ? '' : 'inactive_bundle';
+
+                    $this->AppendMermaidOutputNode(
+                        $lines,
+                        $outputID,
+                        $outputsByID[$outputID],
+                        $typeLabels,
+                        $outputActive,
+                        $outputEligible,
+                        $bundleNode,
+                        $linkCounter,
+                        $edgeStyle
+                    );
+                    $renderedOutputNodes[$outputID] = true;
+                }
+            }
+        }
+
+        if ($depth === 'outputs') {
+            foreach ($visibleEffectiveAssignments as $assignment) {
                 $ruleID = trim((string) ($assignment['RuleID'] ?? ''));
                 $outputID = trim((string) ($assignment['OutputID'] ?? ''));
-
-                if ($assignmentID === '' || $ruleID === '' || $outputID === '') {
+                if ($ruleID === '' || $outputID === '' || !isset($outputsByID[$outputID])) {
                     continue;
                 }
-                if (!isset($ruleVisibleMap[$ruleID])) {
-                    continue;
-                }
-
-                $assignmentNode = 'A_' . substr(md5($assignmentID), 0, 10);
-                $ruleNode = 'R_' . substr(md5($ruleID), 0, 10);
-                $assignmentActive = isset($activeRuleIDs[$ruleID]) && isset($activeOutputIDs[$outputID]);
-                $assignmentEligible = isset($eligibleAssignmentIDs[$assignmentID]);
-
-                $assignmentLabel = 'Output Action';
-                if (isset($outputsByID[$outputID])) {
-                    $assignmentOutputName = trim((string) ($outputsByID[$outputID]['Name'] ?? ''));
-                    $assignmentLabel .= "\n" . ($assignmentOutputName !== '' ? $assignmentOutputName : $outputID);
-                } else {
-                    $assignmentLabel .= "\n" . $outputID;
-                }
-
-                $assignmentRule = $this->FindRuleByID($ruleID);
-                $assignmentGroupKey = is_array($assignmentRule) ? trim((string) ($assignmentRule['GroupKey'] ?? '')) : '';
-                $assignmentHouseState = is_array($assignmentRule) ? trim((string) ($assignmentRule['HouseState'] ?? '')) : '';
-                $assignmentSeverity = is_array($assignmentRule) ? trim((string) ($assignmentRule['Severity'] ?? '')) : '';
-                $assignmentRuleLabel = is_array($assignmentRule) ? $this->buildRuleLabel($assignmentRule, $groupLabels) : $ruleID;
-
-                $lines[] = $this->BuildMermaidNodeMetadataComment($assignmentNode, 'assignment', [
-                    'assignment_id' => $assignmentID,
-                    'rule_id'       => $ruleID,
-                    'group_key'     => $assignmentGroupKey,
-                    'house_state'   => $assignmentHouseState,
-                    'severity'      => $assignmentSeverity,
-                    'rule_label'    => $assignmentRuleLabel,
-                    'output_id'     => $outputID,
-                    'output_label'  => $assignmentLabel
-                ]);
-                $lines[] = $assignmentNode . '["' . $this->MermaidEscape($assignmentLabel) . '"]';
-                $lines[] = $ruleNode . ' --> ' . $assignmentNode;
-                $lines[] = $this->BuildMermaidClickLine($assignmentNode);
-
-                $assignmentClass = 'green';
-                if ($assignmentActive) {
-                    $assignmentClass = 'red';
-                } elseif ($assignmentEligible) {
-                    $assignmentClass = 'blue';
-                }
-                $lines[] = 'class ' . $assignmentNode . ' ' . $assignmentClass . ';';
-
-                $assignmentStroke = '#a5d6a7';
-                if ($assignmentActive) {
-                    $assignmentStroke = '#ff8a80';
-                } elseif ($assignmentEligible) {
-                    $assignmentStroke = '#90caf9';
-                }
-                $lines[] = 'linkStyle ' . $linkCounter . ' stroke:' . $assignmentStroke . ',stroke-width:2px;';
-                $linkCounter++;
-
-                if (!isset($visibleOutputs[$outputID])) {
-                    continue;
-                }
-
-                if (!isset($outputsByID[$outputID])) {
-                    $outputNode = 'O_' . substr(md5($outputID), 0, 10);
-
-                    $lines[] = $outputNode . '["' . $this->MermaidEscape('[missing output]' . "\n" . $outputID) . '"]';
-                    $lines[] = $assignmentNode . ' --> ' . $outputNode;
-                    $lines[] = 'class ' . $outputNode . ' grey;';
-                    $lines[] = 'linkStyle ' . $linkCounter . ' stroke:#546e7a,stroke-width:2px;';
-                    $linkCounter++;
-                    continue;
-                }
-
-                $output = $outputsByID[$outputID];
-                $outputNodeActive = isset($activeOutputIDs[$outputID]);
-                $outputNodeEligible = isset($eligibleOutputIDs[$outputID]);
 
                 $this->AppendMermaidOutputNode(
                     $lines,
                     $outputID,
-                    $output,
+                    $outputsByID[$outputID],
                     $typeLabels,
-                    $outputNodeActive,
-                    $outputNodeEligible,
-                    $assignmentNode,
+                    isset($activeRuleIDs[$ruleID]) && isset($activeOutputIDs[$outputID]),
+                    isset($eligibleRuleIDs[$ruleID]),
+                    'R_' . substr(md5($ruleID), 0, 10),
                     $linkCounter
                 );
-
                 $renderedOutputNodes[$outputID] = true;
             }
+        }
+
+        if ($depth === 'full') {
+            foreach ($visibleDirectAssignments as $assignment) {
+                $ruleID = trim((string) ($assignment['RuleID'] ?? ''));
+                $outputID = trim((string) ($assignment['OutputID'] ?? ''));
+                if ($ruleID === '' || $outputID === '' || !isset($outputsByID[$outputID])) {
+                    continue;
+                }
+
+                $this->AppendMermaidOutputNode(
+                    $lines,
+                    $outputID,
+                    $outputsByID[$outputID],
+                    $typeLabels,
+                    isset($activeRuleIDs[$ruleID]) && isset($activeOutputIDs[$outputID]),
+                    isset($eligibleRuleIDs[$ruleID]),
+                    'R_' . substr(md5($ruleID), 0, 10),
+                    $linkCounter
+                );
+                $renderedOutputNodes[$outputID] = true;
+            }
+        }
+
+        if (in_array($depth, ['bundles', 'full'], true)) {
+            $availableBundleIDs = [];
+            foreach ($bundlesByID as $bundleID => $bundle) {
+                if (isset($renderedBundleNodes[$bundleID])) {
+                    continue;
+                }
+
+                if ($hasOutputFilter) {
+                    $members = $bundleMembers[$bundleID] ?? [];
+                    $matchesOutput = false;
+                    if (is_array($members)) {
+                        foreach (array_keys($selectedOutputIDs) as $selectedOutputID) {
+                            if (isset($members[$selectedOutputID])) {
+                                $matchesOutput = true;
+                                break;
+                            }
+                        }
+                    }
+                    if (!$matchesOutput) {
+                        continue;
+                    }
+                }
+
+                $availableBundleIDs[] = $bundleID;
+            }
+
+            if (count($availableBundleIDs) > 0) {
+                usort($availableBundleIDs, static function (string $a, string $b) use ($bundlesByID): int {
+                    return strnatcasecmp(
+                        (string) ($bundlesByID[$a]['Name'] ?? $a),
+                        (string) ($bundlesByID[$b]['Name'] ?? $b)
+                    );
+                });
+
+                $availableNode = 'AVAILABLE_BUNDLES_' . substr(md5((string) $this->InstanceID), 0, 10);
+                $lines[] = $availableNode . '["' . $this->MermaidEscape("Available Bundles\nnot assigned in current mapping") . '"]';
+                $lines[] = 'class ' . $availableNode . ' grey;';
+
+                foreach ($availableBundleIDs as $bundleID) {
+                    $memberSet = $bundleMembers[$bundleID] ?? [];
+                    $memberCount = is_array($memberSet) ? count($memberSet) : 0;
+                    $this->AppendMermaidBundleNode(
+                        $lines,
+                        $bundleID,
+                        $bundlesByID[$bundleID],
+                        $memberCount,
+                        false,
+                        false,
+                        $availableNode,
+                        $linkCounter,
+                        'available'
+                    );
+                }
+            }
+        }
+
+        if (in_array($depth, ['outputs', 'full'], true)) {
             $availableOutputIDs = [];
-
-            foreach ($outputsByID as $availableOutputID => $availableOutput) {
-                $availableOutputID = trim((string) $availableOutputID);
-
-                if ($availableOutputID === '') {
+            foreach ($outputsByID as $outputID => $output) {
+                if (isset($renderedOutputNodes[$outputID])) {
                     continue;
                 }
-
-                if (isset($renderedOutputNodes[$availableOutputID])) {
+                if ($hasOutputFilter && !isset($selectedOutputIDs[$outputID])) {
                     continue;
                 }
-
-                if ($hasOutputFilter && !isset($selectedOutputIDs[$availableOutputID])) {
-                    continue;
-                }
-
-                $availableOutputIDs[] = $availableOutputID;
+                $availableOutputIDs[] = $outputID;
             }
 
             if (count($availableOutputIDs) > 0) {
                 usort($availableOutputIDs, static function (string $a, string $b) use ($outputsByID): int {
-                    $nameA = trim((string) ($outputsByID[$a]['Name'] ?? $a));
-                    $nameB = trim((string) ($outputsByID[$b]['Name'] ?? $b));
-
-                    return strnatcasecmp($nameA, $nameB);
+                    return strnatcasecmp(
+                        (string) ($outputsByID[$a]['Name'] ?? $a),
+                        (string) ($outputsByID[$b]['Name'] ?? $b)
+                    );
                 });
 
                 $availableNode = 'AVAILABLE_OUTPUTS_' . substr(md5((string) $this->InstanceID), 0, 10);
                 $lines[] = $availableNode . '["' . $this->MermaidEscape("Available Outputs\nnot yet shown in current mapping") . '"]';
                 $lines[] = 'class ' . $availableNode . ' grey;';
 
-                foreach ($availableOutputIDs as $availableOutputID) {
-                    $availableOutput = $outputsByID[$availableOutputID];
-
+                foreach ($availableOutputIDs as $outputID) {
                     $this->AppendMermaidOutputNode(
                         $lines,
-                        $availableOutputID,
-                        $availableOutput,
+                        $outputID,
+                        $outputsByID[$outputID],
                         $typeLabels,
                         false,
                         false,
@@ -7766,8 +8935,6 @@ JS;
                         $linkCounter,
                         'available'
                     );
-
-                    $renderedOutputNodes[$availableOutputID] = true;
                 }
             }
         }
@@ -7778,7 +8945,7 @@ JS;
     private function GetGraphDepth(): string
     {
         $depth = strtolower(trim((string) ($_GET['depth'] ?? 'full')));
-        $allowed = ['groups', 'outputs', 'full'];
+        $allowed = ['groups', 'bundles', 'outputs', 'full'];
 
         if (!in_array($depth, $allowed, true)) {
             return 'full';
