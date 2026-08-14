@@ -606,10 +606,6 @@ class PropertyStateManager extends IPSModule
                     // "tripped" as Module 1 would interpret it
                     $isTripped = $evalTrip($cur, $op, $cmp);
 
-                    // UI inversion only for these perimeter roles (display-only)
-                    if ($role === 'Window Contact' || $role === 'Generic Door') {
-                        $isTripped = !$isTripped;
-                    }
 
                     if ($isTripped) {
                         $name = IPS_GetName($vid);
