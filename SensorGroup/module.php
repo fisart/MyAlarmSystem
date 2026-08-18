@@ -1,5 +1,5 @@
 <?php
-// Version2.12.5
+// Version2.12.6
 declare(strict_types=1);
 
 class SensorGroup extends IPSModule
@@ -2026,6 +2026,83 @@ class SensorGroup extends IPSModule
                 // =========================
                 // BEDROOMS
                 // =========================
+            case 'UpdateBedroomListCompact': {
+                    $incoming = json_decode((string)$Value, true);
+                    if (!is_array($incoming)) {
+                        return;
+                    }
+
+                    if (isset($incoming['ActiveVariableID'])) {
+                        $incoming = [$incoming];
+                    }
+
+                    // Canonicalize the complete compact list without changing
+                    // the underlying BedroomList schema.
+                    $clean = [];
+                    $seen = [];
+
+                    foreach ($incoming as $row) {
+                        if (!is_array($row)) {
+                            continue;
+                        }
+
+                        $gName = trim((string)($row['GroupName'] ?? ''));
+                        $vid   = (int)($row['ActiveVariableID'] ?? 0);
+                        $door  = trim((string)($row['BedroomDoorClassID'] ?? ''));
+
+                        if ($gName === '' || $vid <= 0) {
+                            // Reject the whole edit rather than silently deleting
+                            // a partially edited row.
+                            if ($this->ReadPropertyBoolean('DebugMode')) {
+                                $this->LogMessage(
+                                    'WARNING: Compact bedroom edit rejected because GroupName or ActiveVariableID is invalid.',
+                                    KL_WARNING
+                                );
+                            }
+                            $this->ReloadForm();
+                            break 2;
+                        }
+
+                        $key = $gName . '::' . $vid;
+                        if (isset($seen[$key])) {
+                            // BedroomAdd historically de-duplicates by this key.
+                            // Keep the first row and ignore an accidental duplicate.
+                            continue;
+                        }
+
+                        $seen[$key] = true;
+
+                        $cleanRow = [
+                            'GroupName'          => $gName,
+                            'ActiveVariableID'   => $vid,
+                            'BedroomDoorClassID' => $door
+                        ];
+
+                        // Preserve the existing UI-only Action field when it is
+                        // present in the row so a no-op edit does not rewrite the
+                        // BedroomList unnecessarily.
+                        if (array_key_exists('Action', $row)) {
+                            $cleanRow['Action'] = $row['Action'];
+                        }
+
+                        $clean[] = $cleanRow;
+                    }
+
+                    $json = json_encode(array_values($clean));
+                    if ($json === false) {
+                        return;
+                    }
+
+                    $this->WriteAttributeString('BedroomListBuffer', $json);
+                    IPS_SetProperty($this->InstanceID, 'BedroomList', $json);
+
+                    // Keep the hidden property-bound field synchronized so the
+                    // Symcon form correctly detects unsaved changes.
+                    $this->UpdateFormField('BedroomList', 'values', $json);
+                    $this->ReloadForm();
+                    break;
+                }
+
             case 'BedroomAdd': {
                     if ($this->ReadPropertyBoolean('DebugMode')) IPS_LogMessage('SensorGroup', "DEBUG: BedroomAdd START raw=" . (is_string($Value) ? $Value : json_encode($Value)));
 
@@ -2168,6 +2245,206 @@ class SensorGroup extends IPSModule
 
                     // Trigger Symcon "dirty" flag via hidden property-bound field
                     $this->UpdateFormField('BedroomList', 'values', json_encode(json_decode($json, true) ?: []));
+                    $this->ReloadForm();
+                    break;
+                }
+
+            case 'AddGroupMemberCompact': {
+                    $data = json_decode((string)$Value, true);
+                    if (!is_array($data)) {
+                        return;
+                    }
+
+                    $gName = trim((string)($data['GroupName'] ?? ''));
+                    $cID   = trim((string)($data['ClassID'] ?? ''));
+
+                    if ($gName === '' || $cID === '') {
+                        return;
+                    }
+
+                    // Resolve a legacy/display ClassName to the current stable
+                    // ClassID when possible.
+                    $classList = $this->GetBufferedSectionList('ClassListBuffer', 'ClassList');
+                    foreach ($classList as $classRow) {
+                        if (!is_array($classRow)) {
+                            continue;
+                        }
+
+                        $classID = trim((string)($classRow['ClassID'] ?? ''));
+                        $className = trim((string)($classRow['ClassName'] ?? ''));
+
+                        if ($cID === $className && $classID !== '') {
+                            $cID = $classID;
+                            break;
+                        }
+                    }
+
+                    $master = $this->GetBufferedSectionList('GroupMembersBuffer', 'GroupMembers');
+
+                    foreach ($master as $memberRow) {
+                        if (!is_array($memberRow)) {
+                            continue;
+                        }
+
+                        if (
+                            trim((string)($memberRow['GroupName'] ?? '')) === $gName &&
+                            trim((string)($memberRow['ClassID'] ?? '')) === $cID
+                        ) {
+                            // Exact assignment already exists.
+                            $this->ReloadForm();
+                            break 2;
+                        }
+                    }
+
+                    $master[] = [
+                        'GroupName' => $gName,
+                        'ClassID'   => $cID
+                    ];
+
+                    $json = json_encode(array_values($master));
+                    if ($json === false) {
+                        return;
+                    }
+
+                    $this->WriteAttributeString('GroupMembersBuffer', $json);
+                    IPS_SetProperty($this->InstanceID, 'GroupMembers', $json);
+                    $this->ReloadForm();
+                    break;
+                }
+
+            case 'UpdateGroupMembersCompact': {
+                    $incoming = json_decode((string)$Value, true);
+                    if (!is_array($incoming)) {
+                        return;
+                    }
+
+                    if (isset($incoming['GroupName']) && isset($incoming['ClassID'])) {
+                        $incoming = [$incoming];
+                    }
+
+                    $classList = $this->GetBufferedSectionList('ClassListBuffer', 'ClassList');
+                    $classNameToID = [];
+
+                    foreach ($classList as $classRow) {
+                        if (!is_array($classRow)) {
+                            continue;
+                        }
+
+                        $classID = trim((string)($classRow['ClassID'] ?? ''));
+                        $className = trim((string)($classRow['ClassName'] ?? ''));
+
+                        if ($classID !== '' && $className !== '') {
+                            $classNameToID[$className] = $classID;
+                        }
+                    }
+
+                    $clean = [];
+                    $seen = [];
+
+                    foreach ($incoming as $row) {
+                        if (!is_array($row)) {
+                            continue;
+                        }
+
+                        $gName = trim((string)($row['GroupName'] ?? ''));
+                        $cID   = trim((string)($row['ClassID'] ?? ''));
+
+                        if ($gName === '' || $cID === '') {
+                            // Reject the whole edit instead of silently losing an
+                            // existing assignment during a partial list edit.
+                            if ($this->ReadPropertyBoolean('DebugMode')) {
+                                $this->LogMessage(
+                                    'WARNING: Compact group-member edit rejected because GroupName or ClassID is empty.',
+                                    KL_WARNING
+                                );
+                            }
+                            $this->ReloadForm();
+                            break 2;
+                        }
+
+                        if (isset($classNameToID[$cID])) {
+                            $cID = $classNameToID[$cID];
+                        }
+
+                        $key = $gName . '::' . $cID;
+                        if (isset($seen[$key])) {
+                            continue;
+                        }
+
+                        $seen[$key] = true;
+                        $clean[] = [
+                            'GroupName' => $gName,
+                            'ClassID'   => $cID
+                        ];
+                    }
+
+                    $json = json_encode(array_values($clean));
+                    if ($json === false) {
+                        return;
+                    }
+
+                    $this->WriteAttributeString('GroupMembersBuffer', $json);
+                    IPS_SetProperty($this->InstanceID, 'GroupMembers', $json);
+                    $this->ReloadForm();
+                    break;
+                }
+
+            case 'DeleteGroupMemberCompact': {
+                    $data = json_decode((string)$Value, true);
+                    if (!is_array($data)) {
+                        return;
+                    }
+
+                    $gName = trim((string)($data['GroupName'] ?? ''));
+                    $cID   = trim((string)($data['ClassID'] ?? ''));
+
+                    if ($gName === '' || $cID === '') {
+                        return;
+                    }
+
+                    // Resolve a displayed ClassName back to its stable ClassID
+                    // before deleting, matching the defensive behavior used by
+                    // the compact add/update handlers.
+                    $classList = $this->GetBufferedSectionList('ClassListBuffer', 'ClassList');
+                    foreach ($classList as $classRow) {
+                        if (!is_array($classRow)) {
+                            continue;
+                        }
+
+                        $classID = trim((string)($classRow['ClassID'] ?? ''));
+                        $className = trim((string)($classRow['ClassName'] ?? ''));
+
+                        if ($cID === $className && $classID !== '') {
+                            $cID = $classID;
+                            break;
+                        }
+                    }
+
+                    $master = $this->GetBufferedSectionList('GroupMembersBuffer', 'GroupMembers');
+                    $clean = [];
+
+                    foreach ($master as $memberRow) {
+                        if (!is_array($memberRow)) {
+                            continue;
+                        }
+
+                        if (
+                            trim((string)($memberRow['GroupName'] ?? '')) === $gName &&
+                            trim((string)($memberRow['ClassID'] ?? '')) === $cID
+                        ) {
+                            continue;
+                        }
+
+                        $clean[] = $memberRow;
+                    }
+
+                    $json = json_encode(array_values($clean));
+                    if ($json === false) {
+                        return;
+                    }
+
+                    $this->WriteAttributeString('GroupMembersBuffer', $json);
+                    IPS_SetProperty($this->InstanceID, 'GroupMembers', $json);
                     $this->ReloadForm();
                     break;
                 }
@@ -5649,111 +5926,186 @@ class SensorGroup extends IPSModule
                     ];
                 }
 
-                // --- STEP 3b: DYNAMIC BEDROOMS ---
+                // --- STEP 3b: COMPACT BEDROOM RULES ---
                 if (isset($element['name']) && $element['name'] === 'DynamicBedroomContainer') {
 
-                    // === DEBUG: found DynamicBedroomContainer ===
-                    if ($this->ReadPropertyBoolean('DebugMode')) IPS_LogMessage('SensorGroup', 'DEBUG: GetConfigurationForm found container DynamicBedroomContainer; groups=' . (is_array($definedGroups) ? count($definedGroups) : -1));
+                    if ($this->ReadPropertyBoolean('DebugMode')) {
+                        IPS_LogMessage(
+                            'SensorGroup',
+                            'DEBUG: GetConfigurationForm compact bedroom editor rows=' .
+                                (is_array($bedroomList) ? count($bedroomList) : -1)
+                        );
+                    }
 
-                    foreach ($definedGroups as $group) {
-                        $gName = $group['GroupName'];
-
-                        $bedData = array_values(array_filter($bedroomList, function ($b) use ($gName) {
-                            return ($b['GroupName'] ?? '') === $gName;
-                        }));
-
-                        // === DEBUG: per-group bedroom rows ===
-                        if ($this->ReadPropertyBoolean('DebugMode')) IPS_LogMessage('SensorGroup', 'DEBUG: GetConfigurationForm build bedrooms panel group=' . $gName . ' rows=' . count($bedData));
-
-                        $safe = md5($gName);
-
-                        $element['items'][] = [
-                            "type"    => "ExpansionPanel",
-                            "caption" => "Group: " . $gName,
-                            "items"   => [
-                                [
-                                    // NEW: Add via RequestAction (reliable) instead of List add-popup
-                                    "type"    => "PopupButton",
-                                    "caption" => "Add Bedroom Rule",
-                                    "popup"   => [
-                                        "caption" => "Add Bedroom Rule for Group: " . $gName,
-                                        "items"   => [
-                                            ["type" => "SelectVariable", "name" => "ActiveVariableID", "caption" => "Active Var (IPSView)"],
-                                            ["type" => "Select", "name" => "BedroomDoorClassID", "caption" => "Door Class (Trigger)", "options" => $classOptions]
-                                        ]
+                    // One editor for the actual BedroomList rows only. This avoids
+                    // generating a complete bedroom panel for every configured group.
+                    $element['items'][] = [
+                        [
+                            'type'    => 'PopupButton',
+                            'caption' => 'Add Bedroom Rule',
+                            'popup'   => [
+                                'caption' => 'Add Bedroom Rule',
+                                'items'   => [
+                                    [
+                                        'type'    => 'Select',
+                                        'name'    => 'CompactBedroomGroupName',
+                                        'caption' => 'Group',
+                                        'options' => $groupOptions
                                     ],
-                                    "onClick" => "IPS_RequestAction(\$id, 'BedroomAdd', json_encode(['GroupName' => '$gName', 'ActiveVariableID' => \$ActiveVariableID, 'BedroomDoorClassID' => \$BedroomDoorClassID]));"
+                                    [
+                                        'type'    => 'SelectVariable',
+                                        'name'    => 'CompactBedroomActiveVariableID',
+                                        'caption' => 'Active Var (IPSView)'
+                                    ],
+                                    [
+                                        'type'    => 'Select',
+                                        'name'    => 'CompactBedroomDoorClassID',
+                                        'caption' => 'Door Class (Trigger)',
+                                        'options' => $classOptions
+                                    ]
+                                ]
+                            ],
+                            'onClick' => "IPS_RequestAction(\$id, 'BedroomAdd', json_encode([" .
+                                "'GroupName' => \$CompactBedroomGroupName, " .
+                                "'ActiveVariableID' => \$CompactBedroomActiveVariableID, " .
+                                "'BedroomDoorClassID' => \$CompactBedroomDoorClassID" .
+                                "]));"
+                        ],
+                        [
+                            'type'     => 'List',
+                            'name'     => 'BedroomRulesCompact',
+                            'caption'  => 'Configured Bedroom Rules',
+                            'rowCount' => 6,
+                            'add'      => false,
+                            'delete'   => false,
+                            'onEdit'   => "IPS_RequestAction(\$id, 'UpdateBedroomListCompact', json_encode(\$BedroomRulesCompact));",
+                            'columns'  => [
+                                [
+                                    'caption' => 'Group',
+                                    'name'    => 'GroupName',
+                                    'width'   => '220px',
+                                    'edit'    => [
+                                        'type'    => 'Select',
+                                        'options' => $groupOptions
+                                    ]
                                 ],
                                 [
-                                    "type"     => "List",
-                                    "name"     => "Bed_" . $safe,
-                                    "rowCount" => 3,
-                                    "add"      => false,
-                                    "delete"   => false,
-                                    "onEdit"   => "IPS_RequestAction(\$id, 'UpdateBedroomProperty', json_encode(['GroupName' => '$gName', 'Values' => \$Bed_" . $safe . "]));",
-                                    "columns"  => [
-                                        ["caption" => "Active Var (IPSView)", "name" => "ActiveVariableID", "width" => "200px", "edit" => ["type" => "SelectVariable"]],
-                                        ["caption" => "Door Class (Trigger)", "name" => "BedroomDoorClassID", "width" => "200px", "edit" => ["type" => "Select", "options" => $classOptions]],
-                                        ["caption" => "Action", "name" => "Action", "width" => "80px", "edit" => ["type" => "Button", "caption" => "Delete", "onClick" => "IPS_RequestAction(\$id, 'DeleteBedroomListItemByVarID', json_encode(['GroupName' => '$gName', 'ActiveVariableID' => \$ActiveVariableID]));"]]
-                                    ],
-                                    "values"   => $bedData
+                                    'caption' => 'Active Var (IPSView)',
+                                    'name'    => 'ActiveVariableID',
+                                    'width'   => '220px',
+                                    'edit'    => ['type' => 'SelectVariable']
+                                ],
+                                [
+                                    'caption' => 'Door Class (Trigger)',
+                                    'name'    => 'BedroomDoorClassID',
+                                    'width'   => '260px',
+                                    'edit'    => [
+                                        'type'    => 'Select',
+                                        'options' => $classOptions
+                                    ]
+                                ],
+                                [
+                                    'caption' => 'Action',
+                                    'name'    => 'Action',
+                                    'width'   => '80px',
+                                    'edit'    => [
+                                        'type'    => 'Button',
+                                        'caption' => 'Delete',
+                                        'onClick' => "IPS_RequestAction(\$id, 'DeleteBedroomListItemByVarID', " .
+                                            "json_encode(['GroupName' => \$GroupName, 'ActiveVariableID' => \$ActiveVariableID]));"
+                                    ]
                                 ]
-                            ]
-                        ];
-                    }
+                            ],
+                            'values' => array_values($bedroomList)
+                        ]
+                    ];
                 }
-                // --- STEP B: DYNAMIC GROUP MEMBERS (Checkbox Matrix Strategy) ---
+
+                // --- STEP 3c: COMPACT CLASS -> GROUP ASSIGNMENTS ---
                 if (isset($element['name']) && $element['name'] === 'DynamicGroupMemberContainer') {
 
-                    // === DEBUG: found DynamicGroupMemberContainer ===
-                    if ($this->ReadPropertyBoolean('DebugMode')) IPS_LogMessage('SensorGroup', 'DEBUG: GetConfigurationForm found container DynamicGroupMemberContainer; groups=' . (is_array($definedGroups) ? count($definedGroups) : -1) . ' classes=' . (is_array($definedClasses) ? count($definedClasses) : -1));
-
-                    foreach ($definedGroups as $group) {
-                        $gName = $group['GroupName'];
-
-                        // Build the Checkbox Matrix values based on all available classes
-                        $matrixValues = [];
-                        foreach ($definedClasses as $class) {
-                            $cID = !empty($class['ClassID']) ? $class['ClassID'] : $class['ClassName'];
-                            $isMember = false;
-                            foreach ($groupMembers as $m) {
-                                if (($m['GroupName'] ?? '') === $gName && ($m['ClassID'] ?? '') === $cID) {
-                                    $isMember = true;
-                                    break;
-                                }
-                            }
-                            $matrixValues[] = [
-                                'ClassName' => $class['ClassName'],
-                                'ClassID'   => $cID,
-                                'Assigned'  => $isMember
-                            ];
-                        }
-
-                        // === DEBUG: per-group member matrix rows ===
-                        if ($this->ReadPropertyBoolean('DebugMode')) IPS_LogMessage('SensorGroup', 'DEBUG: GetConfigurationForm build members panel group=' . $gName . ' rows=' . count($matrixValues));
-
-                        $element['items'][] = [
-                            "type"    => "ExpansionPanel",
-                            "caption" => "Members for " . $gName,
-                            "items"   => [[
-                                "type"     => "List",
-                                "name"     => "Mem_" . md5($gName),
-                                "rowCount" => count($matrixValues),
-                                "add"      => false,
-                                "delete"   => false,
-                                "onEdit"   => "IPS_RequestAction(\$id, 'UpdateMemberProperty', json_encode(['GroupName' => '$gName', 'Values' => \$Mem_" . md5($gName) . "]));",
-                                "columns"  => [
-                                    ["caption" => "Class Name", "name" => "ClassName", "width" => "300px"],
-                                    ["caption" => "ID", "name" => "ClassID", "width" => "0px", "visible" => false],
-                                    ["caption" => "Assigned", "name" => "Assigned", "width" => "100px", "edit" => ["type" => "CheckBox"]]
-                                ],
-                                "values"   => $matrixValues
-                            ]]
-                        ];
+                    if ($this->ReadPropertyBoolean('DebugMode')) {
+                        IPS_LogMessage(
+                            'SensorGroup',
+                            'DEBUG: GetConfigurationForm compact group-member editor rows=' .
+                                (is_array($groupMembers) ? count($groupMembers) : -1)
+                        );
                     }
+
+                    // Show only relationships which actually exist. The stored
+                    // GroupMembers schema remains GroupName + ClassID.
+                    $element['items'][] = [
+                        [
+                            'type'    => 'PopupButton',
+                            'caption' => 'Add Class to Group',
+                            'popup'   => [
+                                'caption' => 'Add Class to Group',
+                                'items'   => [
+                                    [
+                                        'type'    => 'Select',
+                                        'name'    => 'CompactMemberGroupName',
+                                        'caption' => 'Group',
+                                        'options' => $groupOptions
+                                    ],
+                                    [
+                                        'type'    => 'Select',
+                                        'name'    => 'CompactMemberClassID',
+                                        'caption' => 'Class',
+                                        'options' => $classOptions
+                                    ]
+                                ]
+                            ],
+                            'onClick' => "IPS_RequestAction(\$id, 'AddGroupMemberCompact', json_encode([" .
+                                "'GroupName' => \$CompactMemberGroupName, " .
+                                "'ClassID' => \$CompactMemberClassID" .
+                                "]));"
+                        ],
+                        [
+                            'type'     => 'List',
+                            'name'     => 'GroupMembersCompact',
+                            'caption'  => 'Current Class -> Group Assignments',
+                            'rowCount' => 10,
+                            'add'      => false,
+                            'delete'   => false,
+                            'onEdit'   => "IPS_RequestAction(\$id, 'UpdateGroupMembersCompact', json_encode(\$GroupMembersCompact));",
+                            'columns'  => [
+                                [
+                                    'caption' => 'Group',
+                                    'name'    => 'GroupName',
+                                    'width'   => '260px',
+                                    'edit'    => [
+                                        'type'    => 'Select',
+                                        'options' => $groupOptions
+                                    ]
+                                ],
+                                [
+                                    'caption' => 'Class',
+                                    'name'    => 'ClassID',
+                                    'width'   => '320px',
+                                    'edit'    => [
+                                        'type'    => 'Select',
+                                        'options' => $classOptions
+                                    ]
+                                ],
+                                [
+                                    'caption' => 'Action',
+                                    'name'    => 'Action',
+                                    'width'   => '80px',
+                                    'edit'    => [
+                                        'type'    => 'Button',
+                                        'caption' => 'Delete',
+                                        'onClick' => "IPS_RequestAction(\$id, 'DeleteGroupMemberCompact', " .
+                                            "json_encode(['GroupName' => \$GroupName, 'ClassID' => \$ClassID]));"
+                                    ]
+                                ]
+                            ],
+                            'values' => array_values($groupMembers)
+                        ]
+                    ];
                 }
             }
         }
+
 
         $this->UpdateFormOption($form['elements'], 'ImportClass', $classOptions);
         if (isset($form['actions'])) $this->UpdateFormOption($form['actions'], 'ImportClass', $classOptions);
@@ -5832,7 +6184,131 @@ class SensorGroup extends IPSModule
         unset($e);
 
 
-        return json_encode($form);
+        $formJson = json_encode($form);
+
+        if ($formJson === false) {
+            return $this->BuildConfigurationFormSizeFallback(
+                -1,
+                900000,
+                'The full configuration form could not be JSON encoded.'
+            );
+        }
+
+        // Keep substantial headroom below the Symcon message-size ceiling.
+        // If future UI growth crosses this threshold, return a small recovery
+        // form instead of making the instance configuration inaccessible.
+        $formSafetyLimitBytes = 900000;
+        $formBytes = strlen($formJson);
+
+        if ($this->ReadPropertyBoolean('DebugMode')) {
+            $this->LogMessage(
+                'DEBUG: GetConfigurationForm encoded size=' . $formBytes . ' bytes',
+                KL_MESSAGE
+            );
+        }
+
+        if ($formBytes > $formSafetyLimitBytes) {
+            return $this->BuildConfigurationFormSizeFallback(
+                $formBytes,
+                $formSafetyLimitBytes,
+                'The generated Module 1 configuration form exceeded the internal safety threshold.'
+            );
+        }
+
+        return $formJson;
+    }
+
+    private function BuildConfigurationFormSizeFallback(
+        int $generatedBytes,
+        int $safetyLimitBytes,
+        string $reason
+    ): string {
+        $sizeText = ($generatedBytes >= 0)
+            ? number_format($generatedBytes, 0, '.', ',') . ' bytes'
+            : 'unknown';
+
+        $fallback = [
+            'elements' => [
+                [
+                    'type'    => 'Label',
+                    'caption' => 'MODULE 1 CONFIGURATION UI SAFETY MODE',
+                    'bold'    => true
+                ],
+                [
+                    'type'    => 'Label',
+                    'caption' => $reason
+                ],
+                [
+                    'type'    => 'Label',
+                    'caption' => 'Generated form size: ' . $sizeText .
+                        '. Safety threshold: ' .
+                        number_format($safetyLimitBytes, 0, '.', ',') .
+                        ' bytes.'
+                ],
+                [
+                    'type'    => 'Label',
+                    'caption' => 'Alarm evaluation and Module 1 runtime processing are not disabled by this UI safeguard. Use the recovery controls below to load or restore the configuration.'
+                ]
+            ],
+            'actions' => [
+                [
+                    'type'    => 'Button',
+                    'caption' => 'COMMIT ALL CHANGES TO DISK',
+                    'onClick' => 'MYALARM_SaveConfiguration($id);'
+                ],
+                [
+                    'type'     => 'ExpansionPanel',
+                    'caption'  => 'TRAFFIC DIAGNOSTICS',
+                    'expanded' => false,
+                    'items'    => [
+                        [
+                            'type'    => 'Button',
+                            'caption' => 'Publish current interval now',
+                            'onClick' => 'MYALARM_PublishTrafficDiagnostics($id);'
+                        ],
+                        [
+                            'type'    => 'Button',
+                            'caption' => 'Reset diagnostic counters',
+                            'onClick' => 'MYALARM_ResetTrafficDiagnostics($id);'
+                        ]
+                    ]
+                ],
+                [
+                    'type'     => 'ExpansionPanel',
+                    'caption'  => 'CONFIGURATION BACKUP / RESTORE',
+                    'expanded' => true,
+                    'items'    => [
+                        [
+                            'type'    => 'Label',
+                            'caption' => 'LOAD generates the current Module 1 JSON. RESTORE applies a complete backup.'
+                        ],
+                        [
+                            'type'    => 'ValidationTextBox',
+                            'name'    => 'BackupData',
+                            'caption' => 'JSON Data'
+                        ],
+                        [
+                            'type'  => 'RowLayout',
+                            'items' => [
+                                [
+                                    'type'    => 'Button',
+                                    'caption' => 'LOAD CURRENT CONFIG',
+                                    'onClick' => 'MYALARM_UI_LoadBackup($id);'
+                                ],
+                                [
+                                    'type'    => 'Button',
+                                    'caption' => 'RESTORE FROM JSON',
+                                    'onClick' => 'MYALARM_UI_RestoreBackup($id, $BackupData);'
+                                ]
+                            ]
+                        ]
+                    ]
+                ]
+            ]
+        ];
+
+        $json = json_encode($fallback);
+        return ($json !== false) ? $json : '{"elements":[{"type":"Label","caption":"Module 1 configuration UI safety mode."}]}';
     }
 
 
@@ -6303,12 +6779,16 @@ class SensorGroup extends IPSModule
             '6. Assign classes to groups',
             [
                 [
-                    'title' => 'Class Name',
-                    'text'  => 'Read-only class shown in the membership matrix.'
+                    'title' => 'Current Class -> Group Assignments',
+                    'text'  => 'Shows only relationships which actually exist. Each row links one class to one group. A class can be assigned to more than one group.'
                 ],
                 [
-                    'title' => 'Assigned',
-                    'text'  => 'ON: the class is a member of the selected group. A class can be assigned to more than one group. Group OR or AND logic is then applied to all assigned classes.'
+                    'title' => 'Add Class to Group',
+                    'text'  => 'Select a configured group and class to create one GroupMembers relationship. Exact duplicate assignments are ignored.'
+                ],
+                [
+                    'title' => 'Edit / Delete',
+                    'text'  => 'Existing rows can be changed directly or removed with Delete. The stored GroupMembers schema remains GroupName plus ClassID.'
                 ]
             ]
         );
@@ -6326,7 +6806,11 @@ class SensorGroup extends IPSModule
                 ],
                 [
                     'title' => 'Group',
-                    'text'  => 'The group name identifies the bedroom entry in the BEDROOM_SYNC payload.'
+                    'text'  => 'The group name identifies the bedroom entry in the BEDROOM_SYNC payload. The compact editor shows only configured bedroom rules instead of creating one configuration panel for every group.'
+                ],
+                [
+                    'title' => 'Add / Edit / Delete',
+                    'text'  => 'Add Bedroom Rule creates a row. Existing Group, Active Var, and Door Class values can be edited directly; Delete removes the selected rule. The BedroomList data schema is unchanged.'
                 ],
                 [
                     'title' => 'Global Bedroom Target Server',
