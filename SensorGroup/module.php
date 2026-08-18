@@ -1,5 +1,5 @@
 <?php
-// Version2.12.6
+// Version2.12.7
 declare(strict_types=1);
 
 class SensorGroup extends IPSModule
@@ -5939,7 +5939,7 @@ class SensorGroup extends IPSModule
 
                     // One editor for the actual BedroomList rows only. This avoids
                     // generating a complete bedroom panel for every configured group.
-                    $element['items'][] = [
+                    $element['items'] = array_merge($element['items'], [
                         [
                             'type'    => 'PopupButton',
                             'caption' => 'Add Bedroom Rule',
@@ -6018,7 +6018,7 @@ class SensorGroup extends IPSModule
                             ],
                             'values' => array_values($bedroomList)
                         ]
-                    ];
+                    ]);
                 }
 
                 // --- STEP 3c: COMPACT CLASS -> GROUP ASSIGNMENTS ---
@@ -6034,7 +6034,7 @@ class SensorGroup extends IPSModule
 
                     // Show only relationships which actually exist. The stored
                     // GroupMembers schema remains GroupName + ClassID.
-                    $element['items'][] = [
+                    $element['items'] = array_merge($element['items'], [
                         [
                             'type'    => 'PopupButton',
                             'caption' => 'Add Class to Group',
@@ -6101,7 +6101,7 @@ class SensorGroup extends IPSModule
                             ],
                             'values' => array_values($groupMembers)
                         ]
-                    ];
+                    ]);
                 }
             }
         }
