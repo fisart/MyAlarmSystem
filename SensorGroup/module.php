@@ -1,5 +1,5 @@
 <?php
-// Version2.12.8
+// Version2.12.9
 declare(strict_types=1);
 
 class SensorGroup extends IPSModule
@@ -5960,8 +5960,9 @@ class SensorGroup extends IPSModule
                             'type'    => 'PopupButton',
                             'caption' => 'Add Bedroom Rule',
                             'popup'   => [
-                                'caption' => 'Add Bedroom Rule',
-                                'items'   => [
+                                'caption'      => 'Add Bedroom Rule',
+                                'closeCaption' => 'Cancel',
+                                'items'         => [
                                     [
                                         'type'    => 'Select',
                                         'name'    => 'CompactBedroomGroupName',
@@ -5979,13 +5980,18 @@ class SensorGroup extends IPSModule
                                         'caption' => 'Door Class (Trigger)',
                                         'options' => $classOptions
                                     ]
+                                ],
+                                'buttons' => [
+                                    [
+                                        'caption' => 'Add',
+                                        'onClick' => "IPS_RequestAction(\$id, 'BedroomAdd', json_encode([" .
+                                            "'GroupName' => \$CompactBedroomGroupName, " .
+                                            "'ActiveVariableID' => \$CompactBedroomActiveVariableID, " .
+                                            "'BedroomDoorClassID' => \$CompactBedroomDoorClassID" .
+                                            "]));"
+                                    ]
                                 ]
-                            ],
-                            'onClick' => "IPS_RequestAction(\$id, 'BedroomAdd', json_encode([" .
-                                "'GroupName' => \$CompactBedroomGroupName, " .
-                                "'ActiveVariableID' => \$CompactBedroomActiveVariableID, " .
-                                "'BedroomDoorClassID' => \$CompactBedroomDoorClassID" .
-                                "]));"
+                            ]
                         ],
                         [
                             'type'     => 'List',
@@ -6055,8 +6061,9 @@ class SensorGroup extends IPSModule
                             'type'    => 'PopupButton',
                             'caption' => 'Add Class to Group',
                             'popup'   => [
-                                'caption' => 'Add Class to Group',
-                                'items'   => [
+                                'caption'      => 'Add Class to Group',
+                                'closeCaption' => 'Cancel',
+                                'items'         => [
                                     [
                                         'type'    => 'Select',
                                         'name'    => 'CompactMemberGroupName',
@@ -6069,12 +6076,17 @@ class SensorGroup extends IPSModule
                                         'caption' => 'Class',
                                         'options' => $classOptions
                                     ]
+                                ],
+                                'buttons' => [
+                                    [
+                                        'caption' => 'Add',
+                                        'onClick' => "IPS_RequestAction(\$id, 'AddGroupMemberCompact', json_encode([" .
+                                            "'GroupName' => \$CompactMemberGroupName, " .
+                                            "'ClassID' => \$CompactMemberClassID" .
+                                            "]));"
+                                    ]
                                 ]
-                            ],
-                            'onClick' => "IPS_RequestAction(\$id, 'AddGroupMemberCompact', json_encode([" .
-                                "'GroupName' => \$CompactMemberGroupName, " .
-                                "'ClassID' => \$CompactMemberClassID" .
-                                "]));"
+                            ]
                         ],
                         [
                             'type'     => 'List',
