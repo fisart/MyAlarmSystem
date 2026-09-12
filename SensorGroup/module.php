@@ -1,5 +1,5 @@
 <?php
-// Version2.12.7
+// Version2.12.8
 declare(strict_types=1);
 
 class SensorGroup extends IPSModule
@@ -584,6 +584,9 @@ class SensorGroup extends IPSModule
         if ($healedGroupJson !== $originalGroupJson) {
             IPS_SetProperty($this->InstanceID, 'GroupList', $healedGroupJson);
         }
+        if ($healedGroupJson !== false) {
+            $this->WriteAttributeString('GroupListBuffer', $healedGroupJson);
+        }
 
         // 2. GARBAGE COLLECTION & REPAIR
         $bufferJson = $this->ReadAttributeString('SensorListBuffer');
@@ -653,6 +656,9 @@ class SensorGroup extends IPSModule
 
         if ($jsonMem !== $originalJsonMem) {
             IPS_SetProperty($this->InstanceID, 'GroupMembers', $jsonMem);
+        }
+        if ($jsonMem !== false) {
+            $this->WriteAttributeString('GroupMembersBuffer', $jsonMem);
         }
         // 3. REGISTRATION
         $messages = $this->GetMessageList();
@@ -1911,7 +1917,7 @@ class SensorGroup extends IPSModule
                     }
 
                     $rowsToProcess = isset($incoming['GroupName']) ? [$incoming] : $incoming;
-                    $master = $this->GetBufferedSectionList('GroupListBuffer', 'GroupList');
+                    $master = $this->GetGroupListWorkingList();
 
                     $stateData  = json_decode($this->ReadAttributeString('ClassStateAttribute'), true) ?: [];
                     $groupIDMap = $stateData['GroupIDMap'] ?? [];
@@ -2000,14 +2006,19 @@ class SensorGroup extends IPSModule
                     $stateData['GroupIDMap'] = $groupIDMap;
                     $this->WriteAttributeString('ClassStateAttribute', json_encode($stateData));
 
-                    $this->WriteBufferedSectionList('GroupListBuffer', array_values($master));
+                    $groupListJson = json_encode(array_values($master));
+                    if ($groupListJson === false) {
+                        return;
+                    }
+                    $this->WriteAttributeString('GroupListBuffer', $groupListJson);
+                    IPS_SetProperty($this->InstanceID, 'GroupList', $groupListJson);
                     $this->ReloadForm();
                     break;
                 }
 
             case 'DeleteGroupListItemByName': {
                     $gNameToDelete = trim((string)$Value);
-                    $master = $this->GetBufferedSectionList('GroupListBuffer', 'GroupList');
+                    $master = $this->GetGroupListWorkingList();
 
                     $newMaster = [];
                     foreach ($master as $row) {
@@ -2018,7 +2029,12 @@ class SensorGroup extends IPSModule
 
                     // Intentionally do NOT clean up GroupIDMap here.
                     // Mapping cleanup, if any, belongs to commit-time only.
-                    $this->WriteBufferedSectionList('GroupListBuffer', array_values($newMaster));
+                    $groupListJson = json_encode(array_values($newMaster));
+                    if ($groupListJson === false) {
+                        return;
+                    }
+                    $this->WriteAttributeString('GroupListBuffer', $groupListJson);
+                    IPS_SetProperty($this->InstanceID, 'GroupList', $groupListJson);
                     $this->ReloadForm();
                     break;
                 }
@@ -2279,7 +2295,7 @@ class SensorGroup extends IPSModule
                         }
                     }
 
-                    $master = $this->GetBufferedSectionList('GroupMembersBuffer', 'GroupMembers');
+                    $master = $this->GetGroupMembersWorkingList();
 
                     foreach ($master as $memberRow) {
                         if (!is_array($memberRow)) {
@@ -2420,7 +2436,7 @@ class SensorGroup extends IPSModule
                         }
                     }
 
-                    $master = $this->GetBufferedSectionList('GroupMembersBuffer', 'GroupMembers');
+                    $master = $this->GetGroupMembersWorkingList();
                     $clean = [];
 
                     foreach ($master as $memberRow) {
@@ -2522,7 +2538,7 @@ class SensorGroup extends IPSModule
                         return '';
                     };
 
-                    $master = $this->GetBufferedSectionList('GroupMembersBuffer', 'GroupMembers');
+                    $master = $this->GetGroupMembersWorkingList();
 
                     /*
                      * Heal existing legacy GroupMembers rows before applying the
@@ -2633,6 +2649,10 @@ class SensorGroup extends IPSModule
                     }
 
                     $this->WriteBufferedSectionList('GroupMembersBuffer', $uniqueMembers);
+                    $groupMembersJson = json_encode(array_values($uniqueMembers));
+                    if ($groupMembersJson !== false) {
+                        IPS_SetProperty($this->InstanceID, 'GroupMembers', $groupMembersJson);
+                    }
 
                     if ($this->ReadPropertyBoolean('DebugMode')) {
                         $this->LogMessage(
@@ -2649,9 +2669,7 @@ class SensorGroup extends IPSModule
                     $data = json_decode($Value, true);
                     $gName  = $data['GroupName'] ?? '';
                     $index  = (int)($data['Index'] ?? -1);
-                    $master = json_decode($this->ReadAttributeString('GroupMembersBuffer'), true)
-                        ?: json_decode($this->ReadPropertyString('GroupMembers'), true)
-                        ?: [];
+                    $master = $this->GetGroupMembersWorkingList();
                     $others = array_values(array_filter($master, function ($m) use ($gName) {
                         return ($m['GroupName'] ?? '') !== $gName;
                     }));
@@ -2746,8 +2764,7 @@ class SensorGroup extends IPSModule
         $tmp = json_decode($rawClassList, true);
         $classList = (is_array($tmp) && $rawClassList !== '') ? $tmp : [];
 
-        $tmp = json_decode($rawGroupList, true);
-        $groupList = (is_array($tmp) && $rawGroupList !== '') ? $tmp : [];
+        $groupList = $this->GetGroupListWorkingList();
 
         $tmp = json_decode($rawSensorList, true);
         $sensorList = (is_array($tmp) && $rawSensorList !== '') ? $tmp : [];
@@ -2755,8 +2772,7 @@ class SensorGroup extends IPSModule
         $tmp = json_decode($rawBedroomList, true);
         $bedroomList = (is_array($tmp) && $rawBedroomList !== '') ? $tmp : [];
 
-        $tmp = json_decode($rawGroupMembers, true);
-        $groupMembers = (is_array($tmp) && $rawGroupMembers !== '') ? $tmp : [];
+        $groupMembers = $this->GetGroupMembersWorkingList();
 
         $tmp = json_decode($rawDispatchTargets, true);
         $dispatchTargets = (is_array($tmp) && $rawDispatchTargets !== '') ? $tmp : [];
@@ -5620,7 +5636,7 @@ class SensorGroup extends IPSModule
         if (!is_array($clProp)) $clProp = [];
         $definedClasses = (count($clProp) >= count($clBuf)) ? $clProp : $clBuf;
 
-        $definedGroups = $this->GetBufferedSectionList('GroupListBuffer', 'GroupList');
+        $definedGroups = $this->GetGroupListWorkingList();
 
         if ($this->ReadPropertyBoolean('DebugMode')) IPS_LogMessage('SensorGroup', 'DEBUG: ClassListBuffer RAW=' . $this->ReadAttributeString('ClassListBuffer'));
         if ($this->ReadPropertyBoolean('DebugMode')) IPS_LogMessage('SensorGroup', 'DEBUG: ClassListProperty RAW=' . $this->ReadPropertyString('ClassList'));
@@ -5682,7 +5698,7 @@ class SensorGroup extends IPSModule
                 "values" => []
             ];
         }
-        $groupMembers = $this->GetBufferedSectionList('GroupMembersBuffer', 'GroupMembers');
+        $groupMembers = $this->GetGroupMembersWorkingList();
         // FIX: Dispatch lists are standard properties. Buffer fallback resurrects deleted "zombie" rows.
         $dispatchTargets = json_decode($this->ReadPropertyString('DispatchTargets'), true);
         if (!is_array($dispatchTargets)) $dispatchTargets = [];
@@ -6320,7 +6336,7 @@ class SensorGroup extends IPSModule
     {
         // 1. Load Data
         $classList    = json_decode($this->ReadAttributeString('ClassListBuffer'), true) ?: json_decode($this->ReadPropertyString('ClassList'), true) ?: [];
-        $groupList    = json_decode($this->ReadAttributeString('GroupListBuffer'), true) ?: json_decode($this->ReadPropertyString('GroupList'), true) ?: [];
+        $groupList    = $this->GetGroupListWorkingList();
         $stateData    = json_decode($this->ReadAttributeString('ClassStateAttribute'), true) ?: [];
         $idMap        = $stateData['IDMap'] ?? [];
         $groupIDMap   = $stateData['GroupIDMap'] ?? [];
@@ -6349,7 +6365,7 @@ class SensorGroup extends IPSModule
             'GroupList'       => $groupList,
             'SensorList'      => json_decode($this->ReadAttributeString('SensorListBuffer'), true) ?: json_decode($this->ReadPropertyString('SensorList'), true) ?: [],
             'BedroomList'     => json_decode($this->ReadAttributeString('BedroomListBuffer'), true) ?: json_decode($this->ReadPropertyString('BedroomList'), true) ?: [],
-            'GroupMembers'    => json_decode($this->ReadAttributeString('GroupMembersBuffer'), true) ?: json_decode($this->ReadPropertyString('GroupMembers'), true) ?: [],
+            'GroupMembers'    => $this->GetGroupMembersWorkingList(),
             'TamperList'      => json_decode($this->ReadPropertyString('TamperList'), true) ?: [],
             'DispatchTargets' => $dispatchTargets,
             'GroupDispatch'   => $groupDispatch,
@@ -6401,7 +6417,7 @@ class SensorGroup extends IPSModule
     {
         // 1. Load Data
         $classList    = json_decode($this->ReadAttributeString('ClassListBuffer'), true) ?: json_decode($this->ReadPropertyString('ClassList'), true) ?: [];
-        $groupList    = json_decode($this->ReadAttributeString('GroupListBuffer'), true) ?: json_decode($this->ReadPropertyString('GroupList'), true) ?: [];
+        $groupList    = $this->GetGroupListWorkingList();
         $stateData    = json_decode($this->ReadAttributeString('ClassStateAttribute'), true) ?: [];
         $idMap        = $stateData['IDMap'] ?? [];
         $groupIDMap   = $stateData['GroupIDMap'] ?? [];
@@ -6430,7 +6446,7 @@ class SensorGroup extends IPSModule
             'GroupList'       => $groupList,
             'SensorList'      => json_decode($this->ReadAttributeString('SensorListBuffer'), true) ?: json_decode($this->ReadPropertyString('SensorList'), true) ?: [],
             'BedroomList'     => json_decode($this->ReadAttributeString('BedroomListBuffer'), true) ?: json_decode($this->ReadPropertyString('BedroomList'), true) ?: [],
-            'GroupMembers'    => json_decode($this->ReadAttributeString('GroupMembersBuffer'), true) ?: json_decode($this->ReadPropertyString('GroupMembers'), true) ?: [],
+            'GroupMembers'    => $this->GetGroupMembersWorkingList(),
             'TamperList'      => json_decode($this->ReadPropertyString('TamperList'), true) ?: [],
             // NEW: Module 2 routing
             'DispatchTargets' => $dispatchTargets,
@@ -7085,6 +7101,58 @@ class SensorGroup extends IPSModule
         $this->WriteAttributeString($attrName, json_encode(array_values($list)));
 
         return $list;
+    }
+
+    private function GetGroupListWorkingList(): array
+    {
+        $buffer = json_decode((string)$this->ReadAttributeString('GroupListBuffer'), true);
+        $property = json_decode((string)$this->ReadPropertyString('GroupList'), true);
+        if (!is_array($property)) {
+            $property = [];
+        }
+
+        if (is_array($buffer) && count($buffer) > 0) {
+            return $buffer;
+        }
+
+        // Recover a stale/uninitialized [] buffer from a populated property.
+        // Group edits in this version keep buffer and property synchronized,
+        // so an intentional empty working list also has an empty property.
+        if (count($property) > 0) {
+            $json = json_encode(array_values($property));
+            if ($json !== false) {
+                $this->WriteAttributeString('GroupListBuffer', $json);
+            }
+            return $property;
+        }
+
+        return [];
+    }
+
+    private function GetGroupMembersWorkingList(): array
+    {
+        $buffer = json_decode((string)$this->ReadAttributeString('GroupMembersBuffer'), true);
+        $property = json_decode((string)$this->ReadPropertyString('GroupMembers'), true);
+        if (!is_array($property)) {
+            $property = [];
+        }
+
+        if (is_array($buffer) && count($buffer) > 0) {
+            return $buffer;
+        }
+
+        // Recover the v2.12.7 failure state: the attribute default [] was
+        // accepted as authoritative even when the property already contained
+        // the complete assignment list.
+        if (count($property) > 0) {
+            $json = json_encode(array_values($property));
+            if ($json !== false) {
+                $this->WriteAttributeString('GroupMembersBuffer', $json);
+            }
+            return $property;
+        }
+
+        return [];
     }
 
     private function WriteBufferedSectionList(string $attrName, array $list): void
