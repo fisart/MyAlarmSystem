@@ -86,11 +86,11 @@ function GetValue($id) {
 }
 function GetValueFormattedEx($id, $value) { return (string)$value; }
 function GetValueFormatted($id) { return (string)GetValue($id); }
-function IPS_GetParent($id) { return 0; }
+function IPS_GetParent($id) { return $GLOBALS['model_parents'][$id] ?? 0; }
 function IPS_GetName($id) { if (isset($GLOBALS["on_get_name"])) ($GLOBALS["on_get_name"])($id); return "Object $id"; }
-function IPS_GetObject($id) { return ['ObjectType' => IPS_VariableExists($id) ? 2 : 1, 'ObjectIdent' => $GLOBALS['model_idents'][$id] ?? '', 'ObjectName' => IPS_GetName($id)]; }
-function IPS_GetInstance($id) { return ['ModuleInfo' => ['ModuleID' => $GLOBALS['objects'][$id] instanceof PropertyStateManager ? '{D90786C5-5A3E-4B0F-935A-3A3A9D1C9E9A}' : '{OTHER}']]; }
-function IPS_GetVariable($id) { return ['VariableUpdated' => time(), 'VariableType' => is_bool(GetValue($id)) ? 0 : 1]; }
+function IPS_GetObject($id) { return $GLOBALS['model_objects'][$id] ?? ['ObjectType' => IPS_VariableExists($id) ? 2 : 1, 'ObjectIdent' => $GLOBALS['model_idents'][$id] ?? '', 'ObjectName' => IPS_GetName($id)]; }
+function IPS_GetInstance($id) { return ['ModuleInfo' => ['ModuleID' => $GLOBALS['model_module_ids'][$id] ?? ($GLOBALS['objects'][$id] instanceof PropertyStateManager ? '{D90786C5-5A3E-4B0F-935A-3A3A9D1C9E9A}' : '{OTHER}')]]; }
+function IPS_GetVariable($id) { return ['VariableUpdated' => time(), 'VariableType' => $GLOBALS['model_variable_types'][$id] ?? (is_bool(GetValue($id)) ? 0 : 1)]; }
 function IPS_GetChildrenIDs($id) { return $GLOBALS['model_children'][$id] ?? []; }
 function IPS_GetInstanceListByModuleID($id) { return []; }
 function IPS_SetHidden($id, $hidden) {}
@@ -117,6 +117,6 @@ function IPS_SemaphoreEnter($name, $timeout) {
     if (isset($GLOBALS['on_semaphore_enter'])) ($GLOBALS['on_semaphore_enter'])($name);
     return empty($GLOBALS['semaphore_busy'][$name]);
 }
-function IPS_SemaphoreLeave($name) {}
+function IPS_SemaphoreLeave($name) { if(isset($GLOBALS['on_semaphore_leave']))($GLOBALS['on_semaphore_leave'])($name); }
 
 function IPS_GetVariableProfile($name) { return ['Associations'=>array_map(static fn($id)=>['Value'=>$id,'Name'=>'State '.$id],[0,2,3,6,9])]; }

@@ -1,5 +1,7 @@
 # Module 1-only FIFO: revised design
 
+**Current next step:** the [isolated native input/timing lab](module1-fifo-native-lab.md), using a separate Module 1 instance and no downstream outputs. Production live FIFO/diagnostic/shadow remain disabled. The earlier production first-failure procedure remains available for a separately supervised test if later needed.
+
 Status: Module 1-only scope accepted by Artur on 2026-09-13. FIFO remains an unaccepted production experiment; the current next step is a [supervised first-failure test](module1-fifo-first-failure-test.md). Artur accepts lost messages/old evaluation overlap during switching. No service restart or further vendor/thread investigation is requested. Defaults remain disabled; diagnostic faults pause processing until live FIFO is disabled and Apply completes.
 
 Clarified design target for later review: avoid losing an entire sensor source because another source is active. Per-source latest status may replace unnecessary intermediate history only while retaining the trigger values, counts and timing required by existing rules. Use fair source scheduling; do not blindly coalesce token/pulse/COUNT/CHANGE/ONCE inputs. No debounce or per-source merging is implemented yet; capture the actual native failure first.

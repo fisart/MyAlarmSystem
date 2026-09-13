@@ -1,5 +1,7 @@
 # Module 1 supervised first-failure test
 
+**Current next step:** the [isolated native input/timing lab](module1-fifo-native-lab.md), using a separate Module 1 instance and no downstream outputs. Production live FIFO/diagnostic/shadow remain disabled. The earlier production first-failure procedure remains available for a separately supervised test if later needed.
+
 Build: `Version2.14.0-fifo.6`, branch `design/module1-fifo`, draft PR #3. Defaults remain off. Module 2, Module 3 and watchdog runtime are unchanged.
 
 ## Why this test
