@@ -2,6 +2,8 @@
 
 Build: `Version2.14.0-fifo.3`. Scope: Module 1 diagnostics only. The underlying production recovery loop remains unresolved; keep live FIFO disabled outside a brief supervised capture.
 
+The subsequent `Version2.14.0-fifo.4` also corrects a false activation guard. If configured FIFO remains inactive with a retained legacy concurrency blocker, follow the [activation restart procedure](module1-fifo-activation-guard.md) before this capture. Repeated library reloads are not a documented reset for the Create-only guard.
+
 ## Production observation
 
 After the bedroom COMMIT repair and removal of missing Fob inputs, Artur's report showed `unknown_inputs=[]`, `ready=true` and no current fault, but 149 recoveries. The two displayed sessions started roughly two seconds apart and admitted/processed zero events; the previous session omitted seven observations after a fault. These sessions do not establish sustained healthy alarm processing. The report retained the original startup incident from 15:28:19, while automatic recovery erased the later current fault, hiding the loop's cause.

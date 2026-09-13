@@ -1,6 +1,6 @@
 # Module 1 live input FIFO — supervised opt-in build
 
-Build marker: `Version2.14.0-fifo.3`. This includes the [bedroom form/COMMIT repair](module1-bedroom-commit-recovery.md) and [retained recovery diagnostics](module1-fifo-recovery-diagnostics.md). Default: **disabled** (`EnableInputFifo=false`). Production revealed repeated recovery despite resolved unknown inputs; keep live FIFO disabled except for the short supervised diagnostic capture described in that document. The cause is not yet established. This is a live alarm-processing option, unlike the preceding shadow comparator. No Module 2, Module 3 or heartbeat watchdog runtime files change.
+Build marker: `Version2.14.0-fifo.4`. This includes the [bedroom form/COMMIT repair](module1-bedroom-commit-recovery.md), [retained recovery diagnostics](module1-fifo-recovery-diagnostics.md) and [activation guard correction](module1-fifo-activation-guard.md). Default: **disabled** (`EnableInputFifo=false`). Production revealed repeated recovery despite resolved unknown inputs; keep live FIFO disabled except for a short supervised diagnostic capture. A retained activation guard subsequently prevented capture; use the restart procedure in the activation document if blocked. The recovery loop's cause is not yet established. This is a live alarm-processing option, unlike the preceding shadow comparator. No Module 2, Module 3 or heartbeat watchdog runtime files change.
 
 ## Evidence and limits
 
@@ -8,7 +8,7 @@ Artur supplied two clean shadow captures on 13 September 2026: 61 and 174 admitt
 
 Artur has no CPU/resident RAM records and authorized proceeding without them. Their production impact remains **unmeasured**; serialized sizes and worker elapsed time are not substitutes. Previous shadow timing is evidence for the comparator alongside the old live path, not a measurement of this new FIFO's synchronous delivery latency.
 
-The executable model passes 343 checks: safety 129, read-only probe 44, shadow 64, live FIFO 82 and configuration form 24. The new suite covers captured raw/formatted payloads, bedroom mirrors, refresh suppression, ordinary heartbeat-shaped token/reset frames, COUNT references/sync, pulse expiry, saturation/prefix drain, Apply cutover, interface recreation, dynamic tamper subscriptions, missing/disabled dependencies, recovery seeding, ownership races, consumer reentrancy, shutdown wake, partial frame/metadata failures, baseline callback failure and UTF-8 fault handling. Diagnostics also retain later failure evidence across repeated zero-processing recoveries, incident acknowledgement, disabling and interface recreation, without storing oversized input payloads. Tests model selected interleavings; they are not a native concurrency stress test.
+The executable model passes 350 checks: safety 129, read-only probe 44, shadow 64, live FIFO 89 and configuration form 24. The new suite covers captured raw/formatted payloads, bedroom mirrors, refresh suppression, ordinary heartbeat-shaped token/reset frames, COUNT references/sync, pulse expiry, saturation/prefix drain, Apply cutover, interface recreation, dynamic tamper subscriptions, missing/disabled dependencies, recovery seeding, ownership races, consumer reentrancy, shutdown wake, partial frame/metadata failures, baseline callback failure and UTF-8 fault handling. Diagnostics also retain later failure evidence across repeated zero-processing recoveries, incident acknowledgement, disabling and interface recreation, without storing oversized input payloads. Activation regressions distinguish safely routed/skipped calls from genuinely untracked legacy evaluation. Tests model selected interleavings; they are not a native concurrency stress test.
 
 ## Runtime behavior
 
@@ -38,6 +38,8 @@ Recovery does **not** require acknowledgement to continue processing and adds no
 | Retry input FIFO baseline | Retry current-state acquisition after restoring inputs. Does not invent historical edges. |
 | Clear recovered FIFO incident | Clears only the warning after valid current monitoring; it is not required for automatic recovery. |
 | Print input FIFO report | Read-on-demand JSON with session/previous-session metrics, unknown inputs and limits; last_fault retains the last published fault through disabling/recreation, and previous_session.recovery_fault identifies available evidence captured before recovery cleared the current fault. Later observations can coalesce under fault-lock contention. |
+
+The report also includes applied `configured_enabled`, actual-runtime `enabled`, `activation_blocked` and `health`, so an enabled checkbox cannot be mistaken for an active FIFO. A retained concurrency guard is reset by `Create()`; ordinary Apply does not clear it, and library reload is not documented as invoking Create. Follow the [activation restart procedure](module1-fifo-activation-guard.md), rather than repeating library reloads.
 
 ## Bounds and performance
 

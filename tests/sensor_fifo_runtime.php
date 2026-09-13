@@ -208,4 +208,25 @@ $GLOBALS['semaphore_busy']['Mod1_InputFault_7218']=true;
 $m->MessageSink(3,102,VM_UPDATE,[true,1,false]); unset($GLOBALS['semaphore_busy']['Mod1_InputFault_7218']);
 fifoCheck(fifoReport($m)['last_fault']===$published && str_contains(fifoReport($m)['fault'],'variable 103'), 'Contended later observation does not invent successful fault publication');
 $m->RecoverInputFifo(); fifoCheck(fifoReport($m)['previous_session']['recovery_fault']===$published, 'Recovery retains available published cause when later faults coalesce');
+// A contended call already routed through FIFO must not poison future activation.
+$m=fifoFixture(7219); $m->attributes['FifoOwned']=false; $GLOBALS['calls']=[];
+$GLOBALS['semaphore_busy']['Mod1_InputWorker_7219']=true;
+$GLOBALS['on_semaphore_enter']=function($name) use($m) {
+    if($name==='Mod1_InputWorker_7219') { unset($GLOBALS['on_semaphore_enter']); $m->attributes['FifoOwned']=true; }
+};
+invokePrivate($m,'CheckLogic',0,'manual'); unset($GLOBALS['on_semaphore_enter'],$GLOBALS['semaphore_busy']['Mod1_InputWorker_7219']);
+fifoCheck(!$m->attributes['FifoLegacyOverlap'] && fifoReport($m)['metrics']['count']===1 && count($GLOBALS['calls'])===0, 'Failed worker acquisition routes established FIFO without a false legacy overlap latch');
+// An Apply boundary that skips legacy evaluation must not latch genuine legacy overlap.
+$m=fifoFixture(7220); $m->attributes['FifoOwned']=false; $m->attributes['FifoCutover']=true; $GLOBALS['calls']=[];
+$GLOBALS['semaphore_busy']['Mod1_InputWorker_7220']=true;
+invokePrivate($m,'CheckLogic',0,'manual'); unset($GLOBALS['semaphore_busy']['Mod1_InputWorker_7220']);
+fifoCheck(!$m->attributes['FifoLegacyOverlap'] && count($GLOBALS['calls'])===0, 'Failed worker acquisition at active cutover skips legacy without a false overlap latch');
+// Genuine untracked legacy evaluation retains its safety blocker until documented Create reset.
+$m=fifoFixture(7221); $m->attributes['FifoOwned']=false;
+$GLOBALS['semaphore_busy']['Mod1_InputWorker_7221']=true;
+invokePrivate($m,'CheckLogic',0,'manual'); unset($GLOBALS['semaphore_busy']['Mod1_InputWorker_7221']);
+IPS_ApplyChanges(7221); $r=fifoReport($m);
+fifoCheck($m->attributes['FifoLegacyOverlap'] && !$r['enabled'] && $r['configured_enabled'] && $r['activation_blocked'], 'Real unowned legacy evaluation still blocks unsafe opt-in and appears in report');
+$m->Create(); IPS_ApplyChanges(7221);
+fifoCheck(fifoReport($m)['enabled'] && !fifoReport($m)['activation_blocked'], 'Create clears genuine historical overlap and establishes requested FIFO');
 echo "Input FIFO runtime: $checks checks passed. CPU/resident RAM impact remains unmeasured.\n";

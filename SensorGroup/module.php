@@ -1,5 +1,5 @@
 <?php
-// Version2.14.0-fifo.3
+// Version2.14.0-fifo.4
 declare(strict_types=1);
 
 require_once __DIR__ . '/StateIntegrity.php';
@@ -2704,12 +2704,21 @@ class SensorGroup extends IPSModule
         if ($this->ReadAttributeBoolean('FifoOwned')) { $routeFifo(); return; }
         // Track legacy calls so an opt-in boundary cannot overlap an already executing evaluator.
         $owner = IPS_SemaphoreEnter($this->FifoWorkerLock(), 1);
-        if (!$owner) $this->WriteAttributeBoolean('FifoLegacyOverlap', true);
         try {
-            if ($this->ReadAttributeBoolean('FifoOwned')) { $routeFifo(); return; }
             if ($this->ReadAttributeBoolean('FifoCutover')) {
                 $this->FifoRecordIncident('Evaluator invocation crossed Apply boundary; historical input edges unavailable.');
                 return;
+            }
+            if ($this->ReadAttributeBoolean('FifoOwned')) { $routeFifo(); return; }
+            if (!$owner) {
+                $this->WriteAttributeBoolean('FifoLegacyOverlap', true);
+                // Apply sets Cutover before reading overlap. After latching, read Cutover first:
+                // if Apply has finished, the following Owned read observes its activation.
+                if ($this->ReadAttributeBoolean('FifoCutover')) {
+                    $this->FifoRecordIncident('Evaluator invocation crossed Apply boundary; historical input edges unavailable.');
+                    return;
+                }
+                if ($this->ReadAttributeBoolean('FifoOwned')) { $routeFifo(); return; }
             }
             $this->EvaluateLogicFrame($TriggeringID, $DiagnosticSource, $DiagnosticValueChanged, $shadowTicket);
         } finally { if ($owner) IPS_SemaphoreLeave($this->FifoWorkerLock()); }

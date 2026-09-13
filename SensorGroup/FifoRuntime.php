@@ -65,7 +65,7 @@ trait SensorGroupFifoRuntime
         $this->SetTimerInterval('InputFifoWorker', 0);
         $this->SetTimerInterval('InputFifoRecovery', 0);
         $this->SetValue('InputFifoIncident', $this->ReadAttributeString('FifoIncident'));
-        $this->SetValue('InputFifoHealth', $enable ? 'Starting FIFO; acquiring current input baseline.' : ($this->ReadPropertyBoolean('EnableInputFifo') ? 'FIFO activation blocked by concurrent legacy evaluation; reload the module library before retrying.' : 'FIFO disabled; existing evaluator active.'));
+        $this->SetValue('InputFifoHealth', $enable ? 'Starting FIFO; acquiring current input baseline.' : ($this->ReadPropertyBoolean('EnableInputFifo') ? 'FIFO activation blocked by retained legacy concurrency guard; restart IP-Symcon while present before retrying.' : 'FIFO disabled; existing evaluator active.'));
         return true;
     }
 
@@ -460,7 +460,7 @@ trait SensorGroupFifoRuntime
     public function GetInputFifoReport(): string
     {
         if ($this->ReadAttributeBoolean('FifoOwned')) $this->PublishInputFifo();
-        return $this->FifoEncode(['enabled' => $this->ReadAttributeBoolean('FifoOwned'), 'ready' => $this->ReadAttributeBoolean('FifoReady'), 'incident' => $this->ReadAttributeString('FifoIncident'), 'last_fault' => json_decode($this->ReadAttributeString('FifoLastFault'), true), 'unknown_inputs' => json_decode($this->ReadAttributeString('FifoUnknownInputs'), true), 'metrics' => $this->FifoMeta(), 'previous_session' => json_decode($this->GetBuffer('InputFifoPreviousSession'), true), 'fault' => $this->FifoFaultReason($this->ReadAttributeString('FifoFence')), 'limits' => ['slots' => self::FIFO_SLOTS, 'queue_bytes' => self::FIFO_BYTES, 'evaluation_state_bytes' => self::FIFO_STATE_BYTES], 'performance' => 'CPU and resident RAM unmeasured; synchronous receiver calls can exceed batch budget.']);
+        return $this->FifoEncode(['configured_enabled' => $this->ReadPropertyBoolean('EnableInputFifo'), 'enabled' => $this->ReadAttributeBoolean('FifoOwned'), 'activation_blocked' => $this->ReadAttributeBoolean('FifoLegacyOverlap') && !$this->ReadAttributeBoolean('FifoOwned'), 'health' => $this->GetValue('InputFifoHealth'), 'ready' => $this->ReadAttributeBoolean('FifoReady'), 'incident' => $this->ReadAttributeString('FifoIncident'), 'last_fault' => json_decode($this->ReadAttributeString('FifoLastFault'), true), 'unknown_inputs' => json_decode($this->ReadAttributeString('FifoUnknownInputs'), true), 'metrics' => $this->FifoMeta(), 'previous_session' => json_decode($this->GetBuffer('InputFifoPreviousSession'), true), 'fault' => $this->FifoFaultReason($this->ReadAttributeString('FifoFence')), 'limits' => ['slots' => self::FIFO_SLOTS, 'queue_bytes' => self::FIFO_BYTES, 'evaluation_state_bytes' => self::FIFO_STATE_BYTES], 'performance' => 'CPU and resident RAM unmeasured; synchronous receiver calls can exceed batch budget.']);
     }
     private function PublishInputFifo(): void
     {
