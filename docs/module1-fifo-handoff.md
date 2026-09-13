@@ -4,7 +4,7 @@ Updated: 2026-09-13 UTC. Repository: `fisart/MyAlarmSystem`. Working branch: `de
 
 ## Current position
 
-Native synthetic-input lab code is published at `435c5b03baae85211b9350284c122686d82cc80c`. Runtime marker remains `Version2.14.0-fifo.6`; the lab commit changes tools, tests and documentation, not alarm runtime. Independent review approved supervised branch testing. **No native lab run or Result report has been received. The original event-loss cause remains unresolved.**
+Native synthetic-input lab code is published at `435c5b03baae85211b9350284c122686d82cc80c`. The current follow-up is `Version2.14.0-fifo.7`: genuine-idle-only worker wake and a single 10 ms queue-lock wait for admission/essential worker commits. Independent review approved fifo.7 for supervised lab re-test after independently passing runtime 109, first-failure 59 and lab 34 checks; native retest is pending. **Native fifo.6 sequential/interleaved passed; concurrent_flicker captured admission contention. The original production legacy event-loss cause remains unresolved.**
 
 Stable main is `a4c63a813cf55852c5f36966bac5e6357f88a82c` (merged PR #4), Module 1 v2.13.4 and Module 2 v7.3.2. It contains tested rejected-Apply subscription recovery, dynamic tamper reference recovery and bedroom backing-list/isolated draft repair. Main has no FIFO/shadow/probe runtime. Its original competing-input event-loss problem remains unresolved. Installation of this main release on the user's server has not been confirmed in this session.
 
@@ -42,20 +42,30 @@ fifo.6 failure capture overrides the activation guard only for explicitly config
 
 ## Verification
 
-482 local checks pass: safety 129, probe 44, shadow 64, FIFO runtime 89, configuration form 24, passive input diagnostic 39, first-failure capture 59, native lab 34. Changed PHP lint and whitespace checks pass.
+502 local checks pass: safety 129, probe 44, shadow 64, FIFO runtime 109, configuration form 24, passive input diagnostic 39, first-failure capture 59, native lab 34. Runtime includes idle wake/stop, deterministic multi-batch timer retention, in-flight and post-shutdown admission, single bounded transient/persistent lock policy and report bounds. Native semaphore timing is not modelled. Changed PHP lint and whitespace checks pass.
 
 Independent review approved after verifying startup cancellation, lock release even when cleanup/result persistence fails, stale producer status handling and waiting for delayed native callbacks despite an initially empty queue. The new harness tests use mocked asynchronous execution and do not establish native parallel behavior.
 
-[GitHub regression CI passed for the lab code commit](https://github.com/fisart/MyAlarmSystem/actions/runs/34770330861). No native lab report, CPU/RAM record or production deployment by the assistant exists.
+[GitHub regression CI passed for the lab code commit](https://github.com/fisart/MyAlarmSystem/actions/runs/34770330861). Native fifo.6 reports are summarized below; no CPU/RAM record or production deployment by the assistant exists. Latest branch CI must be checked for the fifo.7 publication.
 
 ## Next actions
 
-1. User installs/updates the diagnostic branch while production FIFO/shadow/capture remain off. No Symcon restart is requested.
-2. Paste/run the installer script from the instructions. Open the dedicated lab category, run RunScenario with default `sequential`, and copy Result. Verify `after_disable`.
-3. Analyze first fault stage and producer/count/timing evidence. If normal sequence succeeds, continue ordinary interleaved/concurrent/refresh scenarios before intentional baseline/contention tests.
-4. Compare native evidence with the smaller mock fixture; production has 61 classes and 392 sensor rules, so a successful small lab does not establish production load readiness.
-5. Revise admission/baseline handling only when evidence supports it; then reconsider per-source pending state/fair scheduling with existing trigger semantics preserved. Keep Module 2/3 deferred risks visible.
+1. Keep production FIFO/shadow/capture disabled; update diagnostic branch to fifo.7 without a Symcon restart. Confirm real heartbeat health after the shared library update.
+2. Reuse the installed lab. Rerun sequential/interleaved, then concurrent_flicker; copy each Result before overwriting and check after_disable actual enabled=false. The report limits should show admission/worker_commit wait 10 ms and dequeue wait 1 ms.
+3. If ordinary concurrency passes, continue refresh_noise. If any unexpected fault occurs, inspect its current/historical fence and obtain a later lab-only report for deferred drainage. Intentional baseline/contention scenarios come later.
+4. Evaluate admission critical-section work and native behavior before further changes. fifo.7 skips redundant timer/pending updates and permits one bounded native wait; it does not prove losslessness, source ordering or production load readiness. Each contended callback/essential commit can occupy a thread up to 9 ms longer than before; worker elapsed budget remains soft.
+5. Consider per-source pending state/fair scheduling only with existing trigger/count/timing semantics preserved. The lab is smaller than production's 61 classes/392 sensor rules. Keep Module 2/3 deferred risks visible.
 6. Reconcile stable main backports and review before any eventual PR #3 merge. Do not automatically merge or deploy diagnostic work based on a successful lab count.
+
+## Native fifo.6 evidence
+
+- Sequential session `6ac38bf01d4954a3`, 21:25:37 +02:00: 9 generated/admitted/processed changes; no fault or rebaseline; queue peak 2, max lag 59.912 ms; actual disable confirmed.
+- Interleaved session `60034053e19f6f1a`, 21:27:14: 36/36/36; one active writer, no fault or rebaseline; queue peak 11, max lag 87.218 ms; actual disable confirmed.
+- Concurrent session `a15823d84df28a3b`, 21:28:00: three producers completed 32+32+6 changes in about 150–161 ms. First fault stage `admission_lock`, variable 28328, integer native counter 398950839, precise current capture. Admission semaphore requested 1 ms. 50 admitted, initially 16 processed with 33 queued/one in flight; peak 41 entries and 7,415 bytes, below limits. Later report retained the original fence and showed all 50 processed/empty queue; final lag 323.605 ms, batch 29.188 ms. Actual FIFO/diagnostic disablement confirmed. Remaining 20-write difference includes initial omission and later diagnostic pause, not 20 independently proven mutex failures.
+- Later report contains another baseline at 21:28:55 (4 changed records processed, 48 refreshes suppressed); its cause is not established by the report, and it does not reconstruct missed original edges. Historical first-fault capture remains intact, explicitly not current.
+- This localizes a failure in the experimental FIFO admission path. Original production legacy/heartbeat causality remains unproven. No queue enlargement, fault suppression, heartbeat exception, guard reset or service restart is justified.
+
+[Sequential checkpoint](https://github.com/fisart/MyAlarmSystem/pull/3#issuecomment-5655540706), [interleaved](https://github.com/fisart/MyAlarmSystem/pull/3#issuecomment-5655550794), [concurrent failure](https://github.com/fisart/MyAlarmSystem/pull/3#issuecomment-5655558117), [drain/disable confirmation](https://github.com/fisart/MyAlarmSystem/pull/3#issuecomment-5655573442), [selected change](https://github.com/fisart/MyAlarmSystem/pull/3#issuecomment-5655583839).
 
 Reference: [design](module1-fifo-design.md), [first-failure diagnostic](module1-fifo-first-failure-test.md), [runtime](module1-fifo-runtime.md), [independent review](module1-fifo-review.md), [coordinated deferred backlog](module1-fifo-coordinated-backlog.md).
 

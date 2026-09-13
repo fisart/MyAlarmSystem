@@ -1,6 +1,6 @@
 # Native FIFO timing lab
 
-Branch `design/module1-fifo`, actual Module 1 fifo.6 diagnostics. Main remains stable Module 1 v2.13.4. This lab does not change alarm-module runtime or implement a different FIFO.
+Branch `design/module1-fifo`, actual Module 1 fifo.7 diagnostics. Main remains stable Module 1 v2.13.4. This lab does not change alarm-module runtime or implement a different FIFO.
 
 ## Purpose and scope
 
@@ -54,4 +54,12 @@ Native API signatures were checked against the official [Symcon GlobalStubs](htt
 
 ## Review and checks
 
-All eight local suites pass **482 checks**; the harness contributes **34** covering installation, scope/plan bounds, route/manifest/pending-property refusal, four successful scenario lifecycles, startup cancellation, partial-control stop, stale completion refusal, cleanup-write failure and delayed callbacks. Changed PHP lint and whitespace checks pass. Independent read-only review reran the 34 checks and approved this harness for supervised testing with no remaining blockers. Mock script execution is deterministic and does not validate native parallel scheduling.
+All eight local suites pass **502 checks**; the harness contributes **34** covering installation, scope/plan bounds, route/manifest/pending-property refusal, four successful scenario lifecycles, startup cancellation, partial-control stop, stale completion refusal, cleanup-write failure and delayed callbacks. Changed PHP lint and whitespace checks pass. Independent read-only review reran the 34 checks and approved this harness for supervised testing with no remaining blockers. Mock script execution is deterministic and does not validate native parallel scheduling.
+
+## Current native evidence and fifo.7 retest
+
+On fifo.6, sequential passed 9/9 and interleaved passed 36/36. Ordinary concurrent_flicker generated 70 changed writes but captured `admission_lock` omission at the old 1 ms timeout. The queue peaked at 41/128 entries, not overflow. Diagnostic pause blocked later admission; all 50 admitted records subsequently processed, and a later lab report confirmed actual FIFO disablement and an empty queue. The initial 16 processed was an unfinished snapshot. This does not prove the cause of the original production legacy heartbeat loss.
+
+fifo.7 removes redundant timer/pending writes from admissions while the worker is already scheduled; the idle wake and empty shutdown remain serialized under the queue lock. Admission and required worker progress/shutdown commits request a single 10 ms semaphore wait, while dequeue retains its 1 ms quick yield. No retry loop, additional polling/logging, heartbeat priority or queue enlargement is added. The report `limits` exposes these wait policies so the native build can be checked. 10 ms is experimental, not a guaranteed sufficient or actual measured wait. It can occupy each contended native callback longer; worker elapsed budget remains soft and downstream calls can exceed it.
+
+Keep production FIFO/shadow/capture off, update the diagnostic branch and confirm fresh real heartbeat after the shared-library update. The existing lab scripts load the updated helper from the library; do not reinstall/reset the lab unnecessarily. Rerun sequential and interleaved, then concurrent_flicker, saving each Result and verifying after_disable. If concurrent_flicker passes, run refresh_noise. Stop on an unexpected first fault and obtain a later lab-only FIFO report if cleanup is initially deferred. Do not clear the historical fault merely to make the next test look clean: `first_fault_is_current` distinguishes old evidence. Intentional baseline/contention scenarios remain later steps.

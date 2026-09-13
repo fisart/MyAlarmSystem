@@ -138,3 +138,13 @@ Artur resumed diagnostics and proposed a script FIFO emulator with separate synt
 Independent read-only review found and verified corrections for startup cancellation, cleanup lock release and sampling an empty queue before delayed callbacks arrived. Additional checks prevent manifest aliases/type mismatches, unsafe pending configuration activation and stale producer completion. The generated StopScenario script cancels only the lab. Aggregate counts remain explicitly limited evidence, not per-input/downstream or actual heartbeat success. Both library/server sharing and forced-fault interpretation are documented.
 
 Eight local suites pass **482 checks**, including the new **34** harness checks. The reviewer independently reran all 34 and approved supervised publication with no blockers; syntax/whitespace checks pass. Native concurrency/timing results and the production failure cause remain unresolved. See [native lab instructions](module1-fifo-native-lab.md).
+
+## fifo.7 contention follow-up — 2026-09-13
+
+Native fifo.6 sequential/interleaved completed 9/9 and 36/36. Ordinary three-producer concurrent_flicker captured admission_lock omission at the 1 ms timeout with spare queue capacity. Diagnostic pause explains later blocked admission; all 50 admitted frames eventually processed and actual disablement completed. No worker deadlock or original production legacy-loss causality was established.
+
+The narrow follow-up wakes the periodic worker only on a genuine idle-to-pending transition, keeping wake/stop under the queue lock. It retains the scheduled timer during nonempty worker shutdown and requests one 10 ms queue-lock acquisition for admission, mandatory progress and shutdown. Dequeue/recovery/Apply/fault acquisition policy is unchanged. No source priority, bypass, retries, debounce, queue enlargement or new diagnostic stream.
+
+Independent read-only review found no new lost-wake/Apply blocker. Reviewer requested a deterministic multi-batch test; burst changed to 40 records with batches >= 2. Final runtime suite independently passed 109 checks; reviewer also separately passed first-failure 59 and lab 34. Approved for supervised native re-test, not production/main rollout. All eight local suites total 502 checks; changed PHP lint/whitespace checks pass.
+
+Remaining limits: 10 ms is experimental and may still time out or expose same-source continuity under native scheduling. Each contended acquisition can occupy a thread up to 9 ms longer; worker 20 ms elapsed target is soft and includes native waits/evaluation/shutdown. Actual CPU/resident RAM and lock-holder duration remain unmeasured. Native sequential/interleaved/concurrent_flicker re-test remains required. Main and Module 2/3/watchdog runtime are unchanged.

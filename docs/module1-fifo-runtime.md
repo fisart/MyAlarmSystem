@@ -1,5 +1,7 @@
 # Module 1 live input FIFO — supervised opt-in build
 
+
+Current build: **fifo.7**, genuine-idle-only worker wake and bounded 10 ms admission/essential commit waits. Native fifo.6 concurrency reproduced admission-lock contention; all admitted records drained and disablement completed. Follow the [native lab retest](module1-fifo-native-lab.md#current-native-evidence-and-fifo7-retest); keep production FIFO/capture/shadow off. [Current handoff](module1-fifo-handoff.md).
 **Current next step:** the [isolated native input/timing lab](module1-fifo-native-lab.md), using a separate Module 1 instance and no downstream outputs. Production live FIFO/diagnostic/shadow remain disabled. The earlier production first-failure procedure remains available for a separately supervised test if later needed.
 
 Build marker: `Version2.14.0-fifo.6`. Default: **disabled**. Current next step: the [supervised first-failure test](module1-fifo-first-failure-test.md). Artur accepts missed messages/overlapping old evaluations during test switching; the explicit diagnostic checkbox permits activation without clearing the retained guard. On a fault, admission and automatic recovery pause; disable live FIFO and Apply to restore existing processing. Do not leave the test unattended. No service restart, vendor guarantee or debounce is required for this authorized diagnostic test. Normal activation/recovery policy remains when diagnostic mode is off. Module 2, Module 3 and watchdog runtime do not change.

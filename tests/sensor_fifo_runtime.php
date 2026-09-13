@@ -229,4 +229,54 @@ IPS_ApplyChanges(7221); $r=fifoReport($m);
 fifoCheck($m->attributes['FifoLegacyOverlap'] && !$r['enabled'] && $r['configured_enabled'] && $r['activation_blocked'], 'Real unowned legacy evaluation still blocks unsafe opt-in and appears in report');
 $m->Create(); IPS_ApplyChanges(7221);
 fifoCheck(fifoReport($m)['enabled'] && !fifoReport($m)['activation_blocked'], 'Create clears genuine historical overlap and establishes requested FIFO');
+// Burst admissions wake once; refreshes and already-scheduled tails do not reset the timer.
+$m=fifoFixture(7222); $timerWrites=[];
+$GLOBALS['on_set_timer_interval']=function($o,$name,$value) use($m,&$timerWrites) { if($o===$m && $name==='InputFifoWorker') $timerWrites[]=$value; };
+for($i=0;$i<40;++$i) fifoSend($m,101,$i%2===0,2000+$i);
+fifoCheck($timerWrites===[50] && $m->attributes['FifoHasPending'], 'Burst only publishes one idle-to-pending worker wake');
+fifoDrain($m);
+fifoCheck(fifoReport($m)['metrics']['processed']===40 && fifoReport($m)['metrics']['batches']>=2 && count(array_filter($timerWrites,static fn($v)=>$v===50))===1 && end($timerWrites)===0, 'Multi-batch drain retains existing periodic wake and stops when idle');
+$timerWrites=[]; fifoSend($m,101,false); fifoCheck($timerWrites===[], 'Unchanged idle refresh never wakes the worker');
+fifoSend($m,101,true); fifoCheck($timerWrites===[50], 'Next genuine idle transition rearms worker'); fifoDrain($m);
+unset($GLOBALS['on_set_timer_interval']);
+// A reentrant producer sees an empty queue while a frame is in flight, not an idle worker.
+$m=fifoFixture(7223); $timerWrites=[];
+$GLOBALS['on_set_timer_interval']=function($o,$name,$value) use($m,&$timerWrites) { if($o===$m && $name==='InputFifoWorker') $timerWrites[]=$value; };
+$GLOBALS['on_request_action']=function($id,$ident,$value) use($m) { unset($GLOBALS['on_request_action']); fifoSend($m,101,false); };
+fifoSend($m,101,true); fifoDrain($m); unset($GLOBALS['on_request_action'],$GLOBALS['on_set_timer_interval']);
+fifoCheck(fifoReport($m)['metrics']['processed']===2 && $timerWrites===[50,0], 'In-flight empty queue admission retains pending ownership without timer reset');
+// Producer after the serialized idle shutdown must publish a fresh wake, even with worker ownership held.
+$m=fifoFixture(7224); fifoSend($m,101,true);
+$GLOBALS['on_semaphore_leave']=function($name) use($m) {
+    if($name==='Mod1_InputQueue_7224' && !$m->attributes['FifoHasPending'] && $m->GetTimerInterval('InputFifoWorker')===0) {
+        unset($GLOBALS['on_semaphore_leave']); fifoSend($m,103,123);
+    }
+};
+$m->RunInputFifo(); unset($GLOBALS['on_semaphore_leave']);
+fifoCheck(fifoReport($m)['metrics']['count']===1 && $m->attributes['FifoHasPending'] && $m->GetTimerInterval('InputFifoWorker')===50, 'Producer immediately after idle shutdown cannot strand a new tail');
+fifoDrain($m); fifoCheck(fifoReport($m)['metrics']['processed']===2 && fifoReport($m)['fault']==='', 'Post-shutdown admitted tail drains without replay or fault');
+// Model availability inside the requested bound; this verifies policy, not native elapsed time.
+$m=fifoFixture(7225); $attempts=[]; $GLOBALS['semaphore_busy']['Mod1_InputQueue_7225']=true;
+$GLOBALS['on_semaphore_enter']=function($name,$timeout) use(&$attempts) {
+    if($name==='Mod1_InputQueue_7225') { $attempts[]=$timeout; if($timeout===10) unset($GLOBALS['semaphore_busy'][$name]); }
+};
+fifoSend($m,103,987); unset($GLOBALS['on_semaphore_enter'],$GLOBALS['semaphore_busy']['Mod1_InputQueue_7225']);
+fifoCheck($attempts===[10] && fifoReport($m)['metrics']['admitted']===1 && fifoReport($m)['fault']==='', 'Admission uses a single 10 ms native acquisition and accepts modelled transient contention');
+fifoDrain($m); fifoCheck(fifoReport($m)['metrics']['processed']===1, 'Transiently contended ordinary token still reaches worker');
+$m=fifoFixture(7226); $attempts=[];
+$GLOBALS['on_semaphore_enter']=function($name,$timeout) use(&$attempts) {
+    if($name==='Mod1_InputQueue_7226') { $attempts[]=$timeout; if(count($attempts)===2) { $GLOBALS['semaphore_busy'][$name]=true; if($timeout===10) unset($GLOBALS['semaphore_busy'][$name]); } }
+};
+fifoSend($m,102,true); $attempts=[]; fifoDrain($m); unset($GLOBALS['on_semaphore_enter'],$GLOBALS['semaphore_busy']['Mod1_InputQueue_7226']);
+fifoCheck($attempts===[1,10,1,10] && fifoReport($m)['metrics']['processed']===1 && fifoReport($m)['fault']==='', 'Worker dequeue yields at 1 ms while mandatory progress and shutdown acquire with 10 ms');
+// Persistent contention remains explicit and bounded rather than spinning or running alarm logic inline.
+$m=fifoFixture(7227); $attempts=[]; $GLOBALS['semaphore_busy']['Mod1_InputQueue_7227']=true; $GLOBALS['calls']=[];
+$GLOBALS['on_semaphore_enter']=function($name,$timeout) use(&$attempts) { if($name==='Mod1_InputQueue_7227') $attempts[]=$timeout; };
+fifoSend($m,101,true); unset($GLOBALS['on_semaphore_enter'],$GLOBALS['semaphore_busy']['Mod1_InputQueue_7227']);
+fifoCheck($attempts===[10] && str_contains(fifoReport($m)['fault'],'contention') && $GLOBALS['calls']===[], 'Persistent admission contention faults after one bounded wait with no inline fallback');
+$m=fifoFixture(7228); fifoSend($m,101,true); $attempts=[];
+$GLOBALS['on_semaphore_enter']=function($name,$timeout) use(&$attempts) { if($name==='Mod1_InputQueue_7228') { $attempts[]=$timeout; if(count($attempts)===4) $GLOBALS['semaphore_busy'][$name]=true; } };
+$m->RunInputFifo(); unset($GLOBALS['on_semaphore_enter'],$GLOBALS['semaphore_busy']['Mod1_InputQueue_7228']);
+fifoCheck($attempts===[1,10,1,10] && fifoReport($m)['metrics']['processed']===1 && !fifoReport($m)['ready'] && str_contains(fifoReport($m)['fault'],'shutdown'), 'Persistent shutdown contention preserves processed prefix and reports uncertainty without retry');
+fifoCheck(fifoReport($m)['limits']['admission_wait_ms']===10 && fifoReport($m)['limits']['worker_commit_wait_ms']===10 && fifoReport($m)['limits']['worker_dequeue_wait_ms']===1, 'Report exposes configured bounds for native build verification');
 echo "Input FIFO runtime: $checks checks passed. CPU/resident RAM impact remains unmeasured.\n";

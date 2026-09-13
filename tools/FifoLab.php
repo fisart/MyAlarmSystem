@@ -28,7 +28,7 @@ final class FifoLab
 
     public static function install(): array
     {
-        if (!function_exists('MYALARM_GetInputFifoReport')) throw new RuntimeException('Load design/module1-fifo with fifo.6 diagnostics first; keep production FIFO and shadow disabled.');
+        if (!function_exists('MYALARM_GetInputFifoReport')) throw new RuntimeException('Load design/module1-fifo with FIFO diagnostics first; keep production FIFO and shadow disabled.');
         $existing=self::child(self::IDENT,0);
         if($existing){$manifest=self::load($existing);self::validate($manifest);return $manifest;}
         $root = self::create(self::IDENT, 0, 0, static fn() => IPS_CreateCategory());

@@ -47,7 +47,10 @@ class IPSModule
         if (isset($GLOBALS['on_set_buffer'])) ($GLOBALS['on_set_buffer'])($this, $name, $value);
     }
     public function GetTimerInterval($name) { return $this->timers[$name] ?? 0; }
-    public function SetTimerInterval($name, $value) { $this->timers[$name] = $value; }
+    public function SetTimerInterval($name, $value) {
+        $this->timers[$name] = $value;
+        if (isset($GLOBALS['on_set_timer_interval'])) ($GLOBALS['on_set_timer_interval'])($this, $name, $value);
+    }
     public function RegisterTimer($name, $value, $script) { $this->timers[$name] = $value; }
     public function RegisterMessage($id, $message) { $this->messages[$id] = [$message]; }
     public function UnregisterMessage($id, $message) { unset($this->messages[$id]); }
@@ -114,7 +117,7 @@ function IPS_LogMessage(...$args) {}
 function IPS_GetKernelDir() { return '/tmp/'; }
 function invokePrivate($object, $method, ...$args) { return (new ReflectionMethod($object, $method))->invoke($object, ...$args); }
 function IPS_SemaphoreEnter($name, $timeout) {
-    if (isset($GLOBALS['on_semaphore_enter'])) ($GLOBALS['on_semaphore_enter'])($name);
+    if (isset($GLOBALS['on_semaphore_enter'])) ($GLOBALS['on_semaphore_enter'])($name, $timeout);
     return empty($GLOBALS['semaphore_busy'][$name]);
 }
 function IPS_SemaphoreLeave($name) { if(isset($GLOBALS['on_semaphore_leave']))($GLOBALS['on_semaphore_leave'])($name); }

@@ -1,5 +1,7 @@
 # Module 1 supervised first-failure test
 
+
+Current build: **fifo.7**, genuine-idle-only worker wake and bounded 10 ms admission/essential commit waits. Native fifo.6 concurrency reproduced admission-lock contention; all admitted records drained and disablement completed. Follow the [native lab retest](module1-fifo-native-lab.md#current-native-evidence-and-fifo7-retest); keep production FIFO/capture/shadow off. [Current handoff](module1-fifo-handoff.md).
 **Current next step:** the [isolated native input/timing lab](module1-fifo-native-lab.md), using a separate Module 1 instance and no downstream outputs. Production live FIFO/diagnostic/shadow remain disabled. The earlier production first-failure procedure remains available for a separately supervised test if later needed.
 
 Build: `Version2.14.0-fifo.6`, branch `design/module1-fifo`, draft PR #3. Defaults remain off. Module 2, Module 3 and watchdog runtime are unchanged.
