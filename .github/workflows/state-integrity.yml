@@ -1,0 +1,17 @@
+name: State integrity regression
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  regression:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: PHP syntax and regression checks
+        run: |
+          php -l SensorGroup/module.php
+          php -l SensorGroup/StateIntegrity.php
+          php -l PropertyStateManager/module.php
+          php -l PropertyStateManager/StateIntegrity.php
+          php -l libs/AlarmSafety.php
+          php tests/state_integrity.php

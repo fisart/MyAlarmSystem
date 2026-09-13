@@ -2,8 +2,11 @@
 
 declare(strict_types=1);
 
+require_once __DIR__ . '/StateIntegrity.php';
+
 class PropertyStateManager extends IPSModule
 {
+    use PropertyStateIntegrity;
     public function Create()
     {
         // Never delete this line!
@@ -22,6 +25,19 @@ class PropertyStateManager extends IPSModule
         $this->RegisterPropertyString("StatePushTargets", "[]"); // Module 3 instance IDs
         $this->RegisterAttributeInteger("DelayExpired", 0);
 
+
+        $this->RegisterAttributeInteger('PendingArmedState', 0);
+        $this->RegisterAttributeInteger('DelayDeadline', 0);
+        $this->RegisterAttributeString('SafetyInputs', '{}');
+        $this->RegisterAttributeString('ActiveSafetySettings', '{}');
+        $this->RegisterAttributeString('SafetyConfigurationError', '');
+        $this->RegisterAttributeBoolean('SafetyApplyPending', false);
+        $this->RegisterTimer('SafetyApplyTimer', 0, 'PSM_CompleteSafetyApply($_IPS[\'TARGET\']);');
+        $this->RegisterTimer('SafetyRetryTimer', 0, 'PSM_RefreshSafetyState($_IPS[\'TARGET\']);');
+        $this->RegisterVariableBoolean('MonitoringHealthy', 'Monitoring Healthy', '', 1);
+        $this->RegisterVariableString('InputHealth', 'Input Health / Arming Block', '', 2);
+        $this->RegisterVariableString('PendingMode', 'Pending Armed Mode', '', 3);
+        $this->RegisterVariableString('ConfigurationHealth', 'Configuration Health', '', 4);
 
         // Attributes (RAM Buffers)
         $this->RegisterAttributeString("ActiveSensors", "[]");
@@ -85,21 +101,29 @@ class PropertyStateManager extends IPSModule
         // Register the Webhook using the manual helper
         $this->RegisterHook('/hook/psm_logic_' . $this->InstanceID);
 
-        // SYNC: Request current sensor state from Module 1 on startup/change
-        // Safeguard: Module 2 must still start even if Module 1 is slow or not ready.
-        $sensorGroupID = $this->ReadPropertyInteger("SensorGroupInstanceID");
-        if ($sensorGroupID > 0 && @IPS_InstanceExists($sensorGroupID)) {
-            if (function_exists('MYALARM_RequestStateSync')) {
-                try {
-                    @MYALARM_RequestStateSync($sensorGroupID);
-                } catch (\Throwable $e) {
-                    $this->LogMessage(
-                        "[PSM-Apply] Startup sync skipped because Module 1 RequestStateSync failed: " . $e->getMessage(),
-                        KL_WARNING
-                    );
-                }
-            }
+        // Interface construction cannot call another PHP module's instance methods.
+        $this->WriteAttributeBoolean('SafetyApplyPending', true);
+        $this->SetValue('MonitoringHealthy', false);
+        $this->SetValue('InputHealth', 'Initializing: awaiting current Module 1 snapshot');
+        $this->SetTimerInterval('SafetyApplyTimer', 1000);
+    }
+
+    public function CompleteSafetyApply(): void
+    {
+        if (IPS_GetKernelRunlevel() !== KR_READY) return;
+        $this->SetTimerInterval('SafetyApplyTimer', 0);
+        if (!$this->ReadAttributeBoolean('SafetyApplyPending')) return;
+        $this->WriteAttributeBoolean('SafetyApplyPending', false);
+        if (!$this->ActivateSafetySettings()) {
+            $this->EvaluateState(); // Retain previous settings and protection on a rejected activation.
+            return;
         }
+        $sensorGroupID = $this->SafetySetting('SensorGroupInstanceID');
+        // Applying or restarting never resumes a partially elapsed arming/mode-change delay.
+        $this->SetTimerInterval('DelayTimer', 0);
+        $this->WriteAttributeInteger('DelayExpired', 0);
+        $this->WriteAttributeInteger('PendingArmedState', 0);
+        if ((int)$this->GetValue('SystemState') === 2) $this->SetValue('SystemState', 0);
 
         // --- Step 1: Import config snapshot + compute IgnoredSensors (no behavior change yet) ---
         $this->WriteAttributeString("ImportedConfig", "");
@@ -125,7 +149,7 @@ class PropertyStateManager extends IPSModule
                 if (is_array($config)) {
 
                     // Identify group-names that are handled on group-level in THIS module (SourceKey is a non-numeric string)
-                    $mapping = json_decode($this->ReadPropertyString("GroupMapping"), true);
+                    $mapping = json_decode($this->SafetySetting('GroupMapping'), true);
                     if (!is_array($mapping)) $mapping = [];
 
                     $groupLevelNames = [];
@@ -202,6 +226,7 @@ class PropertyStateManager extends IPSModule
             }
         }
         // --- Step 1 end ---
+        $this->EvaluateState();
     }
 
     private function RegisterHook($WebHook)
@@ -254,7 +279,7 @@ class PropertyStateManager extends IPSModule
         $this->UpdateFormField("SyncTimestamp", "value", time());
 
         // 1) Build UI caches from Module 1 configuration (DISPLAY ONLY)
-        $sensorGroupId = $this->ReadPropertyInteger("SensorGroupInstanceID");
+        $sensorGroupId = $this->SafetySetting('SensorGroupInstanceID');
         if ($sensorGroupId <= 0 || !@IPS_InstanceExists($sensorGroupId) || !function_exists('MYALARM_GetConfiguration')) {
             $this->LogMessage("[PSM-UI] Refresh: cannot load Module 1 config (missing instance or function).", KL_WARNING);
             return;
@@ -281,7 +306,7 @@ class PropertyStateManager extends IPSModule
         }
 
         // 3) Build GroupSensorMap for THIS target: groupName -> [varID(string)...]
-        $targetID = $this->ReadPropertyInteger("DispatchTargetID");
+        $targetID = $this->SafetySetting('DispatchTargetID');
 
         // 3a) groups dispatched to this target
         $targetGroups = [];
@@ -352,7 +377,7 @@ class PropertyStateManager extends IPSModule
         // 1) request fresh state sync from Module 1
         // 2) re-evaluate current Module 2 house state
         if (isset($_GET['sync'])) {
-            $sensorGroupID = $this->ReadPropertyInteger("SensorGroupInstanceID");
+            $sensorGroupID = $this->SafetySetting('SensorGroupInstanceID');
             if ($sensorGroupID > 0 && @IPS_InstanceExists($sensorGroupID)) {
                 if (function_exists('MYALARM_RequestStateSync')) {
                     try {
@@ -378,22 +403,13 @@ class PropertyStateManager extends IPSModule
         $targetState = $this->GetValue("SystemState");
         $displayState = $this->GetStateName($targetState);
 
-        $isDelayState = ($targetState === 2);
-        $remainingSeconds = 0;
-
-        if ($isDelayState) {
-            $varID = $this->GetIDForIdent("SystemState");
-            $varInfo = IPS_GetVariable($varID);
-            $lastUpdate = $varInfo['VariableUpdated'];
-            $durationSeconds = $this->ReadPropertyInteger("ArmingDelayDuration") * 60;
-            $remainingSeconds = ($lastUpdate + $durationSeconds) - time();
-            if ($remainingSeconds < 0) $remainingSeconds = 0;
-        }
+        $isDelayState = $this->GetTimerInterval('DelayTimer') > 0;
+        $remainingSeconds = $isDelayState ? max(0, $this->ReadAttributeInteger('DelayDeadline') - time()) : 0;
 
         $activeSensors = json_decode($this->ReadAttributeString("ActiveSensors"), true);
         if (!is_array($activeSensors)) $activeSensors = [];
 
-        $mapping = json_decode($this->ReadPropertyString("GroupMapping"), true);
+        $mapping = json_decode($this->SafetySetting('GroupMapping'), true);
         if (!is_array($mapping)) $mapping = [];
 
         $mappedIDs = array_column($mapping, 'SourceKey');
@@ -403,10 +419,10 @@ class PropertyStateManager extends IPSModule
         if (!is_array($presenceMap)) $presenceMap = [];
 
         $bedrooms = [];
-        $bedroomPolarity = (string)$this->ReadPropertyString("BedroomDoorPolarity");
+        $bedroomPolarity = (string)$this->SafetySetting('BedroomDoorPolarity');
         if ($bedroomPolarity === '') $bedroomPolarity = 'breach'; // keep old behavior if missing
 
-        $bedroomPresencePolarity = (string)$this->ReadPropertyString("BedroomPresencePolarity");
+        $bedroomPresencePolarity = (string)$this->SafetySetting('BedroomPresencePolarity');
         if ($bedroomPresencePolarity !== 'used' && $bedroomPresencePolarity !== 'unused') {
             $bedroomPresencePolarity = 'used'; // backward compatible default
         }
@@ -516,8 +532,8 @@ class PropertyStateManager extends IPSModule
 
         $perimeterDetails = []; // array of {group, role, sensors:[caption...]}
 
-        $sensorGroupID = $this->ReadPropertyInteger("SensorGroupInstanceID");
-        $targetID      = $this->ReadPropertyInteger("DispatchTargetID");
+        $sensorGroupID = $this->SafetySetting('SensorGroupInstanceID');
+        $targetID      = $this->SafetySetting('DispatchTargetID');
 
         $config = null;
         if ($sensorGroupID > 0 && @IPS_InstanceExists($sensorGroupID) && function_exists('MYALARM_GetConfiguration')) {
@@ -637,6 +653,10 @@ class PropertyStateManager extends IPSModule
             echo json_encode([
                 'bits' => $bits,
                 'state' => $displayState,
+                'inputHealth' => $this->GetValue('InputHealth'),
+                'configurationHealth' => $this->GetValue('ConfigurationHealth'),
+                'pendingMode' => $this->GetValue('PendingMode'),
+                'monitoringHealthy' => $this->GetValue('MonitoringHealthy'),
                 'timer' => $remainingSeconds,
                 'showTimer' => $isDelayState,
                 'unmapped' => array_values($unmappedSensors),
@@ -704,6 +724,10 @@ class PropertyStateManager extends IPSModule
                                     el.className = isActive ? 'active' : 'inactive';
                                 }
                             }
+                            document.getElementById('inputHealth').textContent = data.inputHealth || '';
+                            document.getElementById('inputHealth').style.color = data.monitoringHealthy ? '#4caf50' : '#ff5252';
+                            document.getElementById('configurationHealth').textContent = data.configurationHealth && data.configurationHealth !== 'Healthy' ? data.configurationHealth : '';
+                            document.getElementById('pendingMode').textContent = data.pendingMode || '';
                             let timerBox = document.getElementById('timerBox');
                             if (data.showTimer && data.timer > 0) {
                                 timerBox.style.display = 'block';
@@ -839,6 +863,7 @@ class PropertyStateManager extends IPSModule
         echo "<div class='footer'>
                 <strong>System State:</strong><br>
                 <span id='stateText' style='font-size: 2em; color: #ff9800;'>Loading...</span>
+                <div id='inputHealth'></div><div id='configurationHealth'></div><div id='pendingMode'></div>
               </div>";
         echo "</body></html>";
     }
@@ -858,7 +883,7 @@ class PropertyStateManager extends IPSModule
     }
     protected function GetCurrentBitmask()
     {
-        $mapping       = json_decode($this->ReadPropertyString("GroupMapping"), true);
+        $mapping       = json_decode($this->SafetySetting('GroupMapping'), true);
         $activeSensors = json_decode($this->ReadAttributeString("ActiveSensors"), true);
         $activeGroups  = json_decode($this->ReadAttributeString("ActiveGroups"), true);
         $presenceMap   = json_decode($this->ReadAttributeString("PresenceMap"), true);
@@ -939,6 +964,9 @@ class PropertyStateManager extends IPSModule
     public function RequestAction($Ident, $Value)
     {
         switch ($Ident) {
+            case 'RefreshSafetyState':
+                $this->RefreshSafetyState();
+                break;
 
             case 'ReceivePayload':
                 $this->ReceivePayload((string)$Value);
@@ -1027,6 +1055,8 @@ class PropertyStateManager extends IPSModule
         if (!is_array($data)) {
             return;
         }
+
+        if ((int)($data['source_id'] ?? 0) !== $this->SafetySetting('SensorGroupInstanceID')) return;
 
         // ---- Event token from Module 1 (may be missing for legacy payloads) ----
         $hasToken = isset($data['event_epoch'], $data['event_seq']);
@@ -1157,7 +1187,7 @@ class PropertyStateManager extends IPSModule
             $val = $data['trigger_details']['value_raw'] ?? false;
 
             // DIAGNOSTIC: Check mapping
-            $mapping = json_decode($this->ReadPropertyString("GroupMapping"), true);
+            $mapping = json_decode($this->SafetySetting('GroupMapping'), true);
             if (!is_array($mapping)) $mapping = [];
 
             $isMapped = false;
@@ -1238,268 +1268,6 @@ class PropertyStateManager extends IPSModule
         ], JSON_PRETTY_PRINT);
     }
 
-    private function EvaluateState()
-    {
-        // 1. Gather Inputs
-        $mapping       = json_decode($this->ReadPropertyString("GroupMapping"), true);
-        $activeSensors = json_decode($this->ReadAttributeString("ActiveSensors"), true);
-        $activeGroups  = json_decode($this->ReadAttributeString("ActiveGroups"), true);
-        $presenceMap   = json_decode($this->ReadAttributeString("PresenceMap"), true);
-
-        if (!is_array($mapping)) $mapping = [];
-        if (!is_array($activeSensors)) $activeSensors = [];
-        if (!is_array($activeGroups)) $activeGroups = [];
-        if (!is_array($presenceMap)) $presenceMap = [];
-
-        // Reset Flags
-        $frontLocked   = false;
-        $frontClosed   = false;
-        $baseLocked    = false;
-        $baseClosed    = false;
-        $windowsClosed = true; // Default to Closed (Secure)
-        $presence      = false;
-        $bedroomOpen   = false;
-
-        // Parse Hardware Sensors
-        foreach ($mapping as $item) {
-
-            $src  = (string)($item['SourceKey'] ?? '');
-            $role = (string)($item['LogicalRole'] ?? '');
-            $pol  = (string)($item['Polarity'] ?? '');
-
-            if ($pol === '') {
-                // Default polarity rules (backward compatible)
-                if ($role === 'Generic Door' || $role === 'Window Contact') {
-                    $pol = 'breach';   // active = open
-                } else {
-                    $pol = 'secure';   // active = true/closed/locked/present
-                }
-            }
-
-            // Raw signal from Module 1
-            $isActive = in_array($src, $activeSensors) || in_array($src, $activeGroups);
-
-            // Normalize into ONE truth
-            // secure  → active means TRUE
-            // breach  → active means FALSE (invert)
-            $isOn = ($pol === 'secure') ? $isActive : !$isActive;
-
-            switch ($role) {
-
-                case 'Front Door Lock':
-                    if ($isOn) $frontLocked = true;
-                    break;
-
-                case 'Front Door Contact':
-                    if ($isOn) $frontClosed = true;
-                    break;
-
-                case 'Basement Door Lock':
-                    if ($isOn) $baseLocked = true;
-                    break;
-
-                case 'Basement Door Contact':
-                    if ($isOn) $baseClosed = true;
-                    break;
-
-                case 'Presence':
-                    if ($isOn) $presence = true;
-                    break;
-
-                case 'Generic Door':
-                case 'Window Contact':
-                    // For perimeter logic we need OPEN detection
-                    $isOpen = !$isOn;
-                    if ($isOpen) $windowsClosed = false;
-                    break;
-            }
-        }
-
-        // Parse Bedroom Metadata (Option A: door only relevant if room is used)
-        $bedroomPolarity = (string)$this->ReadPropertyString("BedroomDoorPolarity");
-        if ($bedroomPolarity === '') $bedroomPolarity = 'breach'; // keep old behavior if missing
-
-        $bedroomPresencePolarity = (string)$this->ReadPropertyString("BedroomPresencePolarity");
-        if ($bedroomPresencePolarity !== 'used' && $bedroomPresencePolarity !== 'unused') {
-            $bedroomPresencePolarity = 'used'; // backward compatible default
-        }
-
-        foreach ($presenceMap as $room) {
-            $rawRoomUsed = (bool)($room['SwitchState'] ?? false);
-            $doorTripped = (bool)($room['DoorTripped'] ?? false);
-
-            // Normalize bedroom presence / usage meaning:
-            // used   = SwitchState true means room is used / occupied
-            // unused = SwitchState true means room is unused / not occupied
-            $roomUsed = ($bedroomPresencePolarity === 'used') ? $rawRoomUsed : !$rawRoomUsed;
-
-            // Normalize bedroom door meaning:
-            // breach = active means open
-            // secure = active means closed
-            $doorOpen = ($bedroomPolarity === 'breach') ? $doorTripped : !$doorTripped;
-
-            // IMPORTANT:
-            // Bedroom usage must NOT redefine global house presence.
-            // It only tells us whether this bedroom door is relevant for
-            // internal-mode gating/disarm logic.
-            if ($roomUsed && $doorOpen) {
-                $bedroomOpen = true; // only relevant if the room is used
-            }
-        }
-
-        // Publish derived bedroom-door relevance for UI / bitmask display.
-        // This is computed by the logic layer so the HTML does not need to replicate the rule.
-        $this->WriteAttributeInteger("RelevantBedroomDoorOpen", $bedroomOpen ? 1 : 0);
-
-        // Derived Conditions
-        $perimeterSecure = ($frontLocked && $frontClosed && $baseLocked && $baseClosed && $windowsClosed);        // Derived Flags for ARMED behavior (per your guidance)
-        $entranceUnlocked = (!$frontLocked || !$baseLocked);   // unlocking any entrance lock disarms
-        $groupLevelOpen   = (!$windowsClosed);                 // opening any group-level window/door triggers alarm (when armed)
-        $readyToSleep = ($presence && !$bedroomOpen);
-        $readyToLeave = (!$presence);
-
-        // DEBUG REPORTING
-        $this->LogMessage(sprintf(
-            "[PSM-Logic] Inputs: F-Lock:%d F-Close:%d B-Lock:%d B-Close:%d Win/GenClose:%d | Pres:%d BedOpen:%d || Secure:%s",
-            $frontLocked,
-            $frontClosed,
-            $baseLocked,
-            $baseClosed,
-            $windowsClosed,
-            $presence,
-            $bedroomOpen,
-            $perimeterSecure ? "YES" : "NO"
-        ), KL_MESSAGE);
-
-        // 2. State Machine Logic
-        $currentState = $this->GetValue("SystemState");
-        $newState     = $currentState;
-
-        switch ($currentState) {
-            case 0: // DISARMED
-                if ($perimeterSecure) {
-                    if ($readyToLeave || $readyToSleep) {
-                        $newState = 2;
-                    }
-                }
-                break;
-
-            case 2: // EXIT DELAY
-                if (!$perimeterSecure) {
-                    $newState = 0;
-                    $this->LogMessage("[PSM-Logic] Abort Delay: Perimeter Unsecure", KL_WARNING);
-                    break;
-                }
-
-                if ($presence && $bedroomOpen) {
-                    $newState = 0;
-                    $this->LogMessage("[PSM-Logic] Abort Delay: Bedroom Open", KL_WARNING);
-                    break;
-                }
-
-                // Arm ONLY if the timer actually expired (not merely cancelled)
-                if ($this->ReadAttributeInteger("DelayExpired") === 1) {
-                    $newState = $presence ? 6 : 3; // Presence=true => Armed Internal, else Armed External
-                    $this->LogMessage("[PSM-Logic] Exit Delay Expired: System Armed", KL_MESSAGE);
-                }
-                break;
-
-            case 3: // ARMED EXTERNAL
-                if ($entranceUnlocked) {
-                    $newState = 0;
-                    $this->LogMessage("[PSM-Logic] Disarm: Entrance lock unlocked (External Armed)", KL_MESSAGE);
-                    break;
-                }
-                if ($groupLevelOpen) {
-                    $newState = 9;
-                    $this->LogMessage("[PSM-Logic] ALARM TRIGGERED: Group-level opening detected (External Armed)", KL_WARNING);
-                    break;
-                }
-
-                // If someone is home while externally armed,
-                // restart the existing Exit Delay flow so the system can
-                // transition safely to Armed Internal.
-                if ($presence) {
-                    $newState = 2;
-                    $this->LogMessage("[PSM-Logic] Transition: Presence on while External Armed - starting Exit Delay for Internal Armed", KL_MESSAGE);
-                    break;
-                }
-
-                break;
-
-            case 6: // ARMED INTERNAL
-                if ($entranceUnlocked) {
-                    $newState = 0;
-                    $this->LogMessage("[PSM-Logic] Disarm: Entrance lock unlocked (Internal Armed)", KL_MESSAGE);
-                    break;
-                }
-                if ($bedroomOpen) {
-                    $newState = 0;
-                    $this->LogMessage("[PSM-Logic] Disarm: Bedroom door opened (Internal Armed)", KL_MESSAGE);
-                    break;
-                }
-                if ($groupLevelOpen) {
-                    $newState = 9;
-                    $this->LogMessage("[PSM-Logic] ALARM TRIGGERED: Group-level opening detected (Internal Armed)", KL_WARNING);
-                    break;
-                }
-
-                // If nobody is home anymore while internally armed,
-                // restart the existing Exit Delay flow so the system can
-                // transition safely to Armed External.
-                if (!$presence) {
-                    $newState = 2;
-                    $this->LogMessage("[PSM-Logic] Transition: Presence off while Internal Armed - starting Exit Delay for External Armed", KL_MESSAGE);
-                    break;
-                }
-
-                break;
-
-            case 9: // ALARM TRIGGERED (latched, but can be cleared by authorized actions)
-                // Authorized reset: unlocking any entrance lock always disarms (your rule)
-                if ($entranceUnlocked) {
-                    $newState = 0;
-                    $this->LogMessage("[PSM-Logic] Alarm Cleared: Entrance lock unlocked", KL_MESSAGE);
-                    break;
-                }
-
-                // Authorized reset in internal mode: opening a bedroom door disarms (your rule)
-                // (We use $presence as the indicator for internal/home context)
-                if ($presence && $bedroomOpen) {
-                    $newState = 0;
-                    $this->LogMessage("[PSM-Logic] Alarm Cleared: Bedroom door opened (Internal)", KL_MESSAGE);
-                    break;
-                }
-
-                // Otherwise remain in alarm
-                break;
-        }
-
-        // 3. Execute Transition
-        if ($currentState !== $newState) {
-            $this->SetValue("SystemState", $newState);
-            $this->LogMessage("[PSM-Logic] State change: $currentState -> $newState", KL_MESSAGE);
-        }
-
-        // 4. Timer Management
-        if ($newState == 2) {
-            if ($currentState != 2) {
-                $this->WriteAttributeInteger("DelayExpired", 0);
-                $duration = $this->ReadPropertyInteger("ArmingDelayDuration");
-                $this->SetTimerInterval("DelayTimer", $duration * 60 * 1000);
-                $this->LogMessage("[PSM-Timer] Exit Delay Started ($duration min)", KL_MESSAGE);
-            }
-        } elseif ($this->GetTimerInterval("DelayTimer") > 0) {
-            $this->WriteAttributeInteger("DelayExpired", 0);
-            $this->SetTimerInterval("DelayTimer", 0);
-            $this->LogMessage("[PSM-Timer] Exit Delay Cancelled", KL_MESSAGE);
-        }
-
-        // Push-first integration: publish updated authoritative house state
-        // to configured Module 3 targets when the exported snapshot meaning changed.
-        $this->MaybePushHouseStateSnapshot();
-    }
-
     /**
      * Export PSM configuration as JSON (properties only).
      * Safe: does not include runtime attributes/state.
@@ -1509,19 +1277,19 @@ class PropertyStateManager extends IPSModule
         $snapshot = [
             'export_type'     => 'PSM_CONFIG',
             'schema_version'  => 1,
-            'module_version'  => '7.2.0', // optional, keep or remove
+            'module_version'  => '7.3.2', // optional, keep or remove
             'exported_at'     => time(),
 
             // --- Properties you actually want to backup ---
-            'SensorGroupInstanceID' => $this->ReadPropertyInteger('SensorGroupInstanceID'),
-            'DispatchTargetID'      => $this->ReadPropertyInteger('DispatchTargetID'),
-            'GroupMapping'          => json_decode($this->ReadPropertyString('GroupMapping'), true),
+            'SensorGroupInstanceID' => $this->SafetySetting('SensorGroupInstanceID'),
+            'DispatchTargetID'      => $this->SafetySetting('DispatchTargetID'),
+            'GroupMapping'          => json_decode($this->SafetySetting('GroupMapping'), true),
             'DecisionMap'           => json_decode($this->ReadPropertyString('DecisionMap'), true),
-            'ArmingDelayDuration'   => $this->ReadPropertyInteger('ArmingDelayDuration'),
+            'ArmingDelayDuration'   => $this->SafetySetting('ArmingDelayDuration'),
             'VaultInstanceID'              => $this->ReadPropertyInteger('VaultInstanceID'),
-            'BedroomDoorPolarity'          => $this->ReadPropertyString('BedroomDoorPolarity'),
-            'BedroomPresencePolarity'      => $this->ReadPropertyString('BedroomPresencePolarity'),
-            'StatePushTargets'             => json_decode($this->ReadPropertyString('StatePushTargets'), true),
+            'BedroomDoorPolarity'          => $this->SafetySetting('BedroomDoorPolarity'),
+            'BedroomPresencePolarity'      => $this->SafetySetting('BedroomPresencePolarity'),
+            'StatePushTargets'             => json_decode($this->SafetySetting('StatePushTargets'), true),
         ];
 
         // make sure arrays are arrays (not null)
@@ -1567,10 +1335,10 @@ class PropertyStateManager extends IPSModule
         $delayMin         = (int)($props['ArmingDelayDuration'] ?? 1);
         $vaultID          = (int)($props['VaultInstanceID'] ?? 0);
         $bedroomPolarity  = (string)($props['BedroomDoorPolarity'] ?? 'breach');
-        if ($bedroomPolarity !== 'secure' && $bedroomPolarity !== 'breach') $bedroomPolarity = 'breach';
+
 
         $bedroomPresencePolarity = (string)($props['BedroomPresencePolarity'] ?? 'used');
-        if ($bedroomPresencePolarity !== 'used' && $bedroomPresencePolarity !== 'unused') $bedroomPresencePolarity = 'used';
+
 
         $groupMapping = $props['GroupMapping'] ?? [];
         if (!is_array($groupMapping)) $groupMapping = [];
@@ -1579,17 +1347,20 @@ class PropertyStateManager extends IPSModule
         if (!is_array($decisionMap)) $decisionMap = [];
 
         $statePushTargets = $props['StatePushTargets'] ?? [];
-        if (!is_array($statePushTargets)) $statePushTargets = [];
+        if (!is_array($statePushTargets)) { $this->LogMessage('Import rejected: invalid StatePushTargets', KL_WARNING); return; }
 
         // Basic sanity: keep module usable even if import is incomplete
         if ($sensorGroup <= 0) {
             $this->LogMessage("[PSM-Import] Warning: SensorGroupInstanceID is 0/invalid in import.", KL_WARNING);
         }
 
-        // IMPORTANT sequencing to avoid "Current value X is not available" in Select fields:
-        // Phase 1: set SensorGroup first so GetConfigurationForm can populate DispatchTarget options.
+        $candidate = ['SensorGroupInstanceID' => $sensorGroup, 'DispatchTargetID' => $targetID,
+            'ArmingDelayDuration' => $delayMin, 'BedroomDoorPolarity' => $bedroomPolarity,
+            'BedroomPresencePolarity' => $bedroomPresencePolarity, 'GroupMapping' => json_encode($groupMapping),
+            'StatePushTargets' => json_encode($statePushTargets)];
+        $error = $this->ValidateSafetySettings($candidate);
+        if ($error !== '') { $this->LogMessage('Import rejected: ' . $error, KL_WARNING); return; }
         IPS_SetProperty($this->InstanceID, 'SensorGroupInstanceID', $sensorGroup);
-        IPS_ApplyChanges($this->InstanceID);
 
         // Phase 2: set remaining properties
         IPS_SetProperty($this->InstanceID, 'DispatchTargetID',       $targetID);
@@ -1642,11 +1413,11 @@ class PropertyStateManager extends IPSModule
     public function GetMappingHints()
     {
         $schemaVersion = 1;
-        $module2Version = "7.2.0"; // keep aligned with your module versioning
+        $module2Version = "7.3.2"; // keep aligned with your module versioning
         $warnings = [];
 
         // --- Inputs (read-only) ---
-        $mapping = json_decode($this->ReadPropertyString("GroupMapping"), true);
+        $mapping = json_decode($this->SafetySetting('GroupMapping'), true);
         if (!is_array($mapping)) $mapping = [];
 
         $captionMap = json_decode($this->ReadAttributeString("SensorCaptionMap"), true);
@@ -1769,12 +1540,12 @@ class PropertyStateManager extends IPSModule
 
         // Optional extra metadata for Module 3 UI.
         // Export both raw BEDROOM_SYNC values and Module-2-normalized business meaning.
-        $bedroomDoorPolarity = (string)$this->ReadPropertyString("BedroomDoorPolarity");
+        $bedroomDoorPolarity = (string)$this->SafetySetting('BedroomDoorPolarity');
         if ($bedroomDoorPolarity !== 'secure' && $bedroomDoorPolarity !== 'breach') {
             $bedroomDoorPolarity = 'breach';
         }
 
-        $bedroomPresencePolarity = (string)$this->ReadPropertyString("BedroomPresencePolarity");
+        $bedroomPresencePolarity = (string)$this->SafetySetting('BedroomPresencePolarity');
         if ($bedroomPresencePolarity !== 'used' && $bedroomPresencePolarity !== 'unused') {
             $bedroomPresencePolarity = 'used';
         }
@@ -1835,21 +1606,10 @@ class PropertyStateManager extends IPSModule
 
         // Delay remaining seconds (same idea as in ProcessHookData)
         $delayActive = ($this->GetTimerInterval("DelayTimer") > 0);
-        $delayRemainingSeconds = 0;
-
-        if ($stateId === 2) {
-            $varID = $this->GetIDForIdent("SystemState");
-            if ($varID > 0 && IPS_VariableExists($varID)) {
-                $varInfo = IPS_GetVariable($varID);
-                $lastUpdate = (int)($varInfo['VariableUpdated'] ?? 0);
-                $durationSeconds = (int)$this->ReadPropertyInteger("ArmingDelayDuration") * 60;
-                $delayRemainingSeconds = ($lastUpdate + $durationSeconds) - $now;
-                if ($delayRemainingSeconds < 0) $delayRemainingSeconds = 0;
-            }
-        }
+        $delayRemainingSeconds = $delayActive ? max(0, $this->ReadAttributeInteger('DelayDeadline') - $now) : 0;
 
         // --- Raw buffers ---
-        $mapping       = json_decode($this->ReadPropertyString("GroupMapping"), true);
+        $mapping       = json_decode($this->SafetySetting('GroupMapping'), true);
         if (!is_array($mapping)) $mapping = [];
 
         $activeSensors = json_decode($this->ReadAttributeString("ActiveSensors"), true);
@@ -1921,10 +1681,10 @@ class PropertyStateManager extends IPSModule
         }
 
         // Bedrooms (Option A gating)
-        $bedroomPolarity = (string)$this->ReadPropertyString("BedroomDoorPolarity");
+        $bedroomPolarity = (string)$this->SafetySetting('BedroomDoorPolarity');
         if ($bedroomPolarity === '') $bedroomPolarity = 'breach'; // keep old behavior if missing
 
-        $bedroomPresencePolarity = (string)$this->ReadPropertyString("BedroomPresencePolarity");
+        $bedroomPresencePolarity = (string)$this->SafetySetting('BedroomPresencePolarity');
         if ($bedroomPresencePolarity !== 'used' && $bedroomPresencePolarity !== 'unused') {
             $bedroomPresencePolarity = 'used'; // backward compatible default
         }
@@ -1969,8 +1729,15 @@ class PropertyStateManager extends IPSModule
         $readyToSleep      = ($presence && !$bedroomOpen);
         $readyToLeave      = (!$presence);
 
+        if (!$this->GetValue('MonitoringHealthy')) {
+            $perimeterSecure = false;
+            $readyToSleep = false;
+            $readyToLeave = false;
+        }
+
         // Blocking reasons (simple, useful for Module 3 decisions/UI)
         $blockingReasons = [];
+        if (!$this->GetValue('MonitoringHealthy')) $blockingReasons[] = $this->GetValue('InputHealth');
         if (!$perimeterSecure) $blockingReasons[] = "Perimeter not secure";
         if ($presence && $bedroomOpen) $blockingReasons[] = "Bedroom door open while someone home";
 
@@ -2040,7 +1807,7 @@ class PropertyStateManager extends IPSModule
 
     private function MaybePushHouseStateSnapshot(): void
     {
-        $targets = json_decode($this->ReadPropertyString("StatePushTargets"), true);
+        $targets = json_decode($this->SafetySetting('StatePushTargets'), true);
         if (!is_array($targets) || count($targets) === 0) {
             return;
         }
@@ -2089,8 +1856,8 @@ class PropertyStateManager extends IPSModule
     public function GetConfigurationForm()
     {
         $form = json_decode(file_get_contents(__DIR__ . "/form.json"), true);
-        $sensorGroupId = $this->ReadPropertyInteger("SensorGroupInstanceID");
-        $targetID = $this->ReadPropertyInteger("DispatchTargetID");
+        $sensorGroupId = (int)IPS_GetProperty($this->InstanceID, 'SensorGroupInstanceID');
+        $targetID = (int)IPS_GetProperty($this->InstanceID, 'DispatchTargetID');
         $options = [];
         $targetOptions = [
             ["caption" => "— Not set / Select —", "value" => 0]
