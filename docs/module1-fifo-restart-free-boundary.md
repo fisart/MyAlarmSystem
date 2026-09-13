@@ -1,5 +1,7 @@
 # Restart-free FIFO activation: native execution boundary review
 
+**Historical investigation, now shelved.** Artur accepts missed messages/overlapping previous evaluations during a supervised test. The current next step is the [first-failure diagnostic test](module1-fifo-first-failure-test.md), not vendor contact, further thread inventory or a Symcon restart. Native-guarantee statements below describe the earlier conservative investigation; they are not prerequisites for this explicitly authorized test.
+
 Status: investigation; activation remains blocked. Module runtime stays at `Version2.14.0-fifo.5`. Do not restart Symcon, reload the library as a guard reset, stop unrelated scripts/services or edit internal guard attributes. Keep live FIFO disabled and existing evaluation running.
 
 ## Native execution inventory received

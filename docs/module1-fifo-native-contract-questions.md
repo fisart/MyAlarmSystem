@@ -1,5 +1,7 @@
 # Questions for Symcon: safe Module 1 FIFO activation without a service restart
 
+**Historical investigation, now shelved.** Artur accepts missed messages/overlapping previous evaluations during a supervised test. The current next step is the [first-failure diagnostic test](module1-fifo-first-failure-test.md), not vendor contact, further thread inventory or a Symcon restart. Native-guarantee statements below describe the earlier conservative investigation; they are not prerequisites for this explicitly authorized test.
+
 Prepared technical inquiry; not sent. Target installation: Symcon 9.0, Ubuntu (Docker), amd64, build dated 15 June 2026, revision `f2880badc0d6`, PHP 8.5.5.
 
 We need to switch one PHP module from overlapping legacy evaluations to a single FIFO evaluator without restarting IP-Symcon or interrupting unrelated services. Some older evaluations were not registered in an active-call counter; an idle module semaphore does not account for those calls. We currently retain a conservative activation guard and leave legacy monitoring running.

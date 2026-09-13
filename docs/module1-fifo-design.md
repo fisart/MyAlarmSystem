@@ -1,6 +1,9 @@
 # Module 1-only FIFO: revised design
 
-Status: Module 1-only scope accepted by Artur on 2026-09-13. The opt-in [live FIFO build](module1-fifo-runtime.md) is implemented, but production revealed a repeated recovery loop and a retained legacy activation blocker. Keep live FIFO disabled; no service restart or guard reset is requested. The clean 84-update passive capture establishes sample payload compatibility only. See the [restart-free boundary investigation](module1-fifo-restart-free-boundary.md). Production CPU/resident RAM impact remains unmeasured by agreement; native FIFO acceptance remains deferred.
+Status: Module 1-only scope accepted by Artur on 2026-09-13. FIFO remains an unaccepted production experiment; the current next step is a [supervised first-failure test](module1-fifo-first-failure-test.md). Artur accepts lost messages/old evaluation overlap during switching. No service restart or further vendor/thread investigation is requested. Defaults remain disabled; diagnostic faults pause processing until live FIFO is disabled and Apply completes.
+
+Clarified design target for later review: avoid losing an entire sensor source because another source is active. Per-source latest status may replace unnecessary intermediate history only while retaining the trigger values, counts and timing required by existing rules. Use fair source scheduling; do not blindly coalesce token/pulse/COUNT/CHANGE/ONCE inputs. No debounce or per-source merging is implemented yet; capture the actual native failure first.
+
 Baseline: main commit `59e413ead4d6a85a5336583af7788ee9175d0a49`, Module 1 v2.13.3 / Module 2 v7.3.2.
 
 ## Decision and scope

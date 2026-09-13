@@ -17,6 +17,9 @@ jobs:
           php -l SensorEventProbe/module.php
           php -l SensorGroup/FifoRuntime.php
           php tests/sensor_fifo_runtime.php
+          php -l SensorGroup/FifoFailureCapture.php
+          php -l tests/sensor_fifo_failure_capture.php
+          php tests/sensor_fifo_failure_capture.php
           php -l SensorGroup/FifoInputDiagnostic.php
           php -l tests/sensor_fifo_input_diagnostic.php
           php -l tools/symcon_fifo_execution_inventory.php
