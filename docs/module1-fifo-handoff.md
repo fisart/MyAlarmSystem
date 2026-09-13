@@ -4,7 +4,7 @@ Updated: 2026-09-13 UTC. Repository: `fisart/MyAlarmSystem`. Working branch: `de
 
 ## Current position
 
-Native synthetic-input lab code is published at `435c5b03baae85211b9350284c122686d82cc80c`. The current follow-up is `Version2.14.0-fifo.7`: genuine-idle-only worker wake and a single 10 ms queue-lock wait for admission/essential worker commits. Independent review approved fifo.7 for supervised lab re-test after independently passing runtime 109, first-failure 59 and lab 34 checks; native retest is pending. **Native fifo.6 sequential/interleaved passed; concurrent_flicker captured admission contention. The original production legacy event-loss cause remains unresolved.**
+Native synthetic-input lab code is published at `435c5b03baae85211b9350284c122686d82cc80c`. The current follow-up is `Version2.14.0-fifo.7`: genuine-idle-only worker wake and a single 10 ms queue-lock wait for admission/essential worker commits. Independent review approved fifo.7 for supervised lab re-test after independently passing runtime 109, first-failure 59 and lab 34 checks; native fifo.7 sequential, two interleaved runs and concurrent_flicker now pass aggregate comparison. **Native fifo.6 concurrent_flicker captured admission contention; fifo.7 processed all 70 concurrent changes without a current fault, with maximum recorded lag 1.348 seconds. The original production legacy event-loss cause remains unresolved.**
 
 Stable main is `a4c63a813cf55852c5f36966bac5e6357f88a82c` (merged PR #4), Module 1 v2.13.4 and Module 2 v7.3.2. It contains tested rejected-Apply subscription recovery, dynamic tamper reference recovery and bedroom backing-list/isolated draft repair. Main has no FIFO/shadow/probe runtime. Its original competing-input event-loss problem remains unresolved. Installation of this main release on the user's server has not been confirmed in this session.
 
@@ -46,13 +46,14 @@ fifo.6 failure capture overrides the activation guard only for explicitly config
 
 Independent review approved after verifying startup cancellation, lock release even when cleanup/result persistence fails, stale producer status handling and waiting for delayed native callbacks despite an initially empty queue. The new harness tests use mocked asynchronous execution and do not establish native parallel behavior.
 
-[GitHub regression CI passed for the lab code commit](https://github.com/fisart/MyAlarmSystem/actions/runs/34770330861). Native fifo.6 reports are summarized below; no CPU/RAM record or production deployment by the assistant exists. Latest branch CI must be checked for the fifo.7 publication.
+[GitHub regression CI passed for the lab code commit](https://github.com/fisart/MyAlarmSystem/actions/runs/34770330861). Native fifo.6 reports are summarized below; no CPU/RAM record or production deployment by the assistant exists. GitHub CI passed for fifo.7 and the packaging correction; documentation-only follow-ups do not change runtime.
 
 ## Next actions
 
-1. Keep production FIFO/shadow/capture disabled; update diagnostic branch to fifo.7 without a Symcon restart. Confirm real heartbeat health after the shared library update.
-2. Packaging correction: helpers now reside in libs/tools because Symcon treats root tools as an invalid module without module.json. Replace the temporary installer with the current libs/tools/symcon_fifo_lab_install.php and run once to migrate the two existing generated lab scripts while inactive, preserving instance/input IDs, configuration and results. Reuse the installed lab. Rerun sequential/interleaved, then concurrent_flicker; copy each Result before overwriting and check after_disable actual enabled=false. The report limits should show admission/worker_commit wait 10 ms and dequeue wait 1 ms.
-3. If ordinary concurrency passes, continue refresh_noise. If any unexpected fault occurs, inspect its current/historical fence and obtain a later lab-only report for deferred drainage. Intentional baseline/contention scenarios come later.
+1. Keep production FIFO/shadow/capture disabled. Corrected fifo.7 native lab runs now succeeded; no new library update or Symcon restart is needed just to continue scenarios.
+2. Run refresh_noise once in the existing lab, copy Result and confirm after_disable actual enabled=false. The report limits should remain admission/worker_commit10 ms and dequeue1 ms. Sequential9/9, two interleaved36/36 and concurrent70/70 have already passed; do not needlessly repeat them before obtaining the next evidence.
+3. Inspect throughput and native scheduling before larger production-shaped load: interleaved lag reached463/625 ms and concurrent1.348 s despite small graph/no receivers. No CPU/resident RAM record exists; do not infer CPU use or blame the10 ms wait from these snapshots. Unexpected faults need current/historical fence distinction and later lab-only drainage reports. Intentional baseline/contention tests remain later steps.
+
 4. Evaluate admission critical-section work and native behavior before further changes. fifo.7 skips redundant timer/pending updates and permits one bounded native wait; it does not prove losslessness, source ordering or production load readiness. Each contended callback/essential commit can occupy a thread up to 9 ms longer than before; worker elapsed budget remains soft.
 5. Consider per-source pending state/fair scheduling only with existing trigger/count/timing semantics preserved. The lab is smaller than production's 61 classes/392 sensor rules. Keep Module 2/3 deferred risks visible.
 6. Reconcile stable main backports and review before any eventual PR #3 merge. Do not automatically merge or deploy diagnostic work based on a successful lab count.
@@ -77,4 +78,19 @@ Initial lab checkpoint: [2026-09-13](https://github.com/fisart/MyAlarmSystem/pul
 
 ## Packaging follow-up
 
-Artur reported the module-discovery error for tools on update. The official Symcon directory exclusions explain this publication mistake. All three helpers moved to libs/tools; alarm runtime still fifo.7, main unchanged. CI now lints the corrected paths and the lab suite checks every root directory against documented module/helper layout. The installer migrates only exact generated old script contents after validating lab ownership/configuration/inactive state and coordinator ownership; it preserves lab IDs and state. Latest packaging commit/CI results are in PR Conversation checkpoints. Native corrected-library update and fifo.7 retest remain pending.
+Artur reported the module-discovery error for tools on update. The official Symcon directory exclusions explain this publication mistake. All three helpers moved to libs/tools; alarm runtime still fifo.7, main unchanged. CI now lints the corrected paths and the lab suite checks every root directory against documented module/helper layout. The installer migrates only exact generated old script contents after validating lab ownership/configuration/inactive state and coordinator ownership; it preserves lab IDs and state. Latest packaging commit/CI results are in PR Conversation checkpoints. Native lab execution resumed after packaging correction; four fifo.7 results now pass aggregate processing. Explicit confirmation that the library warning disappeared was not separately supplied. Refresh-noise and larger-load/latency evaluation remain pending.
+
+## Native fifo.7 evidence — latest milestone
+
+The three attached reports plus pasted sequential result supply four distinct sessions, all with10/10/1 ms wait bounds, complete producers/no errors, matching aggregate counts, empty queues, no new fault/pause/unknown inputs and actual FIFO disablement. Historical21:28 fault remains explicitly not current. Recovery counter stays unchanged within each session;1→4 reflects separate run baselines.
+
+| Scenario/session | Started (+02:00) | Changed/admitted/processed | Queue peak | Maximum recorded lag | Maximum batch |
+|---|---|---|---|---|---|
+| sequential 2bc97b564b673326 |22:10:27|9/9/9|2|59.493 ms|17.492 ms|
+| interleaved 81a6ec0059db7112 |22:11:00|36/36/36|23|462.939 ms|28.390 ms|
+| interleaved 1f08bf8d09a76854 |22:11:26|36/36/36|28|625.025 ms|28.686 ms|
+| concurrent_flicker 18d55b62c904a56d |22:11:54|70/70/70|64|1,347.903 ms|27.206 ms|
+
+Concurrent producers completed32+32+6 changes in about150–161 ms; worker20 batches, queue peak11,572 bytes, whole run2.538 s. The corresponding fifo.6 run failed admission; this fifo.7 run did not. This supports the mitigation for this workload, but does not isolate whether timer reduction or wait extension caused improvement, establish per-source/downstream policy, production load readiness or original legacy heartbeat-loss causality. Recorded lag spans callback entry through evaluation/progress, so includes scheduling, queueing, waiting and processing rather than measuring lock wait alone. No new runtime change is justified solely by this success. Next: refresh_noise, then assess throughput/latency before deployment.
+
+[GitHub evidence checkpoint](https://github.com/fisart/MyAlarmSystem/pull/3#issuecomment-5655820919).
