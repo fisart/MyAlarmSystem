@@ -1,5 +1,5 @@
 <?php
-// Version2.14.0-fifo.11
+// Version2.14.0-fifo.12
 declare(strict_types=1);
 
 require_once __DIR__ . '/StateIntegrity.php';
@@ -3933,7 +3933,7 @@ class SensorGroup extends IPSModule
         if (($_GET['api'] ?? '') === 'fifo_status') {
             header('Content-Type: application/json; charset=utf-8');
             if ($this->ReadAttributeBoolean('FifoOwned')) $this->PublishInputFifo();
-            echo json_encode(['health' => $this->GetValue('InputFifoHealth'), 'incident' => $this->ReadAttributeString('FifoIncident'), 'last_fault' => json_decode($this->ReadAttributeString('FifoLastFault'), true), 'test' => $this->FifoTestReport(), 'input_diagnostic' => $this->InputFifoDiagnosticReport()]);
+            echo json_encode(['health' => $this->GetValue('InputFifoHealth'), 'incident' => $this->ReadAttributeString('FifoIncident'), 'last_fault' => json_decode($this->ReadAttributeString('FifoLastFault'), true), 'trial' => $this->FifoTrialReport(), 'test' => $this->FifoTestReport(), 'input_diagnostic' => $this->InputFifoDiagnosticReport()]);
             return;
         }
 
@@ -5681,8 +5681,10 @@ class SensorGroup extends IPSModule
 
         $form['elements'][] = ['type' => 'ExpansionPanel', 'caption' => 'Ordered input FIFO (supervised testing)', 'items' => [
             ['type' => 'CheckBox', 'name' => 'EnableInputFifo', 'caption' => 'Use FIFO for live Module 1 alarm processing'],
+            ['type' => 'CheckBox', 'name' => 'AllowFifoTrialCutover', 'caption' => 'Supervised FIFO trial: allow switching overlap with normal recovery'],
+            ['type' => 'Label', 'caption' => 'Trial: permits uncertain overlap and missed edges during switching without clearing the legacy guard. Pending work uses the tested 10 ms continuation. No automatic expiry: disable live FIFO and this option after testing. Leave failure capture and shadow off.'],
             ['type' => 'CheckBox', 'name' => 'EnableFifoFailureCapture', 'caption' => 'FIFO diagnostic test: override activation guard and pause recovery at first fault'],
-            ['type' => 'Label', 'caption' => 'Test only: old evaluations may overlap and messages may be missed during switching. After a fault, new FIFO input is frozen; disable live FIFO and Apply to restore existing alarm processing.'],
+            ['type' => 'Label', 'caption' => 'Failure capture only: after a fault, new FIFO input is frozen; disable live FIFO and Apply to restore existing alarm processing. Cannot be combined with supervised trial.'],
             ['type' => 'Label', 'caption' => (string)$this->GetValue('InputFifoHealth')],
             ['type' => 'Label', 'caption' => 'Heartbeat uses the same input queue and evaluator. CPU/resident RAM impact is unmeasured.'],
         ]];

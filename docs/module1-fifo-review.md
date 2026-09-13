@@ -1,5 +1,16 @@
 # Independent review of the FIFO/event-integrity design
 
+## fifo.12 independent review — supervised production trial
+
+User authorized a supervised trial on production SensorGroup23172, accepts uncertain old/new evaluation overlap and switching-edge loss, and deferred the separate heartbeat-overlap lab. The current changes add a default-off AllowFifoTrialCutover option; applied TrialActive overrides only the retained historical legacy blocker, preserves the guard and visible warning, retains existing worker ownership and admitted-prefix Apply deferral, uses tested10ms pending/50ms initial wake, and leaves normal automatic recovery enabled. No heartbeat source exception or Modules2/3/watchdog edit. Trial/capture mode conflicts refuse activation. No expiry/fallback; manual stop is required.
+
+An independent read-only reviewer approved the narrow supervised trial after checking mode separation, draft/applied policy, fault recovery, prefix rollback, retained guard visibility, ordinary token/reset processing and performance boundaries. It found a reporting correction: mode conflict with a clear legacy guard disabled activation but activation_blocked was false. Corrected report now includes live-requested conflicting modes; dedicated guard-clear fixture verifies blocked=true without guard mutation.
+
+Local full workflow:692checks/13suites,27syntax/all40commands. Trial42checks, runtime109, scheduling31, failure capture59. New report policy/health is also exposed through existing Mermaid FIFO status refresh. Trial performs no per-event profiling, logging, archive, extra timer or script dispatch; only bounded scalar checks at Apply/recovery/batch/report boundaries and a latched switching warning. The existing diagnostic10ms policy is reused for explicitly active trial; ordinary non-trial FIFO stays50ms.
+
+Approval does not establish completed historical evaluations, production receiver acceptance, broad production activation, sustained/overflow behavior, or long-term reliability/CPU-RAM impact. Normal recovery can lose events while resampling. An Apply rollback can be deferred behind pending work; confirm actual enabled=false/trial.active=false/timer0. See [trial instructions](module1-fifo-production-trial.md). Publication/CI/native activation evidence belongs in PR#3; main remains unchanged.
+
+
 Date: 2026-09-13.
 Baseline: `59e413ead4d6a85a5336583af7788ee9175d0a49` (merged PR #2).
 Reviewed design: [deferred coordinated architecture](module1-fifo-coordinated-backlog.md).

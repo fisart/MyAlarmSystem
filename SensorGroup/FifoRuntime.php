@@ -18,7 +18,8 @@ trait SensorGroupFifoRuntime
     private function FifoCreate(): void
     {
         $this->RegisterPropertyBoolean('EnableInputFifo', false);
-        foreach (['FifoOwned', 'FifoReady', 'FifoHasPending', 'FifoApplyPending', 'FifoLegacyOverlap', 'FifoFrameInFlight', 'FifoFaultPending', 'FifoCutover'] as $name) $this->RegisterAttributeBoolean($name, false);
+        $this->RegisterPropertyBoolean('AllowFifoTrialCutover', false);
+        foreach (['FifoOwned', 'FifoReady', 'FifoHasPending', 'FifoApplyPending', 'FifoLegacyOverlap', 'FifoFrameInFlight', 'FifoFaultPending', 'FifoCutover', 'FifoTrialActive'] as $name) $this->RegisterAttributeBoolean($name, false);
         $this->RegisterAttributeString('FifoFence', '');
         $this->RegisterAttributeString('FifoIncident', '');
         $this->RegisterAttributeString('FifoLastFault', '');
@@ -27,6 +28,7 @@ trait SensorGroupFifoRuntime
         $this->WriteAttributeBoolean('FifoLegacyOverlap', false);
         $this->WriteAttributeBoolean('FifoOwned', false);
         $this->WriteAttributeBoolean('FifoReady', false);
+        $this->WriteAttributeBoolean('FifoTrialActive', false);
         $this->RegisterVariableString('InputFifoHealth', 'Input FIFO Health', '', 93);
         $this->RegisterVariableString('InputFifoIncident', 'Input FIFO Incident', '', 94);
         $this->RegisterTimer('InputFifoWorker', 0, 'MYALARM_RunInputFifo($_IPS[\'TARGET\']);');
@@ -39,6 +41,7 @@ trait SensorGroupFifoRuntime
     private function FifoEncode(array $data): string { return json_encode($data, JSON_THROW_ON_ERROR | JSON_PRESERVE_ZERO_FRACTION); }
     private function FifoMeta(): array { return json_decode($this->GetBuffer('InputFifoMeta'), true) ?: []; }
     private function FifoSaveMeta(array $meta): void { $this->SetBuffer('InputFifoMeta', $this->FifoEncode($meta)); }
+    private function FifoFastContinuation(): bool { return $this->ReadAttributeBoolean('FifoTrialActive') || $this->ReadAttributeBoolean('FifoTestActive'); }
     private function FifoScalar($v): bool { return is_bool($v) || is_int($v) || (is_float($v) && is_finite($v)) || (is_string($v) && strlen($v) <= 1024 && preg_match('//u', $v) === 1); }
 
     /** Called before any applied graph/state mutation; caller retains owner until Apply returns. */
@@ -63,8 +66,14 @@ trait SensorGroupFifoRuntime
         }
         $this->WriteAttributeString('FifoFence', bin2hex(random_bytes(8)));
         $test = $this->ReadPropertyBoolean('EnableFifoFailureCapture');
-        $enable = $this->ReadPropertyBoolean('EnableInputFifo') && ($test || !$this->ReadAttributeBoolean('FifoLegacyOverlap'));
+        $trial = $this->ReadPropertyBoolean('AllowFifoTrialCutover');
+        $conflict = $test && $trial;
+        $enable = $this->ReadPropertyBoolean('EnableInputFifo') && !$conflict && ($test || $trial || !$this->ReadAttributeBoolean('FifoLegacyOverlap'));
+        $this->WriteAttributeBoolean('FifoTrialActive', $enable && $trial);
         $this->WriteAttributeBoolean('FifoTestActive', $enable && $test);
+        if ($enable && $trial && $this->ReadAttributeBoolean('FifoLegacyOverlap')) {
+            $this->FifoRecordIncident('Supervised FIFO trial accepts uncertain legacy overlap during switching; historical input edges may be lost.');
+        }
         $this->WriteAttributeString('FifoTestPauseFence', '');
         $this->WriteAttributeString('FifoTestOmittedFence', '');
         $this->WriteAttributeBoolean('FifoOwned', $enable);
@@ -74,7 +83,7 @@ trait SensorGroupFifoRuntime
         $this->SetTimerInterval('InputFifoWorker', 0);
         $this->SetTimerInterval('InputFifoRecovery', 0);
         $this->SetValue('InputFifoIncident', $this->ReadAttributeString('FifoIncident'));
-        $this->SetValue('InputFifoHealth', $enable ? 'Starting FIFO; acquiring current input baseline.' : ($this->ReadPropertyBoolean('EnableInputFifo') ? 'FIFO activation blocked by retained legacy concurrency guard; keep live FIFO disabled and run the passive input check.' : 'FIFO disabled; existing evaluator active.'));
+        $this->SetValue('InputFifoHealth', $enable ? 'Starting FIFO; acquiring current input baseline.' : ($this->ReadPropertyBoolean('EnableInputFifo') ? ($conflict ? 'FIFO activation blocked: supervised trial and failure capture cannot be enabled together. Existing evaluator active.' : 'FIFO activation blocked by retained legacy concurrency guard; keep live FIFO disabled and run the passive input check.') : 'FIFO disabled; existing evaluator active.'));
         return true;
     }
 
@@ -269,8 +278,8 @@ trait SensorGroupFifoRuntime
         try {
             if ($this->FifoTestPaused()) { $this->SetTimerInterval('InputFifoRecovery', 0); $this->PublishInputFifo(); return; }
             if ($this->ReadAttributeBoolean('FifoHasPending')) {
-                // Recovery must not postpone an already scheduled fast diagnostic tail.
-                if (!$this->ReadAttributeBoolean('FifoTestActive') || $this->GetTimerInterval('InputFifoWorker') !== self::FIFO_WORKER_TEST_CONTINUATION_MS) {
+                // Recovery must not postpone an already scheduled fast trial/diagnostic tail.
+                if (!$this->FifoFastContinuation() || $this->GetTimerInterval('InputFifoWorker') !== self::FIFO_WORKER_TEST_CONTINUATION_MS) {
                     $this->SetTimerInterval('InputFifoWorker', self::FIFO_WORKER_IDLE_MS);
                 }
                 return;
@@ -493,11 +502,11 @@ trait SensorGroupFifoRuntime
                 $this->FifoSaveMeta($meta);
                 $this->WriteAttributeBoolean('FifoFrameInFlight', false);
                 $this->WriteAttributeBoolean('FifoHasPending', $meta['count'] > 0);
-                // Serialize idle stop and one-time diagnostic continuation change
+                // Serialize idle stop and one-time fast continuation change
                 // with admissions. Retain the interval on subsequent busy batches.
                 if ($meta['count'] === 0) $this->SetTimerInterval('InputFifoWorker', 0);
-                elseif ($this->ReadAttributeBoolean('FifoTestActive') && $this->GetTimerInterval('InputFifoWorker') !== self::FIFO_WORKER_TEST_CONTINUATION_MS) {
-                    if ($this->SetTimerInterval('InputFifoWorker', self::FIFO_WORKER_TEST_CONTINUATION_MS) === false) throw new RuntimeException('FIFO diagnostic continuation timer update failed.');
+                elseif ($this->FifoFastContinuation() && $this->GetTimerInterval('InputFifoWorker') !== self::FIFO_WORKER_TEST_CONTINUATION_MS) {
+                    if ($this->SetTimerInterval('InputFifoWorker', self::FIFO_WORKER_TEST_CONTINUATION_MS) === false) throw new RuntimeException('FIFO continuation timer update failed.');
                 }
                 if ($this->FifoFaultReason($fence) !== '') $this->SetTimerInterval('InputFifoRecovery', $this->FifoTestPaused() ? 0 : 1000);
             } finally { IPS_SemaphoreLeave($this->FifoQueueLock()); }
@@ -543,11 +552,25 @@ trait SensorGroupFifoRuntime
     private function ReadEvaluationClassState(): array { return $this->fifoMaps !== null ? $this->fifoMaps['classes'] : (json_decode($this->ReadAttributeString('ClassStateAttribute'), true) ?: []); }
     private function WriteEvaluationClassState(array $state): void { if ($this->fifoMaps !== null) $this->fifoMaps['classes'] = $state; else $this->WriteAttributeString('ClassStateAttribute', json_encode($state)); }
 
+    private function FifoTrialReport(): array
+    {
+        $active = $this->ReadAttributeBoolean('FifoTrialActive');
+        return [
+            'configured' => $this->ReadPropertyBoolean('AllowFifoTrialCutover'),
+            'active' => $active,
+            'legacy_overlap_retained' => $this->ReadAttributeBoolean('FifoLegacyOverlap'),
+            'conflicting_modes' => $this->ReadPropertyBoolean('AllowFifoTrialCutover') && $this->ReadPropertyBoolean('EnableFifoFailureCapture'),
+            'automatic_recovery' => $active && !$this->ReadAttributeBoolean('FifoTestActive'),
+            'automatic_expiry' => false,
+        ];
+    }
+
     public function GetInputFifoReport(): string
     {
         if ($this->ReadAttributeBoolean('FifoOwned')) $this->PublishInputFifo();
         $meta = $this->FifoMeta();
-        return $this->FifoEncode(['configured_enabled' => $this->ReadPropertyBoolean('EnableInputFifo'), 'enabled' => $this->ReadAttributeBoolean('FifoOwned'), 'activation_blocked' => $this->ReadAttributeBoolean('FifoLegacyOverlap') && !$this->ReadAttributeBoolean('FifoOwned'), 'health' => $this->GetValue('InputFifoHealth'), 'ready' => $this->ReadAttributeBoolean('FifoReady'), 'incident' => $this->ReadAttributeString('FifoIncident'), 'last_fault' => json_decode($this->ReadAttributeString('FifoLastFault'), true), 'test' => $this->FifoTestReport(), 'input_diagnostic' => $this->InputFifoDiagnosticReport(), 'unknown_inputs' => json_decode($this->ReadAttributeString('FifoUnknownInputs'), true), 'metrics' => $meta, 'worker_interval_ms' => $this->GetTimerInterval('InputFifoWorker'), 'diagnostic_timing' => $this->FifoTimingReport($meta), 'verification' => $this->FifoVerificationReport($meta), 'previous_session' => json_decode($this->GetBuffer('InputFifoPreviousSession'), true), 'fault' => $this->FifoFaultReason($this->ReadAttributeString('FifoFence')), 'limits' => ['worker_idle_wake_ms' => self::FIFO_WORKER_IDLE_MS, 'worker_ordinary_continuation_ms' => self::FIFO_WORKER_IDLE_MS, 'worker_diagnostic_continuation_ms' => self::FIFO_WORKER_TEST_CONTINUATION_MS, 'worker_batch_target_ms' => 20, 'worker_batch_max_records' => 32, 'slots' => self::FIFO_SLOTS, 'queue_bytes' => self::FIFO_BYTES, 'evaluation_state_bytes' => self::FIFO_STATE_BYTES, 'admission_wait_ms' => self::FIFO_QUEUE_WAIT_MS, 'worker_commit_wait_ms' => self::FIFO_QUEUE_WAIT_MS, 'worker_dequeue_wait_ms' => 1], 'performance' => 'CPU and resident RAM unmeasured; synchronous receiver calls can exceed batch budget.']);
+        $trial = $this->FifoTrialReport();
+        return $this->FifoEncode(['configured_enabled' => $this->ReadPropertyBoolean('EnableInputFifo'), 'enabled' => $this->ReadAttributeBoolean('FifoOwned'), 'activation_blocked' => ($this->ReadAttributeBoolean('FifoLegacyOverlap') || ($this->ReadPropertyBoolean('EnableInputFifo') && $trial['conflicting_modes'])) && !$this->ReadAttributeBoolean('FifoOwned'), 'health' => $this->GetValue('InputFifoHealth'), 'ready' => $this->ReadAttributeBoolean('FifoReady'), 'incident' => $this->ReadAttributeString('FifoIncident'), 'last_fault' => json_decode($this->ReadAttributeString('FifoLastFault'), true), 'trial' => $trial, 'test' => $this->FifoTestReport(), 'input_diagnostic' => $this->InputFifoDiagnosticReport(), 'unknown_inputs' => json_decode($this->ReadAttributeString('FifoUnknownInputs'), true), 'metrics' => $meta, 'worker_interval_ms' => $this->GetTimerInterval('InputFifoWorker'), 'diagnostic_timing' => $this->FifoTimingReport($meta), 'verification' => $this->FifoVerificationReport($meta), 'previous_session' => json_decode($this->GetBuffer('InputFifoPreviousSession'), true), 'fault' => $this->FifoFaultReason($this->ReadAttributeString('FifoFence')), 'limits' => ['worker_idle_wake_ms' => self::FIFO_WORKER_IDLE_MS, 'worker_ordinary_continuation_ms' => self::FIFO_WORKER_IDLE_MS, 'worker_diagnostic_continuation_ms' => self::FIFO_WORKER_TEST_CONTINUATION_MS, 'worker_trial_continuation_ms' => self::FIFO_WORKER_TEST_CONTINUATION_MS, 'worker_batch_target_ms' => 20, 'worker_batch_max_records' => 32, 'slots' => self::FIFO_SLOTS, 'queue_bytes' => self::FIFO_BYTES, 'evaluation_state_bytes' => self::FIFO_STATE_BYTES, 'admission_wait_ms' => self::FIFO_QUEUE_WAIT_MS, 'worker_commit_wait_ms' => self::FIFO_QUEUE_WAIT_MS, 'worker_dequeue_wait_ms' => 1], 'performance' => 'CPU and resident RAM unmeasured; synchronous receiver calls can exceed batch budget.']);
     }
     private function PublishInputFifo(): void
     {
@@ -563,6 +586,10 @@ trait SensorGroupFifoRuntime
         elseif ($incident !== '') $health = 'FIFO running; historical-loss warning retained. Inspect the incident before clearing it.';
         else $health = 'FIFO running.';
         if ($this->ReadAttributeBoolean('FifoTestActive') && !$this->FifoTestPaused()) $health .= ' Diagnostic test active; uncertain legacy overlap permitted.';
+        if ($this->ReadAttributeBoolean('FifoTrialActive')) {
+            $health .= ' Supervised FIFO trial active; normal recovery enabled. Disable FIFO after testing.';
+            if ($this->ReadAttributeBoolean('FifoLegacyOverlap')) $health .= ' Legacy overlap warning retained.';
+        }
         if ($this->GetValue('InputFifoHealth') !== $health) $this->SetValue('InputFifoHealth', $health);
         // Read-on-demand report: no routine per-event status-variable/archive writes.
     }

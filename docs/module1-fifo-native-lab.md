@@ -1,5 +1,9 @@
 # Native FIFO timing lab
 
+## fifo.12: current strategy — supervised production trial
+
+Artur deferred the separate heartbeat-overlap lab. Follow [production trial instructions](module1-fifo-production-trial.md) for **23172**, using the separate default-off supervised-trial option with ordinary recovery. The existing isolated labs remain available. Their failure-capture mode must not be used casually as a production activation override. The fifo.11 instructions below are historical/optional and no longer the immediate next action. Heartbeat has no special queue policy.
+
 ## fifo.11: current next native action — real heartbeat overlap
 
 Update **design/module1-fifo** to **Version2.14.0-fifo.11**. Keep production FIFO/shadow/failure capture OFF, including actual FIFO/test ownership. In existing **MyAlarmFifoLoadLab / Module1Test 54312**, set **Scenario** to `heartbeat_overlap`, run **RunScenario once**, and provide **Result**. No reinstall, new variables, Symcon restart or guard reset.
