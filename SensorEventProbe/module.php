@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-// Optional diagnostic observer, v0.1.0. Never evaluates or dispatches an alarm.
+// Optional diagnostic observer, v0.1.1. Never evaluates or dispatches an alarm.
 class SensorEventProbe extends IPSModule
 {
     private const MAX_SAMPLES = 256;
@@ -31,7 +31,8 @@ class SensorEventProbe extends IPSModule
 
     public function Destroy()
     {
-        $this->LifecycleStop();
+        // Native unload has already withdrawn InstanceInterface. Do not access
+        // attributes, variables, messages or timers here; the host removes them.
         parent::Destroy();
     }
 

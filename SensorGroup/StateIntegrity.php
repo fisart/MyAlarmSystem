@@ -20,6 +20,30 @@ trait SensorGroupStateIntegrity
         return $this->ActiveConfig()[$name] ?? [];
     }
 
+    /** Rejected drafts must not leave a recreated interface without monitoring. */
+    private function RestoreLastActiveInputRuntime(): void
+    {
+        $config = $this->ActiveConfig();
+        if (!$config || AlarmSafety::validate($config)) return;
+        $ids = [];
+        foreach ($config['SensorList'] as $row) {
+            $ids[(int)$row['VariableID']] = true;
+            if ((int)($row['TriggerMode'] ?? 0) !== 1 && (int)($row['ComparisonSource'] ?? 0) === 1) {
+                $ids[(int)($row['ComparisonVariableID'] ?? 0)] = true;
+            }
+        }
+        foreach ($config['TamperList'] as $row) $ids[(int)$row['VariableID']] = true;
+        foreach ($config['BedroomList'] as $row) $ids[(int)$row['ActiveVariableID']] = true;
+        unset($ids[0]);
+        $messages = $this->GetMessageList();
+        foreach (array_keys($ids) as $id) {
+            if (IPS_VariableExists($id) && !in_array(VM_UPDATE, $messages[$id] ?? [], true)) {
+                $this->RegisterMessage($id, VM_UPDATE);
+            }
+        }
+        if ($this->GetTimerInterval('PulseExpireTimer') === 0) $this->UpdatePulseExpireTimer();
+    }
+
     private function IdentityBaseline(): array
     {
         $previous = $this->ActiveConfig();

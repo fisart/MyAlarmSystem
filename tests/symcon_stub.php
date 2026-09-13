@@ -11,9 +11,10 @@ class IPSModule
     public array $pending = [], $properties = [], $attributes = [], $buffers = [], $idents = [], $timers = [], $messages = [], $logs = [];
     public function __construct(int $id) { $this->InstanceID = $id; $GLOBALS['objects'][$id] = $this; }
     public function Create() {}
-    public function Destroy() {}
+    public function Destroy() { $GLOBALS['destroyed_instances'][] = $this->InstanceID; }
     public function ApplyChanges() {}
     public function __call(string $name, array $args) {
+        if (($GLOBALS['unavailable_attribute_interface'] ?? 0) === $this->InstanceID && str_contains($name, 'Attribute')) throw new RuntimeException('InstanceInterface is not available during Destroy');
         if (str_starts_with($name, 'RegisterProperty')) { $this->properties[$args[0]] ??= $args[1]; $this->pending[$args[0]] ??= $args[1]; return; }
         if (str_starts_with($name, 'ReadProperty')) return $this->properties[$args[0]];
         if (str_starts_with($name, 'RegisterAttribute')) { $this->attributes[$args[0]] ??= $args[1]; return; }

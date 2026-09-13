@@ -177,4 +177,11 @@ try { $p->Start(); throw new RuntimeException('Own status accepted'); }
 catch (InvalidArgumentException $e) { checkProbe($p->messages === [], 'Self-feedback rejected'); }
 
 checkProbe($GLOBALS['variables'][101] === false && $GLOBALS['variables'][102] === 0 && $GLOBALS['calls'] === [], 'All fault paths preserve input/output isolation');
+$p = configureProbe(209); $p->Start();
+$GLOBALS['unavailable_attribute_interface'] = 209;
+$GLOBALS['unavailable_buffer_interface'] = 209;
+$p->Destroy();
+unset($GLOBALS['unavailable_attribute_interface'], $GLOBALS['unavailable_buffer_interface']);
+checkProbe($GLOBALS['calls'] === [] && $GLOBALS['variables'][101] === false && in_array(209, $GLOBALS['destroyed_instances'] ?? [], true), 'Destroy with unavailable native interface reaches parent without diagnostic or alarm work');
+
 echo "Sensor event probe: $checks checks passed. Native runtime verification remains required.\n";

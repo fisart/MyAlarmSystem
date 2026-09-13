@@ -1,5 +1,5 @@
 <?php
-// Version2.14.0-shadow.2
+// Version2.14.0-shadow.3
 declare(strict_types=1);
 
 require_once __DIR__ . '/StateIntegrity.php';
@@ -301,9 +301,10 @@ class SensorGroup extends IPSModule
             $this->ReportConfigurationError('Apply rejected: ' . implode('; ', array_slice($errors, 0, 10)));
             $previous = $this->ReadAttributeString('ActiveConfiguration');
             $this->WriteAttributeString('ActiveRevision', $previous === '' ? '' : hash('sha256', $previous));
+            $this->RestoreLastActiveInputRuntime();
             $this->WriteAttributeInteger('PostApplyAction', 1);
             $this->SetTimerInterval('PostApplyTimer', 1000);
-            return; // Keep previous subscriptions, active graph and monitoring intact. Never prune.
+            return; // Retain active graph; recreate missing interface subscriptions without activating the draft.
         }
         $json = json_encode($candidate);
         if ($this->ReadAttributeString('ActiveConfiguration') !== $json) {
