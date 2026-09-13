@@ -15,3 +15,7 @@ jobs:
           php -l PropertyStateManager/StateIntegrity.php
           php -l libs/AlarmSafety.php
           php tests/state_integrity.php
+          php -l tests/sensor_configuration_form.php
+          php tests/sensor_configuration_form.php
+          php -l tests/sensor_subscription_recovery.php
+          php tests/sensor_subscription_recovery.php
