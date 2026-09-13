@@ -2,6 +2,16 @@
 
 Status: investigation; activation remains blocked. Module runtime stays at `Version2.14.0-fifo.5`. Do not restart Symcon, reload the library as a guard reset, stop unrelated scripts/services or edit internal guard attributes. Keep live FIFO disabled and existing evaluation running.
 
+## Native execution inventory received
+
+Installed build supplied by Artur: Symcon 9.0, Ubuntu (Docker), amd64, 15 June 2026, revision `f2880badc0d6`; PHP 8.5.5. At 16:59:11+02:00 on 13 September 2026, all four queried function names were PHP-callable. The actual list contained 100 entries. The capped inventory inspected IDs 100 through 93; each returned 12 fields, including ThreadID, ExecuteCount, ExecutionMin/Avg/Max, StartTime, Sender, SenderID, FilePath, ScriptID, PeakMemoryUsage and MemoryCleanups.
+
+Seven inspected entries had StartTime=0 and ScriptID=0. ID 96 had StartTime=1789311551 and ScriptID=44773. That start time is exactly the capture's wall-clock second; this could be the inventory execution itself, but the script's identity was not supplied. Sender/SenderID values were not retained by this first schema check. The other 92 entries were not inspected.
+
+Inference: the list appears to enumerate reusable worker slots, including apparently idle slots, rather than only currently executing invocations. Therefore waiting for a listed ID to disappear is not a justified completion test. This is an inference from the observed schema/state, not an established API lifetime guarantee. The zero fields' idle semantics, ExecuteCount increment semantics and inclusion of direct module MessageSink/nested dispatch still need confirmation. The snapshot does not identify a lingering old Module 1 call or prove that none exists.
+
+No further routine inventory is requested at this point. The next required evidence is the [native execution contract](module1-fifo-native-contract-questions.md). The previous inventory instructions below are retained as the procedure that produced this result, not as a request to repeat it.
+
 ## New production evidence
 
 Artur's passive session `ae50885deb13e3a9` started 13 September 2026 at 16:46:20+02:00 and completed its 15-second duration. It inspected 84 native updates, rejected none, and reported no interruption or configuration change. Revision: `d9dabb098a9c68d56e53838368c358a7637aa1821f623acbd0c5e47d1059ba18`. Live FIFO was disabled; the historical activation guard remained retained. No unknown inputs or current FIFO fault were reported, and no actual FIFO metrics were collected.
@@ -29,7 +39,7 @@ The tempting migration is to record the running threads, install tracking for su
 
 Adding future tracking does not retroactively satisfy the first three requirements. A fixed delay, idle worker acquisition, clean heartbeat or 84 clean payload samples is not equivalent. Registration overflow/contention, interrupted tracking or unsupported native semantics must keep the guard retained. No transition queue/counter/polling implementation is introduced here; its overhead and event-loss policy require a separate review once the historical boundary can be established.
 
-## Concrete next step without updating the module
+## Inventory procedure already completed
 
 Run [the execution inventory script](../tools/symcon_fifo_execution_inventory.php) once in the existing Symcon script editor, with live FIFO disabled. Paste the complete file including its PHP opening tag. Send its JSON output. No module update or restart is needed to run it.
 
