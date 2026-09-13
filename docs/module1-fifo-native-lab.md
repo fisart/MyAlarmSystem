@@ -1,6 +1,26 @@
 # Native FIFO timing lab
 
-## fifo.9 scheduling experiment (current next step)
+## fifo.10: current next native action
+
+Update **design/module1-fifo** to **Version2.14.0-fifo.10**, keep production FIFO/shadow/failure capture OFF, and use the existing **MyAlarmFifoLoadLab / Module1Test 54312**. No reinstall, new inputs, Symcon restart or guard reset is needed. Set **Scenario** to `rule_verification`, run **RunScenario once**, and provide **Result**.
+
+This is nine changed writes from one producer at requested 1 ms gaps: Door open/close; Count true/false/true; Once true/false; Token 71001/reset 0. It exercises the real MessageSink and FIFO worker, with no dispatch targets. Requested timing is not a native real-time guarantee. The lab records evaluated values and selected class decisions; fixed-plan assertions check all eight selected mirror values after each frame, source/sequence/prior values, two direct COUNT increments and threshold decisions, ONCE pulse creation/clearing, and token/reset CHANGE pulses. COUNT expectations retain the captured initial timestamps and use the existing integer-second 10-second window. They do not demand resetting valid retained history.
+
+Require `rule_verification.passed=true`, all ten assertions true, `comparison_incomplete=false`, nine admitted/processed, empty queue, no current fault or pause, complete/current `fifo_after.verification.covers_processed_snapshot`, and actual `after_disable.enabled=false`. A count-only pass is insufficient. Capture/read/persistence gaps conservatively fail coverage. Inspect a failed Result before any retry, baseline reset or another update.
+
+Explicit capture start is limited to ready, applied diagnostic mode in an identified lab category, local configured dependencies, empty queue/worker ownership and zero dispatch/bedroom/tamper/vault outputs. Maximum eight sources/classes, sixteen frames, 24 KB volatile serialized buffer, thirty seconds. Frames accumulate locally; one optional buffer write per worker batch outside the queue lock. No archive, log, per-input script or new timer. Capture failures do not fault/replay FIFO evaluation. Historical snapshots summarize capture without repeating values; Result remains capped at 64 KB. Ordinary FIFO modes do not record/write this capture. Final capture encoding/persistence happens after the existing timing summary and is excluded from its worker elapsed metric; this semantic run is not a pure fifo.9 scheduling benchmark. System load and resident RAM remain unmeasured.
+
+Scope: single-producer evaluated decisions, not cross-producer physical order, downstream payload/receiver acceptance, pulse-expiry timer or the real watchdog. Production routing and Modules 2/3/watchdog are unchanged. A true workload/real-heartbeat overlap observation remains outstanding; the ten supplied real heartbeat cycles were OK before/after, but none overlapped the approximately one-second fifo.9 burst.
+
+Local workflow: **614 checks** across eleven suites; 24 PHP syntax checks, all 35 workflow commands pass. New verification suite has 33 checks, including corrupted evidence, missing/stale capture, diagnostic isolation, capacity and optional persistence failure. Independent review and published SHA/CI checkpoint are recorded in PR #3 and the handoff.
+
+## Completed fifo.9 native evidence
+
+- Larger concurrent `94ccaaa8a725b9d6`, 22:50:55+02:00: all 70 observed/admitted/processed, stable baseline, empty/no fault, current complete timing, actual OFF. Maximum lag 807.833 ms versus previous fifo.8 2527.698 ms; pending gap total 55.954 ms versus 1699.285 ms. Evaluation 796.280 ms, worker 864.071 ms, queue peak 62/128, 35 batches. About 68% less maximum lag / 97% less pending gap in these two observations; not a controlled CPU/RAM benchmark. Recent actual pending gaps mostly ~1 ms, final 10.922 ms: the requested periodic interval is not a guaranteed post-completion sleep.
+- Deliberate contention `90516ceea7318688`, 22:56:06+02:00: current admission_lock fault, variable 59385 / counter 400050338, diagnostic pause, zero admissions, actual OFF with fault evidence retained. This confirms forced-failure detection/pause/cleanup, not nonempty-prefix draining or the faster worker under failure. Zero observed is instrumentation after successful mutex acquisition, not absence of callbacks. Historical timing is from the prior successful run.
+- Ten real watchdog cycles, 22:41:54 through 22:51:14: all four targets OK; Module 1 callbacks 111–150 ms. None overlapped the 22:50:55–22:50:56 lab worker burst. Lab Token is synthetic; the real watchdog remains attached to production.
+
+## fifo.9 scheduling experiment (historical instructions)
 
 `Version2.14.0-fifo.9` retains the **50 ms initial idle wake** and ordinary FIFO continuation. During **applied diagnostic failure-capture mode only**, a batch that leaves queued work requests a **10 ms continuation interval**. The switch occurs once under the existing queue mutex; later busy batches query the interval and do not reset it. An empty queue stops the timer under the same lock as the next admission. Pending recovery retains an already-fast diagnostic timer. A false return/exception from the new continuation update follows the existing explicit fault/pause/no-replay path.
 
@@ -25,7 +45,7 @@ Report `limits` now exposes50msidle/ordinary,10msdiagnostic continuation and20ms
 
 After this targeted result, review whether reduced lag costs real heartbeat/shared-service health. The deliberate40ms admission-contention check and native per-source/value/order/COUNT/ONCE verification remain later gates. Aggregate counts alone cannot validate exact rule/output behavior. A supervised production trial is later, after those gates; Modules2/3/watchdog remain unchanged.
 
-Local verification: **580 checks** across10suites (new scheduling31);22workflow PHP syntax files; clean whitespace. Independent review/native fifo.9 results recorded in current handoff/PR Conversation. Native fifo.9 results pending.
+Local verification: **580 checks** across10suites (new scheduling31);22workflow PHP syntax files; clean whitespace. Independent review/native fifo.9 results recorded in current handoff/PR Conversation. Native fifo.9 results are summarized above.
 
 ## Completed fifo.8 graph-size evidence
 

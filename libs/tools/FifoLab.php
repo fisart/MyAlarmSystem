@@ -7,7 +7,7 @@ final class FifoLab
     public const IDENT = 'MyAlarmFifoLab';
     public const LOAD_IDENT = 'MyAlarmFifoLoadLab';
     public const MODULE = '{43FBB397-C412-41B2-192E-97054481316D}';
-    public const SCENARIOS = ['sequential', 'interleaved', 'concurrent_flicker', 'refresh_noise', 'baseline_race', 'admission_contention'];
+    public const SCENARIOS = ['sequential', 'interleaved', 'concurrent_flicker', 'refresh_noise', 'baseline_race', 'admission_contention', 'rule_verification'];
     public const INPUTS = ['Door'=>0, 'NoiseA'=>0, 'NoiseB'=>0, 'NoiseC'=>0, 'Token'=>1, 'Count'=>0, 'Once'=>0, 'Reference'=>0];
 
     private static function rootIdent(string $profile): string
@@ -172,8 +172,8 @@ final class FifoLab
     {
         if(!in_array($scenario,self::SCENARIOS,true)||$role<0||$role>2)throw new RuntimeException('Unknown scenario/producer.');
         $ops=[];
-        if($scenario==='sequential') {
-            if($role===0)foreach([['Door',true],['Door',false],['Count',true],['Count',false],['Count',true],['Once',true],['Once',false],['Token',71001],['Token',0]] as [$name,$v])$ops[]=[$name,$v,50];
+        if(in_array($scenario,['sequential','rule_verification'],true)) {
+            if($role===0)foreach([['Door',true],['Door',false],['Count',true],['Count',false],['Count',true],['Once',true],['Once',false],['Token',71001],['Token',0]] as [$name,$v])$ops[]=[$name,$v,$scenario==='rule_verification'?1:50];
         } elseif($scenario==='interleaved') {
             if($role===0)for($i=0;$i<16;++$i){$ops[]=['NoiseA',$i%2===0,5];$ops[]=['NoiseB',$i%2===0,5];if($i===4||$i===12){$ops[]=['Token',71000+$i,20];$ops[]=['Token',0,5];}}
         } elseif($scenario==='refresh_noise') {
@@ -224,6 +224,11 @@ final class FifoLab
             do { $before=self::report($m);if(($before['ready']??false)||($before['test']['paused']??false))break;self::waitMs(25); }while(hrtime(true)<$deadline);
             if(!($before['ready']??false)||($before['test']['paused']??false))throw new RuntimeException('Lab startup did not establish a clean baseline; inspect retained first fault.');
             if(GetValue($m['active'])!==$session)throw new RuntimeException('Lab session cancelled before producer launch.');
+            if($scenario==='rule_verification') {
+                $selection=['sources'=>array_intersect_key($m['inputs'],self::INPUTS),'classes'=>array_map(static fn($n)=>'lab-'.$n,['Door','NoiseA','NoiseB','NoiseC','Token','Count','Once'])];
+                if(!MYALARM_StartFifoVerification($m['module'],json_encode($selection,JSON_THROW_ON_ERROR)))throw new RuntimeException('Lab verification could not acquire an idle baseline; inspect report before retrying.');
+                $before=self::report($m);
+            }
             foreach($m['done'] as $id)SetValue($id,'');
             if($scenario==='admission_contention') { $heldQueue=IPS_SemaphoreEnter('Mod1_InputQueue_'.$m['module'],1);if(!$heldQueue)throw new RuntimeException('Could not acquire the lab-only admission mutex for this scenario.'); }
             for($role=0;$role<3;++$role){if(GetValue($m['active'])!==$session)throw new RuntimeException('Lab session cancelled during producer launch.');if(!IPS_RunScriptEx($m['runner'],['lab_action'=>'produce','session'=>$session,'scenario'=>$scenario,'role'=>$role]))throw new RuntimeException('Producer launch failed.');}
@@ -233,9 +238,13 @@ final class FifoLab
             do { $producers=self::producerReports($m,$session);if(count($producers)===3 || GetValue($m['active'])!==$session)break;self::waitMs(25); }while(hrtime(true)<$deadline);
             $changes=array_sum(array_column($producers,'changes'));
             $deadline=hrtime(true)+2000000000;
-            do { $after=self::report($m);if(($after['test']['paused']??false)||(($after['metrics']['count']??0)===0 && ($after['metrics']['processed']??0)-($before['metrics']['processed']??0)>=$changes))break;self::waitMs(25); }while(hrtime(true)<$deadline);
+            do { $after=self::report($m);if(($after['test']['paused']??false)||(($after['metrics']['count']??0)===0 && ($after['metrics']['processed']??0)-($before['metrics']['processed']??0)>=$changes && ($scenario!=='rule_verification' || ($after['verification']['covers_processed_snapshot']??false))))break;self::waitMs(25); }while(hrtime(true)<$deadline);
             $processed=($after['metrics']['processed']??0)-($before['metrics']['processed']??0);
             $report=['schema'=>1,'session'=>$session,'scenario'=>$scenario,'module_id'=>$m['module'],'profile'=>$m['profile']??'small','graph_counts'=>self::graphCounts($m),'mode'=>'isolated native Module 1 FIFO; no dispatch targets','elapsed_ms'=>(hrtime(true)-$started)/1000000,'producers'=>$producers,'expected_changed_writes'=>$changes,'processed_delta'=>$processed,'cancelled'=>GetValue($m['active'])!==$session,'comparison_incomplete'=>GetValue($m['active'])!==$session||$processed!==$changes||count($producers)!==3||in_array(false,array_column($producers,'completed'),true)||($after['test']['paused']??false)||($after['metrics']['recoveries']??0)!==($before['metrics']['recoveries']??0),'changed_write_count_matches_processed'=>count($producers)===3 && !in_array(false,array_column($producers,'completed'),true) && $changes===$processed && !($after['test']['paused']??false) && ($after['metrics']['recoveries']??0)===($before['metrics']['recoveries']??0),'fifo_before'=>$before,'fifo_after'=>$after];
+            if($scenario==='rule_verification') {
+                $report['rule_verification']=self::verifyRules($m,$after);
+                if(!$report['rule_verification']['passed'])$report['comparison_incomplete']=true;
+            }
         } catch(Throwable $e) {
             $report=['schema'=>1,'session'=>$session,'comparison_incomplete'=>true,'error'=>substr($e->getMessage(),0,512)];
             try{$report['fifo_after']=self::report($m);}catch(Throwable $ignored){$report['report_unavailable']=true;}
@@ -252,6 +261,55 @@ final class FifoLab
             } finally { IPS_SemaphoreLeave($lock); }
         }
         echo json_encode($report,JSON_PRETTY_PRINT|JSON_UNESCAPED_SLASHES|JSON_THROW_ON_ERROR);
+    }
+
+    /** Independent expectations for the fixed nine-write lab plan, not another FIFO engine. */
+    public static function verifyRules(array $m,array $report): array
+    {
+        $audit=$report['verification']??null;$assertions=[];
+        $check=static function(string $name,bool $ok)use(&$assertions):void{$assertions[$name]=$ok;};
+        if(!is_array($audit))return ['passed'=>false,'assertions'=>['capture_available'=>false]];
+        $rows=$audit['records']??[];$ops=self::plan('rule_verification',0);
+        $check('complete_current_capture',($audit['complete']??false) && ($audit['covers_processed_snapshot']??false)
+            && !($report['test']['paused']??true) && ($report['fault']??'unknown')===''
+            && ($audit['sources']??[])===array_intersect_key($m['inputs'],self::INPUTS));
+        $check('nine_frames_and_empty_queue',count($rows)===9 && ($report['metrics']['count']??-1)===0 && ($report['metrics']['processed']??-1)-($audit['start_processed']??0)===9);
+        $values=array_fill_keys(array_keys(self::INPUTS),false);$values['Token']=0;$values['Reference']=true;
+        $check('initial_input_values',($audit['initial_values']??[])===$values);
+        $countBuffer=$audit['initial_buffers']['lab-Count']??[];
+        $tokenUntil=(int)($audit['initial_pulses'][$m['inputs']['Token']]??0);$onceUntil=0;
+        $ordered=true;$mirrors=true;$countCorrect=true;$onceCorrect=true;$tokenCorrect=true;$classesCorrect=true;
+        foreach($rows as$i=>$row){
+            if(!isset($ops[$i]) || !is_array($row)){ $ordered=false;continue; }
+            [$name,$value]=$ops[$i];$prior=$values[$name];$values[$name]=$value;$wall=(int)($row['wall_s']??0);
+            $ordered=$ordered && ($row['seq']??null)===($audit['start_seq']??0)+$i && ($row['kind']??'')==='input'
+                && ($row['variable_id']??0)===$m['inputs'][$name] && ($row['previous']??null)===$prior && ($row['value']??null)===$value;
+            $mirrors=$mirrors && ($row['values']??[])===$values;
+            $countBuffer=array_values(array_filter($countBuffer,static fn($ts)=>$wall-$ts<=10));
+            if($name==='Count' && $value===true)$countBuffer[]=$wall;
+            $countCorrect=$countCorrect && ($row['counts']['lab-Count']??-1)===count($countBuffer);
+            if($name==='Once')$onceUntil=$value===true?$wall+30:0;
+            if($name==='Token')$tokenUntil=$wall+30;
+            $onceCorrect=$onceCorrect && ($row['conditions']['Once']??null)===$values['Once'] && ($row['pulses']['Once']??-1)===$onceUntil;
+            $tokenCorrect=$tokenCorrect && ($row['pulses']['Token']??-1)===$tokenUntil;
+            $expected=[];
+            if($values['Door']===$values['Reference'])$expected[]='lab-Door';
+            if(count($countBuffer)>=2)$expected[]='lab-Count';
+            if($onceUntil>$wall)$expected[]='lab-Once';
+            if($tokenUntil>$wall)$expected[]='lab-Token';
+            $actual=$row['active_classes']??[];sort($actual);sort($expected);
+            $classesCorrect=$classesCorrect && $actual===$expected;
+        }
+        $check('input_sequence_and_previous_values',$ordered && count($rows)===9);
+        $check('all_selected_mirror_values_per_frame',$mirrors && count($rows)===9);
+        $check('count_only_increments_on_two_direct_activations',$countCorrect && count($rows)===9);
+        $check('once_pulse_created_and_cleared',$onceCorrect && count($rows)===9);
+        $check('token_and_reset_each_preserve_change_pulse',$tokenCorrect && count($rows)===9);
+        $check('class_decisions_match_each_frame',$classesCorrect && count($rows)===9);
+        $live=[];foreach(self::INPUTS as$name=>$type)$live[$name]=GetValue($m['inputs'][$name]);
+        $check('final_native_values_match_plan',$live===$values);
+        return ['passed'=>!in_array(false,$assertions,true),'assertions'=>$assertions,
+            'scope'=>'Single-producer evaluated decisions; no cross-producer physical order, downstream delivery, pulse-expiry timer or real-heartbeat proof.'];
     }
 
     private static function producerReports(array $m,string $session): array

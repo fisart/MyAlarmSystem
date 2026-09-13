@@ -30,6 +30,9 @@ jobs:
           php -l libs/tools/symcon_fifo_load_lab_install.php
           php -l tests/sensor_fifo_lab.php
           php tests/sensor_fifo_lab.php
+          php -l SensorGroup/FifoVerification.php
+          php -l tests/sensor_fifo_verification.php
+          php tests/sensor_fifo_verification.php
           php -l SensorGroup/FifoInputDiagnostic.php
           php -l tests/sensor_fifo_input_diagnostic.php
           php -l libs/tools/symcon_fifo_execution_inventory.php

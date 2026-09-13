@@ -16,7 +16,8 @@ function IPS_SetName($id,$name){$GLOBALS['model_objects'][$id]['ObjectName']=$na
 function IPS_SetScriptContent($id,$content){$GLOBALS['lab_scripts'][$id]=$content;}
 function IPS_GetScriptContent($id){return $GLOBALS['lab_scripts'][$id];}
 function SetValue($id,$value){if(isset($GLOBALS['on_lab_write']))($GLOBALS['on_lab_write'])($id,$value);$old=GetValue($id);$GLOBALS['variables'][$id]=$value;if(!empty($GLOBALS['lab_defer_native']) && in_array($id,$GLOBALS['lab_inputs'],true) && GetValue($GLOBALS['lab_active'])!==''){$GLOBALS['lab_deferred'][]=[$id,$value,$old];return;}foreach($GLOBALS['objects']as$m)if($m instanceof SensorGroup && isset($m->messages[$id]))$m->MessageSink(1,$id,VM_UPDATE,[$value,$old!==$value,$old]);}
-function MYALARM_GetInputFifoReport($id){return $GLOBALS['objects'][$id]->GetInputFifoReport();}
+function MYALARM_StartFifoVerification($id,$selection){return $GLOBALS['objects'][$id]->StartFifoVerification($selection);}
+function MYALARM_GetInputFifoReport($id){$raw=$GLOBALS['objects'][$id]->GetInputFifoReport();return isset($GLOBALS['on_lab_fifo_report'])?($GLOBALS['on_lab_fifo_report'])($id,$raw):$raw;}
 function MYALARM_RecoverInputFifo($id){$GLOBALS['objects'][$id]->RecoverInputFifo();}
 function IPS_RunScriptEx($id,$params){$GLOBALS['lab_launches']=($GLOBALS['lab_launches']??0)+1;$root=IPS_GetParent($id);FifoLab::execute($root,['SENDER'=>'RunScript']+$params);return true;}
 function IPS_Sleep($ms){if(isset($GLOBALS['on_lab_sleep']))($GLOBALS['on_lab_sleep'])($ms);if(!empty($GLOBALS['lab_defer_native']) && count(array_filter($GLOBALS['lab_done'],static fn($id)=>GetValue($id)!==''))===3){$pending=$GLOBALS['lab_deferred']??[];$GLOBALS['lab_deferred']=[];foreach($pending as[$id,$v,$old])foreach($GLOBALS['objects']as$mod)if($mod instanceof SensorGroup && isset($mod->messages[$id]))$mod->MessageSink(2,$id,VM_UPDATE,[$v,$old!==$v,$old]);}foreach($GLOBALS['objects']as$m)if($m instanceof SensorGroup)$m->RunInputFifo();}

@@ -5,6 +5,16 @@ Baseline: `59e413ead4d6a85a5336583af7788ee9175d0a49` (merged PR #2).
 Reviewed design: [deferred coordinated architecture](module1-fifo-coordinated-backlog.md).
 Current scope: [Module 1-only design](module1-fifo-design.md).
 
+## Current fifo.10 isolated semantic verification review
+
+A separate read-only reviewer independently reviewed `FifoVerification.php`, worker hooks, the fixed-plan lab verifier and regression tests. They ran verification32 (then33 after revision), runtime109, lab58, scheduling31 and timing24 checks. Verdict: **approved for the supervised isolated nine-write `rule_verification` test only**, no remaining blocker for that scope. No main merge or production approval.
+
+One reporting race was identified and fixed: worker metrics become complete before the optional audit write. The existing bounded drain loop now additionally requires capture coverage for this scenario; a transient-uncovered regression requires a later complete snapshot before acceptance. No new polling loop or extended deadline was introduced.
+
+Capture is limited to an explicit ready, applied diagnostic lab with local dependencies and no dispatch/bedroom/tamper/vault outputs. At most eight sources/classes, sixteen scalar frame snapshots,24KB,thirty seconds, one optional buffer write per batch outside the queue mutex. Missing/oversized/failed evidence cannot become a pass through aggregate count agreement; source/sequence, all selected mirror values, COUNT size, ONCE condition/pulse, CHANGE pulse and class decisions have independent fixed-plan checks. Optional errors cannot fault/replay FIFO evaluation.
+
+Scope limitations: one producer's expected input order and evaluated decisions, not cross-producer physical order, delivery/payload acceptance, actual expiry-timer behavior or real watchdog proof. Final verification encoding/persistence follows the timing summary and is excluded from its worker elapsed metric. Native verification and shared-resource/real-heartbeat overlap remain pending; CPU/resident RAM unmeasured. Full local workflow614 checks /24syntax files/all35 commands.
+
 ## Scope change after review (2026-09-13)
 
 Artur subsequently limited PR #3 to Module 1 and explicitly accepted the downstream live-state, context, delivery and restart limitations. Modules 2/3 protocol changes, cancellation and expanded webpage status are deferred. The historical verdict and findings below apply to the coordinated proposal; they do not establish independent approval of the revised Module 1-only design or its implementation. Native probing, compatibility checks and focused implementation review remain necessary.
