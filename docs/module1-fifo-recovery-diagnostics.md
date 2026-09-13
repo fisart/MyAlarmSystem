@@ -1,8 +1,8 @@
 # Retained FIFO recovery diagnostics
 
-Build: `Version2.14.0-fifo.3`. Scope: Module 1 diagnostics only. The underlying production recovery loop remains unresolved; keep live FIFO disabled outside a brief supervised capture.
+Build: `Version2.14.0-fifo.3`. Scope: Module 1 diagnostics only. The underlying production recovery loop remains unresolved; keep live FIFO disabled. The live-capture procedure below is superseded by the passive check.
 
-The subsequent `Version2.14.0-fifo.4` also corrects a false activation guard. If configured FIFO remains inactive with a retained legacy concurrency blocker, follow the [activation restart procedure](module1-fifo-activation-guard.md) before this capture. Repeated library reloads are not a documented reset for the Create-only guard.
+Current procedure: use the `Version2.14.0-fifo.5` [passive input check](module1-fifo-passive-input-diagnostics.md). The retained activation guard stays intact. No service restart or live FIFO activation is requested; earlier restart advice is withdrawn.
 
 ## Production observation
 
@@ -20,20 +20,9 @@ The valid configuration export confirms the bedroom fields survived COMMIT. The 
 
 Healthy input processing, heartbeat handling, queue capacities, admission checks, automatic recovery, output delivery and Module 2/3/watchdog runtime are unchanged. One bounded anomaly record is added; identical retained record writes are suppressed. No event-value logs, per-input healthy-path diagnostics, additional timers or archive variables are added. This repair exposes failure evidence; it does not claim to fix the failure that caused the recovery loop.
 
-## Short supervised capture
+## Current capture procedure
 
-1. Disable **Use FIFO for live Module 1 alarm processing**, Apply and confirm normal heartbeat with the existing evaluator.
-2. Update from `design/module1-fifo` to this diagnostic build with FIFO disabled.
-3. While present, enable FIFO briefly to observe ordinary incoming traffic. Do not deliberately trigger sirens/ASK or overload sensors. Stop as soon as a new fault/recovery appears, or after approximately 15 seconds if none appears; this is a diagnostic capture, not a five-cycle acceptance run.
-4. Disable FIFO and Apply. Print the report via the form or:
-
-   ```php
-   echo MYALARM_GetInputFifoReport(23172);
-   ```
-
-5. Send the complete report, especially `last_fault` and `previous_session.recovery_fault`, and confirm heartbeat after disabling. The retained last fault is available even when disabled. If disabling cannot complete, use the previously documented working-build return point.
-
-Do not clear the original incident during this capture. The new diagnostic cannot reconstruct fault evidence already erased by the older build.
+Keep live FIFO disabled and Apply. Update the branch to `Version2.14.0-fifo.5`, start the passive input check, and print the input FIFO report after about 15 seconds. See the [passive instructions and limitations](module1-fifo-passive-input-diagnostics.md). The check cannot reconstruct earlier erased fault evidence and does not prove baseline continuity or delivery correctness.
 
 ## Verification
 

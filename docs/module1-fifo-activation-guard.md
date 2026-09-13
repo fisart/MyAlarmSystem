@@ -14,17 +14,11 @@ CheckLogic now checks cutover and FIFO ownership before setting the overlap latc
 
 The report adds applied `configured_enabled`, actual-runtime `enabled`, `activation_blocked` and current `health`. These are on-demand fields, not new polling or per-input diagnostics. Healthy FIFO admission, heartbeat handling, evaluator/output policy, recovery and queue bounds are unchanged. The additional attribute reads occur only in contended legacy entry; there are no new semaphore waits, JSON parsing, event logs, timers or archive writes on that path. CPU/resident RAM remain unmeasured.
 
-## Correct reset and supervised capture
+## Current production constraint: no restart
 
-The earlier advice to reload the library as a guaranteed reset was incorrect. The reset is implemented in Create; Symcon documents [Create](https://www.symcon.de/en/service/documentation/developer-area/sdk-tools/sdk-php/module/create/) for new instances and IP-Symcon startup, not as a guaranteed library-reload callback. A restart is the documented lifecycle reset. Do not call Create manually or edit internal guard attributes to bypass the protection.
+The earlier library-reload and service-restart instructions are withdrawn. Artur cannot interrupt unrelated production services. Keep live FIFO disabled and use the existing evaluator; do not restart IP-Symcon, call Create manually or edit internal guard attributes.
 
-1. Update to this build with live FIFO disabled and confirm ordinary heartbeat.
-2. While present, enable the live FIFO setting and Apply. A pre-existing guard may still block it; the patch deliberately does not clear uncertain historical overlap.
-3. Restart the IP-Symcon service with the live FIFO setting enabled. Restart briefly interrupts all Symcon automation. Keeping the applied setting enabled lets startup activate FIFO before subsequent ordinary legacy traffic can latch another genuine blocker.
-4. After about 15 seconds, print `MYALARM_GetInputFifoReport(23172)` and save it. If a fault/recovery appears earlier, capture immediately.
-5. Disable live FIFO and Apply. Confirm heartbeat and send the report. If activation is still blocked after restart, leave it disabled and send the report; do not repeat restarts.
-
-No continued live-FIFO production acceptance is granted by this diagnostic patch. If you cannot supervise a restart, leave FIFO disabled and use the existing evaluator.
+The retained guard cannot safely be cleared by new tracking, an idle worker or a timeout: invocations started by the older code were not tracked and may still be evaluating or dispatching synchronously. Independent review rejected that proposed restart-free transition. Current input evidence must be gathered without activation. The new `Version2.14.0-fifo.5` [passive input check](module1-fifo-passive-input-diagnostics.md) provides that next step without clearing the guard.
 
 ## Validation
 

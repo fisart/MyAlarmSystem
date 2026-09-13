@@ -44,6 +44,7 @@ class IPSModule
     public function SetBuffer($name, $value) {
         if (($GLOBALS['unavailable_buffer_interface'] ?? 0) === $this->InstanceID) throw new RuntimeException('InstanceInterface is not available');
         $this->buffers[$name] = $value;
+        if (isset($GLOBALS['on_set_buffer'])) ($GLOBALS['on_set_buffer'])($this, $name, $value);
     }
     public function GetTimerInterval($name) { return $this->timers[$name] ?? 0; }
     public function SetTimerInterval($name, $value) { $this->timers[$name] = $value; }

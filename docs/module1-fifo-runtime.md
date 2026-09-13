@@ -1,6 +1,6 @@
 # Module 1 live input FIFO — supervised opt-in build
 
-Build marker: `Version2.14.0-fifo.4`. This includes the [bedroom form/COMMIT repair](module1-bedroom-commit-recovery.md), [retained recovery diagnostics](module1-fifo-recovery-diagnostics.md) and [activation guard correction](module1-fifo-activation-guard.md). Default: **disabled** (`EnableInputFifo=false`). Production revealed repeated recovery despite resolved unknown inputs; keep live FIFO disabled except for a short supervised diagnostic capture. A retained activation guard subsequently prevented capture; use the restart procedure in the activation document if blocked. The recovery loop's cause is not yet established. This is a live alarm-processing option, unlike the preceding shadow comparator. No Module 2, Module 3 or heartbeat watchdog runtime files change.
+Build marker: `Version2.14.0-fifo.5`. Default: **disabled** (`EnableInputFifo=false`). Production revealed repeated recovery after unknown inputs were resolved; a retained concurrency guard subsequently blocked activation. **Keep live FIFO disabled. Do not restart IP-Symcon or clear the guard.** The current next step is the [passive input check](module1-fifo-passive-input-diagnostics.md), alongside existing alarm processing. Restart-free activation remains unapproved because old untracked calls cannot be proven finished. Module 2, Module 3 and heartbeat watchdog runtime files do not change.
 
 ## Evidence and limits
 
@@ -8,7 +8,7 @@ Artur supplied two clean shadow captures on 13 September 2026: 61 and 174 admitt
 
 Artur has no CPU/resident RAM records and authorized proceeding without them. Their production impact remains **unmeasured**; serialized sizes and worker elapsed time are not substitutes. Previous shadow timing is evidence for the comparator alongside the old live path, not a measurement of this new FIFO's synchronous delivery latency.
 
-The executable model passes 350 checks: safety 129, read-only probe 44, shadow 64, live FIFO 89 and configuration form 24. The new suite covers captured raw/formatted payloads, bedroom mirrors, refresh suppression, ordinary heartbeat-shaped token/reset frames, COUNT references/sync, pulse expiry, saturation/prefix drain, Apply cutover, interface recreation, dynamic tamper subscriptions, missing/disabled dependencies, recovery seeding, ownership races, consumer reentrancy, shutdown wake, partial frame/metadata failures, baseline callback failure and UTF-8 fault handling. Diagnostics also retain later failure evidence across repeated zero-processing recoveries, incident acknowledgement, disabling and interface recreation, without storing oversized input payloads. Activation regressions distinguish safely routed/skipped calls from genuinely untracked legacy evaluation. Tests model selected interleavings; they are not a native concurrency stress test.
+The executable model passes 389 checks: safety 129, read-only probe 44, shadow 64, live FIFO 89, configuration form 24 and passive diagnostics 39. The new suite covers captured raw/formatted payloads, bedroom mirrors, refresh suppression, ordinary heartbeat-shaped token/reset frames, COUNT references/sync, pulse expiry, saturation/prefix drain, Apply cutover, interface recreation, dynamic tamper subscriptions, missing/disabled dependencies, recovery seeding, ownership races, consumer reentrancy, shutdown wake, partial frame/metadata failures, baseline callback failure and UTF-8 fault handling. Diagnostics also retain later failure evidence across repeated zero-processing recoveries, incident acknowledgement, disabling and interface recreation, without storing oversized input payloads. Activation regressions distinguish safely routed/skipped calls from genuinely untracked legacy evaluation. Tests model selected interleavings; they are not a native concurrency stress test.
 
 ## Runtime behavior
 
@@ -18,7 +18,7 @@ The executable model passes 350 checks: safety 129, read-only probe 44, shadow 6
 - Worker wake is 50 ms; maximum batch is 32 records with a 20 ms budget checked between records. Synchronous receiver calls cannot be interrupted by this budget. Worker timers stop at an empty queue, and shutdown shares queue ownership with producer wake scheduling.
 - Heartbeat has no priority, reserved capacity or bypass. Tokens and resets use the same admission, worker, evaluator, throttles and delivery as every other sensor input.
 - Apply waits for worker ownership and a drained old-configuration prefix before activating a new graph. Startup/recovery samples current values twice and checks a setup-observation generation. This detects observed movement but is not atomic physical sampling. Inputs crossing the restart/configuration baseline boundary may be unavailable as historical edges; the incident remains visible.
-- Legacy evaluation remains the default. A short ownership marker allows safe opt-in cutover. If legacy calls overlap, existing concurrent behavior continues while FIFO activation is blocked until the module interface is recreated. This prevents activating over an untracked running legacy evaluator.
+- Legacy evaluation remains the default. A short ownership marker allows safe opt-in cutover. If legacy calls overlap, existing concurrent behavior continues while FIFO activation is blocked while the historical guard is retained. This prevents activating over an untracked running legacy evaluator.
 
 ## Fault and recovery policy
 
@@ -39,7 +39,7 @@ Recovery does **not** require acknowledgement to continue processing and adds no
 | Clear recovered FIFO incident | Clears only the warning after valid current monitoring; it is not required for automatic recovery. |
 | Print input FIFO report | Read-on-demand JSON with session/previous-session metrics, unknown inputs and limits; last_fault retains the last published fault through disabling/recreation, and previous_session.recovery_fault identifies available evidence captured before recovery cleared the current fault. Later observations can coalesce under fault-lock contention. |
 
-The report also includes applied `configured_enabled`, actual-runtime `enabled`, `activation_blocked` and `health`, so an enabled checkbox cannot be mistaken for an active FIFO. A retained concurrency guard is reset by `Create()`; ordinary Apply does not clear it, and library reload is not documented as invoking Create. Follow the [activation restart procedure](module1-fifo-activation-guard.md), rather than repeating library reloads.
+The report distinguishes applied `configured_enabled`, actual-runtime `enabled`, `activation_blocked` and `health`. It now includes `input_diagnostic`, with bounded native contract observations collected while live FIFO is disabled. An enabled checkbox is not evidence of activation. Ordinary Apply, an idle worker, elapsed time and library reload do not prove that old untracked evaluations ended. Do not clear the retained guard.
 
 ## Bounds and performance
 
@@ -49,13 +49,10 @@ These are serialized bounds, not a PHP resident-memory budget. Arrays, copy-on-w
 
 The diagnostic hotfix adds one bounded retained fault record, with a reason capped at the existing 512-byte prefix (UTF-8 replacement can add a few bytes). It writes only on faults or when retaining an unavailable-detail fallback at recovery, suppressing identical record writes. Native type/byte descriptions are built only for rejected inputs; sensor strings are not retained. Healthy input admission, queue ordering and recovery/dispatch policy are unchanged. CPU/resident RAM remain unmeasured; these anomaly-only diagnostics do not establish FIFO performance or correct the production recovery loop.
 
-## Supervised production procedure
+## Current production procedure
 
-1. Keep the working `Version2.14.0-shadow.3` / commit `874ac87e3e17fb165b1387637e942ffef9e2eb1f` as the return point. The existing main branch is a second known fallback. Export configuration before native update.
-2. Update Module Control from `design/module1-fifo`. Initially leave **Use FIFO for live Module 1 alarm processing** disabled. Stop/disable the shadow comparator for this test. Confirm Module 1 creates normally, configuration integrity is healthy, and all four heartbeat targets complete normally.
-3. While present, enable the new checkbox and Apply. Confirm Input FIFO Health is running, `ready=true`, no unknown input/fault, and no pending Apply. Monitor at least five complete heartbeat cycles with every target OK.
-4. Under the existing alarm policy, exercise a normal door open/close and approved house-state transitions. Inspect live Module 2 behavior, Module 3 results and the FIFO report. Existing M2 live rereads can still miss an open/close that completes before its own evaluation; this is an accepted narrower-scope limitation.
-5. Continue supervision through representative normal traffic. Native heavy bursts and slow synchronous receiver behavior remain production-validation items. Do not deliberately overload live sensors or introduce additional siren/ASK outputs to prove capacity; bounded overflow is already tested in the executable model.
-6. If heartbeat becomes missing, latency grows persistently, an instance fails to create or current monitoring cannot recover, disable FIFO and Apply after the retained prefix drains. If that cannot complete, return Module Control to the prior working build. Rollback cannot recover observations or undo actions already sent.
+Leave live FIFO disabled, Apply and confirm ordinary heartbeat. Update from `design/module1-fifo`, start **Start passive FIFO input check (15 seconds)**, then use **Print input FIFO report** after about 15 seconds. Do not change configuration during capture. Send the complete report. No extra alarm outputs, event injection, service restart or live FIFO activation are requested. Detailed limits and API calls are in the [passive diagnostic instructions](module1-fifo-passive-input-diagnostics.md).
+
+Actual live FIFO acceptance, recovery-loop resolution and restart-free cutover remain deferred. Rollback cannot recover observations or undo actions already sent.
 
 This branch is not automatically merged or deployed. Modules 2/3, receiver acceptance/retry/deduplication, historical PSM evidence, intrusion cancellation and expanded PSM webpage/acknowledgement controls remain outside scope; see the [accepted design](module1-fifo-design.md) and [deferred backlog](module1-fifo-coordinated-backlog.md).

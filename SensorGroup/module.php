@@ -1,16 +1,18 @@
 <?php
-// Version2.14.0-fifo.4
+// Version2.14.0-fifo.5
 declare(strict_types=1);
 
 require_once __DIR__ . '/StateIntegrity.php';
 require_once __DIR__ . '/FifoShadow.php';
 require_once __DIR__ . '/FifoRuntime.php';
+require_once __DIR__ . '/FifoInputDiagnostic.php';
 
 class SensorGroup extends IPSModule
 {
     use SensorGroupStateIntegrity;
     use SensorGroupFifoShadow;
     use SensorGroupFifoRuntime;
+    use SensorGroupFifoInputDiagnostic;
     public function Create()
     {
         parent::Create();
@@ -2581,6 +2583,7 @@ class SensorGroup extends IPSModule
             return;
         }
         $legacyInput = ['counter' => $TimeStamp, 'id' => (int)$SenderID, 'data' => $Data, 'entered_ns' => hrtime(true)];
+        if ((int)$Message === VM_UPDATE) $this->ObserveInputFifoDiagnostic($TimeStamp, (int)$SenderID, $Data);
         $shadowTicket = (int)$Message === VM_UPDATE
             ? $this->FifoShadowInput($TimeStamp, (int)$SenderID, $Data)
             : null;
@@ -3923,7 +3926,7 @@ class SensorGroup extends IPSModule
         if (($_GET['api'] ?? '') === 'fifo_status') {
             header('Content-Type: application/json; charset=utf-8');
             if ($this->ReadAttributeBoolean('FifoOwned')) $this->PublishInputFifo();
-            echo json_encode(['health' => $this->GetValue('InputFifoHealth'), 'incident' => $this->ReadAttributeString('FifoIncident'), 'last_fault' => json_decode($this->ReadAttributeString('FifoLastFault'), true)]);
+            echo json_encode(['health' => $this->GetValue('InputFifoHealth'), 'incident' => $this->ReadAttributeString('FifoIncident'), 'last_fault' => json_decode($this->ReadAttributeString('FifoLastFault'), true), 'input_diagnostic' => $this->InputFifoDiagnosticReport()]);
             return;
         }
 
@@ -5035,6 +5038,14 @@ class SensorGroup extends IPSModule
                         const panel = document.getElementById("fifo-status");
                         panel.textContent = data.health + (data.incident ? "\\n" + data.incident : "");
                         if (data.last_fault) panel.textContent += "\\nLast FIFO fault (retained): " + (data.last_fault.observed_at || "time unavailable") + " | " + data.last_fault.reason;
+                        if (data.input_diagnostic) {
+                            const check = data.input_diagnostic;
+                            if (check.report_busy) panel.textContent += "\\nPassive input check: report busy; retry.";
+                            else {
+                                panel.textContent += "\\nPassive input check: " + (check.active ? "running" : "ended") + "; observed " + check.observed + "; rejected " + check.rejected + (check.incomplete ? "; incomplete" : "");
+                                for (const example of check.examples) panel.textContent += "\\n" + example.reason;
+                            }
+                        }
                         panel.style.background = data.incident ? "#603d00" : "#20332a";
                     } catch(e) {}
                 }
@@ -5663,6 +5674,8 @@ class SensorGroup extends IPSModule
         ]];
         $form['actions'][] = ['type' => 'Button', 'caption' => 'Retry input FIFO baseline', 'onClick' => 'MYALARM_RecoverInputFifo($id);'];
         $form['actions'][] = ['type' => 'Button', 'caption' => 'Print input FIFO report', 'onClick' => 'echo MYALARM_GetInputFifoReport($id);'];
+        $form['actions'][] = ['type' => 'Button', 'caption' => 'Start passive FIFO input check (15 seconds)', 'onClick' => 'echo MYALARM_StartInputFifoDiagnostic($id, 15);'];
+        $form['actions'][] = ['type' => 'Button', 'caption' => 'Stop passive FIFO input check', 'onClick' => 'MYALARM_StopInputFifoDiagnostic($id);'];
         $form['actions'][] = ['type' => 'Button', 'caption' => 'Clear recovered FIFO incident', 'onClick' => 'MYALARM_ClearInputFifoIncident($id);'];
 
         // === DEBUG: exit GetConfigurationForm ===
