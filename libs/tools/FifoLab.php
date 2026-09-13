@@ -1,5 +1,6 @@
 <?php
 declare(strict_types=1);
+require_once __DIR__.'/FifoHeartbeatLab.php';
 
 /** Native inputs exercise the actual Module 1 FIFO, without any dispatch targets. */
 final class FifoLab
@@ -7,7 +8,7 @@ final class FifoLab
     public const IDENT = 'MyAlarmFifoLab';
     public const LOAD_IDENT = 'MyAlarmFifoLoadLab';
     public const MODULE = '{43FBB397-C412-41B2-192E-97054481316D}';
-    public const SCENARIOS = ['sequential', 'interleaved', 'concurrent_flicker', 'refresh_noise', 'baseline_race', 'admission_contention', 'rule_verification'];
+    public const SCENARIOS = ['sequential', 'interleaved', 'concurrent_flicker', 'refresh_noise', 'baseline_race', 'admission_contention', 'rule_verification', 'heartbeat_overlap'];
     public const INPUTS = ['Door'=>0, 'NoiseA'=>0, 'NoiseB'=>0, 'NoiseC'=>0, 'Token'=>1, 'Count'=>0, 'Once'=>0, 'Reference'=>0];
 
     private static function rootIdent(string $profile): string
@@ -209,11 +210,12 @@ final class FifoLab
         if($stop) { SetValue($m['active'],''); self::disabled($m);return; }
         $lock='MyAlarmFifoLabRun_'.$root;
         if(!IPS_SemaphoreEnter($lock,1))throw new RuntimeException('A lab scenario is already running.');
-        $session=bin2hex(random_bytes(8));$started=hrtime(true);$heldQueue=false;$report=[];$ownsSession=false;
+        $session=bin2hex(random_bytes(8));$started=hrtime(true);$heldQueue=false;$report=[];$ownsSession=false;$heartbeat=null;
         try {
             if(GetValue($m['active'])!=='')throw new RuntimeException('Previous lab session is still active; stop it before another run.');
             SetValue($m['active'],$session);$ownsSession=true;
             $scenario=(string)GetValue($m['scenario']);if(!in_array($scenario,self::SCENARIOS,true))throw new RuntimeException('Choose one of: '.implode(', ',self::SCENARIOS));
+            if($scenario==='heartbeat_overlap')$heartbeat=FifoHeartbeatLab::prepare($m);
             // Only the eight scenario inputs are reset. Never flood the load graph.
             foreach(self::INPUTS as$name=>$type)SetValue($m['inputs'][$name],$type===1?0:false);
             SetValue($m['inputs']['Reference'],true);self::disabled($m);self::waitMs(150);
@@ -232,6 +234,7 @@ final class FifoLab
             foreach($m['done'] as $id)SetValue($id,'');
             if($scenario==='admission_contention') { $heldQueue=IPS_SemaphoreEnter('Mod1_InputQueue_'.$m['module'],1);if(!$heldQueue)throw new RuntimeException('Could not acquire the lab-only admission mutex for this scenario.'); }
             for($role=0;$role<3;++$role){if(GetValue($m['active'])!==$session)throw new RuntimeException('Lab session cancelled during producer launch.');if(!IPS_RunScriptEx($m['runner'],['lab_action'=>'produce','session'=>$session,'scenario'=>$scenario,'role'=>$role]))throw new RuntimeException('Producer launch failed.');}
+            if($scenario==='heartbeat_overlap'){self::waitMs(25);if(GetValue($m['active'])!==$session)throw new RuntimeException('Lab cancelled before ordinary heartbeat request.');$heartbeat=FifoHeartbeatLab::invoke($heartbeat);}
             if($heldQueue) { self::waitMs(40); IPS_SemaphoreLeave('Mod1_InputQueue_'.$m['module']);$heldQueue=false; }
             if($scenario==='baseline_race')for($i=0;$i<3;++$i){MYALARM_RecoverInputFifo($m['module']);self::waitMs(10);}
             $deadline=hrtime(true)+4000000000;$producers=[];
@@ -241,6 +244,11 @@ final class FifoLab
             do { $after=self::report($m);if(($after['test']['paused']??false)||(($after['metrics']['count']??0)===0 && ($after['metrics']['processed']??0)-($before['metrics']['processed']??0)>=$changes && ($scenario!=='rule_verification' || ($after['verification']['covers_processed_snapshot']??false))))break;self::waitMs(25); }while(hrtime(true)<$deadline);
             $processed=($after['metrics']['processed']??0)-($before['metrics']['processed']??0);
             $report=['schema'=>1,'session'=>$session,'scenario'=>$scenario,'module_id'=>$m['module'],'profile'=>$m['profile']??'small','graph_counts'=>self::graphCounts($m),'mode'=>'isolated native Module 1 FIFO; no dispatch targets','elapsed_ms'=>(hrtime(true)-$started)/1000000,'producers'=>$producers,'expected_changed_writes'=>$changes,'processed_delta'=>$processed,'cancelled'=>GetValue($m['active'])!==$session,'comparison_incomplete'=>GetValue($m['active'])!==$session||$processed!==$changes||count($producers)!==3||in_array(false,array_column($producers,'completed'),true)||($after['test']['paused']??false)||($after['metrics']['recoveries']??0)!==($before['metrics']['recoveries']??0),'changed_write_count_matches_processed'=>count($producers)===3 && !in_array(false,array_column($producers,'completed'),true) && $changes===$processed && !($after['test']['paused']??false) && ($after['metrics']['recoveries']??0)===($before['metrics']['recoveries']??0),'fifo_before'=>$before,'fifo_after'=>$after];
+            if($scenario==='heartbeat_overlap') {
+                $report['mode']='Isolated native Module 1 FIFO plus one ordinary production watchdog cycle';
+                $report['heartbeat_overlap']=FifoHeartbeatLab::finish($heartbeat,$report);
+                if(!$report['heartbeat_overlap']['passed'])$report['comparison_incomplete']=true;
+            }
             if($scenario==='rule_verification') {
                 $report['rule_verification']=self::verifyRules($m,$after);
                 if(!$report['rule_verification']['passed'])$report['comparison_incomplete']=true;
@@ -331,6 +339,7 @@ final class FifoLab
         }
         } catch(Throwable $e) {$error=substr($e->getMessage(),0,512);}
         if(GetValue($m['active'])!==$session)return;
-        SetValue($m['done'][$role],json_encode(['error'=>$error,'session'=>$session,'role'=>$role,'writes'=>$writes,'changes'=>$changes,'completed'=>$error===null && $writes===count($ops),'elapsed_ms'=>(hrtime(true)-$started)/1000000,'timing_lateness_max_ms'=>$lateMax],JSON_THROW_ON_ERROR));
+        $ended=hrtime(true);
+        SetValue($m['done'][$role],json_encode(['started_ns'=>$started,'ended_ns'=>$ended,'error'=>$error,'session'=>$session,'role'=>$role,'writes'=>$writes,'changes'=>$changes,'completed'=>$error===null && $writes===count($ops),'elapsed_ms'=>($ended-$started)/1000000,'timing_lateness_max_ms'=>$lateMax],JSON_THROW_ON_ERROR));
     }
 }

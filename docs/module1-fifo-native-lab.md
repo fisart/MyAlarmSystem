@@ -1,6 +1,28 @@
 # Native FIFO timing lab
 
-## fifo.10: current next native action
+## fifo.11: current next native action — real heartbeat overlap
+
+Update **design/module1-fifo** to **Version2.14.0-fifo.11**. Keep production FIFO/shadow/failure capture OFF, including actual FIFO/test ownership. In existing **MyAlarmFifoLoadLab / Module1Test 54312**, set **Scenario** to `heartbeat_overlap`, run **RunScenario once**, and provide **Result**. No reinstall, new variables, Symcon restart or guard reset.
+
+This scenario launches the ordinary isolated 70-change concurrent workload. After a requested 25 ms coordinator wait, it requests **one extra normal production heartbeat** using `AHW_RunCycle(35750)`. The watchdog uses its existing cycle semaphore, input token/reset and existing routes. The production timer remains unchanged. It may also run a natural cycle; the report does not attribute a new token to a particular caller. The lab has no alarm outputs. Production Module 1 23172 continues its existing evaluator; this test does not place real heartbeat into production FIFO.
+
+Read-only preflight checks known module GUIDs, production flags and actual FIFO/test OFF, absence of unapplied production/watchdog changes, effectively active heartbeat, idle integer input outside the lab, existing pulse duration at most 3 seconds, and bounded configured integer watch targets. It reads no secrets or notification settings. A missing/busy/pulsing configuration prevents this test before producer launch; inspect Result before retrying.
+
+Each producer records start/end monotonic timestamps in its existing completion status, not per-event logs. Newly observed real heartbeat sends are mapped from the watchdog's local milliseconds-since-midnight token into that clock reference, with midnight wrap, mapping uncertainty and drift checks. A send must fall fully inside at least one measured producer execution interval, accounting for timestamp uncertainty. All configured targets, including Module 1 callback, must report exact matching token and valid correlated update/runtime with OK status. Producer intervals include their planned waits; they do not prove continuous CPU execution. Callback completion can occur after the burst.
+
+Require `heartbeat_overlap.passed=true`, status passed, complete lab accounting (70 changed writes/admissions/processed, no new fault/pause, stable baseline, empty queue), and actual `after_disable.enabled=false`. If send misses the burst, the normal cycle skips its busy semaphore, confirmations are pending/WAITING, clocks cannot be trusted or callback timestamps are inferred rather than recorded, the result cannot pass. Known terminal failures remain failed even if another target is pending. No repeated heartbeat requests or auto-retries; provide an inconclusive/failed Result before another run. At most three new heartbeat entries are included; existing Result is capped at 64 KB.
+
+**Duration/cancellation:** lab startup/producer/drain polling retains existing 2/4/2-second limits. These are not hard deadlines around the synchronous normal watchdog call: it has its existing cycle wait up to 1 second, history semaphore waits up to 5 seconds, configured pulse sleep (preflight permits at most 3 seconds), and normal report/notification I/O. The lab does not cancel or modify an invoked production heartbeat. StopScenario before invocation prevents the extra request; afterward let its ordinary cycle/token reset finish. API exceptions are recorded and cannot pass; lab cleanup still requests actual Disable. Shared native services and CPU/resident RAM remain unmeasured.
+
+Local workflow: **650 checks / twelve suites**,26 syntax files,all38 commands. New heartbeat suite35 checks; independent review covers clock/schema/pending/terminal failures, ordinary API use, diagnostic isolation, cancellation and cleanup. Native overlap is still pending.
+
+## Completed fifo.10 native semantic evidence
+
+Session `94c9625cbbb37b92`, baseline 23:07:02+02:00: producer completed nine changed writes in9.257ms, all9observed/admitted/processed, peak9/128 (1614bytes), empty, no current fault/pause, stable baseline, actual OFF. All ten fixed-plan assertions true; audit complete/current/covered with seq1..9 and all eight mirror values.
+
+Rows confirm Door active/clear; COUNT buffers1/1/2 and active only at second direct activation; ONCE condition/pulse created then cleared; token71001 and reset0 distinct with existing CHANGE pulse behavior. Maxlag153.437ms,4batches,evaluation79.564ms,workerelapsed99.075ms (excludes final optional audit persistence). Incident22:56:06 is retained prior deliberately forced fault; not current. Scope is evaluated decisions, not downstream delivery or cross-producer physical order.
+
+## fifo.10 semantic test (completed instructions)
 
 Update **design/module1-fifo** to **Version2.14.0-fifo.10**, keep production FIFO/shadow/failure capture OFF, and use the existing **MyAlarmFifoLoadLab / Module1Test 54312**. No reinstall, new inputs, Symcon restart or guard reset is needed. Set **Scenario** to `rule_verification`, run **RunScenario once**, and provide **Result**.
 

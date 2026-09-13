@@ -5,7 +5,19 @@ Baseline: `59e413ead4d6a85a5336583af7788ee9175d0a49` (merged PR #2).
 Reviewed design: [deferred coordinated architecture](module1-fifo-coordinated-backlog.md).
 Current scope: [Module 1-only design](module1-fifo-design.md).
 
-## Current fifo.10 isolated semantic verification review
+## Current fifo.11 one-cycle real heartbeat overlap review
+
+Read-only independent review of `FifoHeartbeatLab.php`, lab integration/completion timestamps and tests found no false-success path in the integrated scenario. It approved one supervised isolated70-write lab plus one ordinary production `AHW_RunCycle` after diagnostic classification revisions; no production FIFO or main merge approval.
+
+Revisions: native WAITING joins pending states and remains inconclusive; known terminal MISSING/LATE/ERROR/VARIABLE_MISSING wins even if another target is pending. Fixtures cover both cases. Correlated token/update/runtime checks reject inferred Module1 OK without a recorded callback. Only a send inside a measured producer interval with clock uncertainty margin can pass; healthy before/after timestamps cannot substitute. Extra overlapping bad/pending cycles cannot be hidden by one OK cycle.
+
+The helper changes no production configuration, watchdog code, timer or routes; no direct heartbeat variable write/SendHeartbeat/priority/bypass. It uses the existing normal watchdog cycle lock and token/reset. Read-only preflight verifies actual production FIFO/test OFF, effectively active heartbeat, idle nonlab integer input and bounded configured watch targets. Completion status adds two timestamps only; bounded history reads and at most three new entries, no repeated cycles/history polling/archive/event scripts. Normal API exceptions are explicit, prevent pass and preserve lab cleanup.
+
+Duration caveat: synchronous RunCycle can use its normal1s cycle wait,5s history waits,configured pulse sleep (test permits<=3s),report/notification I/O. Lab2/4/2s polling limits cannot cancel/bound that invoked production call. Cancellation before invocation prevents it; let started ordinary cycle/reset finish. Producer execution intervals include planned waits and do not establish continuous CPU contention. No CPU/residentRAM or production FIFO heartbeat claim.
+
+Local650checks/twelvesuites/26syntax/all38workflow commands; native Result pending. Original legacy event-loss cause and actual downstream production-policy/delivery gates remain unresolved.
+
+## fifo.10 isolated semantic verification review
 
 A separate read-only reviewer independently reviewed `FifoVerification.php`, worker hooks, the fixed-plan lab verifier and regression tests. They ran verification32 (then33 after revision), runtime109, lab58, scheduling31 and timing24 checks. Verdict: **approved for the supervised isolated nine-write `rule_verification` test only**, no remaining blocker for that scope. No main merge or production approval.
 
