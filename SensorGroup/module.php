@@ -1,5 +1,5 @@
 <?php
-// Version2.13.3
+// Version2.13.4
 declare(strict_types=1);
 
 require_once __DIR__ . '/StateIntegrity.php';
@@ -295,9 +295,10 @@ class SensorGroup extends IPSModule
             $this->ReportConfigurationError('Apply rejected: ' . implode('; ', array_slice($errors, 0, 10)));
             $previous = $this->ReadAttributeString('ActiveConfiguration');
             $this->WriteAttributeString('ActiveRevision', $previous === '' ? '' : hash('sha256', $previous));
+            $this->RestoreLastActiveInputRuntime();
             $this->WriteAttributeInteger('PostApplyAction', 1);
             $this->SetTimerInterval('PostApplyTimer', 1000);
-            return; // Keep previous subscriptions, active graph and monitoring intact. Never prune.
+            return; // Retain active graph and restore missing subscriptions; never activate the rejected draft.
         }
         $json = json_encode($candidate);
         if ($this->ReadAttributeString('ActiveConfiguration') !== $json) {
@@ -374,6 +375,8 @@ class SensorGroup extends IPSModule
                 $this->RegisterMessage($vid, VM_UPDATE);
             }
         }
+
+        $this->RestoreLastActiveInputRuntime(); // Also register dynamic tamper comparison dependencies.
 
         // 4. VARIABLES (Status)
         $keepIdents = ['Status', 'Sabotage', 'TrafficDiagnostics', 'EventData', 'ConfigurationHealth'];
@@ -5042,14 +5045,15 @@ class SensorGroup extends IPSModule
             $form['elements'][] = [
                 "type"     => "List",
                 "name"     => "BedroomList",
+                "loadValuesFromConfiguration" => false,
                 "visible"  => false,
                 "rowCount" => 1,
                 "add"      => false,
                 "delete"   => false,
                 "columns"  => [
-                    ["caption" => "GroupName",          "name" => "GroupName",          "width" => "150px"],
-                    ["caption" => "ActiveVariableID",   "name" => "ActiveVariableID",   "width" => "120px"],
-                    ["caption" => "BedroomDoorClassID", "name" => "BedroomDoorClassID", "width" => "150px"]
+                    ["caption" => "GroupName",          "name" => "GroupName",          "width" => "150px", "save" => true],
+                    ["caption" => "ActiveVariableID",   "name" => "ActiveVariableID",   "width" => "120px", "save" => true],
+                    ["caption" => "BedroomDoorClassID", "name" => "BedroomDoorClassID", "width" => "150px", "save" => true]
                 ],
                 "values" => []
             ];
@@ -5348,6 +5352,11 @@ class SensorGroup extends IPSModule
                                     ]
                                 ]
                             ]
+                        ],
+                        [
+                            'type' => 'Button',
+                            'caption' => 'Restore bedroom draft from running configuration',
+                            'onClick' => 'echo MYALARM_RestoreActiveBedroomDraft($id);'
                         ],
                         [
                             'type'     => 'List',

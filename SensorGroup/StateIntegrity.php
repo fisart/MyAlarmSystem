@@ -20,6 +20,29 @@ trait SensorGroupStateIntegrity
         return $this->ActiveConfig()[$name] ?? [];
     }
 
+    /** Rejected drafts must not leave a recreated interface without monitoring. */
+    private function RestoreLastActiveInputRuntime(): void
+    {
+        $config = $this->ActiveConfig();
+        if (!$config || AlarmSafety::validate($config)) return;
+        $ids = [];
+        foreach (array_merge($config['SensorList'], $config['TamperList']) as $row) {
+            $ids[(int)$row['VariableID']] = true;
+            if ((int)($row['TriggerMode'] ?? 0) !== 1 && (int)($row['ComparisonSource'] ?? 0) === 1) {
+                $ids[(int)($row['ComparisonVariableID'] ?? 0)] = true;
+            }
+        }
+        foreach ($config['BedroomList'] as $row) $ids[(int)$row['ActiveVariableID']] = true;
+        unset($ids[0]);
+        $messages = $this->GetMessageList();
+        foreach (array_keys($ids) as $id) {
+            if (IPS_VariableExists($id) && !in_array(VM_UPDATE, $messages[$id] ?? [], true)) {
+                $this->RegisterMessage($id, VM_UPDATE);
+            }
+        }
+        if ($this->GetTimerInterval('PulseExpireTimer') === 0) $this->UpdatePulseExpireTimer();
+    }
+
     private function IdentityBaseline(): array
     {
         $previous = $this->ActiveConfig();
@@ -68,6 +91,21 @@ trait SensorGroupStateIntegrity
         $dirty = json_decode($this->ReadAttributeString('DraftSections'), true) ?: [];
         $dirty[$name] = true;
         $this->WriteAttributeString('DraftSections', json_encode($dirty));
+    }
+
+    /** Explicit repair for a corrupted bedroom draft; all other edits and runtime remain untouched. */
+    public function RestoreActiveBedroomDraft(): string
+    {
+        $revision = $this->ReadAttributeString('ActiveRevision');
+        if ($revision === '' || $revision === 'updating') throw new RuntimeException('Wait for a validated running configuration before restoring the bedroom draft.');
+        $active = $this->ActiveConfig();
+        if (!$active || AlarmSafety::validate($active)) throw new RuntimeException('The running configuration is unavailable or invalid; bedroom draft was not changed.');
+        if ($this->ReadAttributeString('ActiveRevision') !== $revision) throw new RuntimeException('Running configuration changed; retry restoring the bedroom draft.');
+        $json = json_encode($active['BedroomList'], JSON_THROW_ON_ERROR);
+        $this->WriteDraftList('BedroomListBuffer', $json);
+        $this->UpdateFormField('BedroomList', 'values', $json);
+        $this->ReloadForm();
+        return 'Bedroom draft restored from the running configuration. Other edits are retained. Press COMMIT ALL CHANGES TO DISK to validate and apply the complete draft.';
     }
 
     private function WorkingList(string $name): array

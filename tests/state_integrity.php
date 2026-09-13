@@ -43,7 +43,7 @@ $livePath = getenv('ALARM_LIVE_CONFIG');
 if ($livePath) {
     $live = json_decode(file_get_contents($livePath), true, 512, JSON_THROW_ON_ERROR);
     check(AlarmSafety::validate($live) === [], 'uploaded live graph valid');
-    check(count($live['SensorList']) === 393 && count($live['ClassList']) === 61 && count($live['GroupMembers']) === 69 && count($live['GroupDispatch']) === 57, 'live regression counts');
+    check(count($live['SensorList']) === (int)(getenv('ALARM_LIVE_SENSOR_COUNT') ?: 393) && count($live['ClassList']) === 61 && count($live['GroupMembers']) === 69 && count($live['GroupDispatch']) === 57, 'live regression counts');
     $plan = AlarmSafety::compile($live, mapping(), 56438);
     check(!$plan['errors'] && count($plan['sources']) === 7 && count($plan['bedrooms']) === 6, 'live mappings and separate bedroom routes compile');
     $values = array_fill_keys(array_keys($plan['dependencies']), false);
@@ -148,6 +148,27 @@ IPS_SetProperty(23172,'SensorList',json_encode($bad['SensorList']));
 check($m1->GetConfiguration() === $active, 'pending property cannot leak into discovery');
 IPS_ApplyChanges(23172);
 check($m1->GetConfiguration() === $active && $m1->attributes['ConfigurationError'] !== '', 'invalid ordinary Apply retains last valid graph');
+// Native module reload discards interface-owned subscriptions and timers.
+$subscriptionsBeforeReload = $m1->messages;
+$m1->messages = []; $m1->timers['PulseExpireTimer'] = 0;
+$pulseBeforeReload = json_encode([41447 => time() + 100]);
+$m1->attributes['SensorPulseUntilMap'] = $pulseBeforeReload;
+IPS_ApplyChanges(23172); // Rejected candidate must rebuild from the validated graph.
+check($m1->messages === $subscriptionsBeforeReload, 'rejected Apply after reload restores last-active subscriptions');
+check($m1->GetTimerInterval('PulseExpireTimer') > 0 && $m1->attributes['SensorPulseUntilMap'] === $pulseBeforeReload, 'rejected reload restores pulse wake without modifying pulse state');
+check($m1->GetConfiguration() === $active && $m1->attributes['ConfigurationError'] !== '', 'runtime recovery does not activate rejected properties');
+$m1->attributes['SensorPulseUntilMap'] = '{}'; $m1->timers['PulseExpireTimer'] = 0;
+IPS_SetProperty(23172, 'SensorList', json_encode($config['SensorList']));
+$badBedroomDraft = json_encode([['GroupName'=>0, 'BedroomDoorClassID'=>false, 'ActiveVariableID'=>'']]);
+IPS_SetProperty(23172, 'BedroomList', $badBedroomDraft);
+$classesBeforeRecovery = $m1->attributes['ClassStateAttribute'];
+$m1->messages = [];
+IPS_ApplyChanges(23172);
+check($m1->messages === $subscriptionsBeforeReload && str_contains($m1->attributes['ConfigurationError'], 'BedroomList'), 'malformed production bedroom draft cannot strand recreated subscriptions');
+check($m1->pending['BedroomList'] === $badBedroomDraft && $m1->GetConfiguration() === $active && $m1->attributes['ClassStateAttribute'] === $classesBeforeRecovery, 'recovery preserves draft, active graph and COUNT state separately');
+IPS_SetProperty(23172, 'BedroomList', json_encode($config['BedroomList']));
+
+
 $m2->SetValue('SystemState',3); $GLOBALS['variables'][41447]=true; $m2->RefreshSafetyState();
 check($m2->GetValue('SystemState') === 9, 'valid intrusion survives rejected configuration');
 $GLOBALS['variables'][41447]=false;
