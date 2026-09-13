@@ -28,6 +28,10 @@ The stub does not emulate Symcon scheduling, console form callbacks, device driv
 
 ## Delivery
 
+### Production follow-up: Module 1 v2.13.2
+
+Module 2 interface creation reported `InstanceInterface is not available` at both snapshot API `GetBuffer` calls. The API now uses registered attributes for ActiveRevision and the bounded SafetyPlan, removing its dependency on the runtime-buffer interface during cross-module initialization. Activation and consumer notification use the same attributes. The plan contains configuration only: every snapshot still reads current sensor values. Plan writes occur only on a cache miss with Remember=true; revision writes occur during Apply. Persistence allows reuse of the validated active configuration and compiled plan after restart, while empty/updating revisions still return invalid snapshots. No event polling, waits, archive writes or per-read plan writes were introduced. Tests deny both buffer reads and writes for Module 1 while executing Module 2 Apply, including a cache rebuild. Real Symcon instance-creation recovery still requires verification after updating; no status code is forced to hide an initialization failure.
+
 ### Production follow-up: Module 1 v2.13.1
 
 Live diagnostics identified integer value 2 on the four guest-room/office usage selectors, with valid Boolean door values. The safety evaluator previously accepted only Boolean and integer 0/1. It now accepts integer selectors using the same zero/nonzero conversion as existing BEDROOM_SYNC. With Module 2's configured `unused` polarity, 0 means used and 2 means unused. Missing variables and unsupported types remain unknown; door evaluation is unchanged. Regression checks cover the reported live values, internal arming with an unused bedroom open, disarming when the selector changes to used, and rejection of missing/malformed usage. This adds no reads, timers or logging.

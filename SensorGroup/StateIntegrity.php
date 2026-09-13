@@ -89,16 +89,16 @@ trait SensorGroupStateIntegrity
     /** New control API. It does not dispatch events, update COUNT/pulses, or wait on a semaphore. */
     public function GetSafetySnapshot(string $Mapping, int $TargetID, bool $Remember = true): string
     {
-        $revision = $this->GetBuffer('ActiveRevision');
-        if ($revision === '' || $revision === 'updating') return json_encode(['schema' => 1, 'source_id' => $this->InstanceID, 'target_id' => $TargetID, 'valid' => false, 'sources' => [], 'bedrooms' => [], 'errors' => ['Module 1 has no validated active configuration']]);
+        $revision = $this->ReadAttributeString('ActiveRevision');
+        if (!is_string($revision) || $revision === '' || $revision === 'updating') return json_encode(['schema' => 1, 'source_id' => $this->InstanceID, 'target_id' => $TargetID, 'valid' => false, 'sources' => [], 'bedrooms' => [], 'errors' => ['Module 1 has no validated active configuration']]);
         $mapping = json_decode($Mapping, true);
         if (!is_array($mapping) || count($mapping) > 128) throw new InvalidArgumentException('Invalid safety mapping');
         $key = hash('sha256', $revision . '|' . $TargetID . '|' . $Mapping);
-        $cached = json_decode($this->GetBuffer('SafetyPlan'), true);
+        $cached = json_decode($this->ReadAttributeString('SafetyPlan'), true);
         if (!is_array($cached) || ($cached['key'] ?? '') !== $key) {
             $cached = ['key' => $key, 'target' => $TargetID, 'maintenance' => (bool)($this->ActiveConfig()['MaintenanceMode'] ?? false), 'plan' => AlarmSafety::compile($this->ActiveConfig(), $mapping, $TargetID)];
             // One bounded consumer cache. The installation has one PSM.
-            if ($Remember) $this->SetBuffer('SafetyPlan', json_encode($cached));
+            if ($Remember) $this->WriteAttributeString('SafetyPlan', json_encode($cached));
         }
         $result = AlarmSafety::evaluate($cached['plan'], static function (int $id) {
             return $id > 0 && IPS_VariableExists($id) ? GetValue($id) : null;
@@ -107,15 +107,15 @@ trait SensorGroupStateIntegrity
         // A rejected candidate is diagnostic only; the validated active graph is unchanged.
         if ($cached['maintenance']) $result['errors'][] = 'Module 1 maintenance mode';
         // Refuse to combine values from different activation generations.
-        if ($this->GetBuffer('ActiveRevision') !== $revision) {
+        if ($this->ReadAttributeString('ActiveRevision') !== $revision) {
             $result = ['sources' => [], 'bedrooms' => [], 'errors' => ['Configuration changed during safety evaluation']];
         }
-        return json_encode(['schema' => 1, 'source_id' => $this->InstanceID, 'target_id' => $TargetID, 'revision' => $revision, 'valid' => !$result['errors'], 'configuration_valid' => !$cached['plan']['errors'] && $this->GetBuffer('ActiveRevision') === $revision] + $result);
+        return json_encode(['schema' => 1, 'source_id' => $this->InstanceID, 'target_id' => $TargetID, 'revision' => $revision, 'valid' => !$result['errors'], 'configuration_valid' => !$cached['plan']['errors'] && $this->ReadAttributeString('ActiveRevision') === $revision] + $result);
     }
 
     private function NotifySafetyConsumer(int $trigger, array $alreadySent = []): void
     {
-        $cached = json_decode($this->GetBuffer('SafetyPlan'), true);
+        $cached = json_decode($this->ReadAttributeString('SafetyPlan'), true);
         $target = (int)($cached['target'] ?? ($this->ActiveConfig()['BedroomTarget'] ?? 0));
         if ($target <= 0 || in_array($target, $alreadySent, true) || !IPS_InstanceExists($target)) return;
         if ($trigger > 0 && !isset($cached['plan']['dependencies'][$trigger])) return;

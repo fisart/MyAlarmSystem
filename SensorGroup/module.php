@@ -1,5 +1,5 @@
 <?php
-// Version2.13.1
+// Version2.13.2
 declare(strict_types=1);
 
 require_once __DIR__ . '/StateIntegrity.php';
@@ -24,6 +24,9 @@ class SensorGroup extends IPSModule
         $this->RegisterPropertyBoolean('EnableTrafficDiagnostics', false);
 
         $this->RegisterAttributeString('ActiveConfiguration', '');
+        // Cross-module snapshot calls during interface creation cannot rely on runtime buffers.
+        $this->RegisterAttributeString('ActiveRevision', '');
+        $this->RegisterAttributeString('SafetyPlan', '');
         $this->RegisterAttributeString('ConfigurationError', '');
         $this->RegisterAttributeString('DraftSections', '{}');
         $this->RegisterVariableString('ConfigurationHealth', 'Configuration Health', '', 96);
@@ -282,14 +285,14 @@ class SensorGroup extends IPSModule
         if ($this->ReadPropertyBoolean('DebugMode')) $this->LogMessage("DEBUG: ApplyChanges - START", KL_MESSAGE);
         parent::ApplyChanges();
 
-        $this->SetBuffer('ActiveRevision', 'updating');
+        $this->WriteAttributeString('ActiveRevision', 'updating');
         $this->activeConfigCache = null;
         $candidate = $this->ConfigurationCandidate();
         $errors = AlarmSafety::validate($candidate);
         if ($errors) {
             $this->ReportConfigurationError('Apply rejected: ' . implode('; ', array_slice($errors, 0, 10)));
             $previous = $this->ReadAttributeString('ActiveConfiguration');
-            $this->SetBuffer('ActiveRevision', $previous === '' ? '' : hash('sha256', $previous));
+            $this->WriteAttributeString('ActiveRevision', $previous === '' ? '' : hash('sha256', $previous));
             $this->NotifySafetyConsumer(0);
             return; // Keep previous subscriptions, active graph and monitoring intact. Never prune.
         }
@@ -298,7 +301,7 @@ class SensorGroup extends IPSModule
             $this->WriteAttributeString('ActiveConfiguration', $json);
         }
         $this->activeConfigCache = $candidate;
-        $this->SetBuffer('ActiveRevision', hash('sha256', $json));
+        $this->WriteAttributeString('ActiveRevision', hash('sha256', $json));
         $this->ReportConfigurationError('');
         $this->SetValue('ConfigurationHealth', 'Healthy');
         foreach (AlarmSafety::LISTS as $key) {

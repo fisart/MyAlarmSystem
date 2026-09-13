@@ -70,6 +70,19 @@ foreach (['SensorGroupInstanceID'=>23172,'DispatchTargetID'=>56438,'GroupMapping
 IPS_ApplyChanges(23172); IPS_ApplyChanges(56438);
 $active = $m1->GetConfiguration();
 check($m2->GetValue('SystemState') === 2 && $m2->GetTimerInterval('DelayTimer') === 300000, 'healthy baseline enters five-minute exit delay');
+// Cross-module calls while an interface is recreated must not require its runtime buffers.
+$m1->WriteAttributeString('SafetyPlan', ''); // Include rebuilding/registering the consumer plan.
+$GLOBALS['unavailable_buffer_interface'] = 23172;
+IPS_ApplyChanges(56438);
+check($m2->GetValue('MonitoringHealthy') && $m2->attributes['SafetyConfigurationError'] === '', 'PSM Apply validates and reads snapshots without Module 1 buffer interface');
+$revision = $m1->ReadAttributeString('ActiveRevision');
+foreach (['', 'updating'] as $unreadyRevision) {
+    $m1->WriteAttributeString('ActiveRevision', $unreadyRevision);
+    $unready = json_decode($m1->GetSafetySnapshot(json_encode(mapping()), 56438, true), true);
+    check(!$unready['valid'] && !$unready['sources'], 'uninitialized or updating configuration never supplies secure inputs');
+}
+$m1->WriteAttributeString('ActiveRevision', $revision);
+$GLOBALS['unavailable_buffer_interface'] = 0;
 $m2->HandleTimer(); check($m2->GetValue('SystemState') === 3, 'timer arms external');
 // Empty payloads are never used as evidence; current sensor state decides.
 $GLOBALS['variables'][41447] = true;
@@ -183,9 +196,9 @@ check($m2->attributes['ActiveSafetySettings']===$savedSettings, 'PSM rejects inc
 $GLOBALS['variables'][41447]=true; $m2->RefreshSafetyState();
 check($m2->GetValue('SystemState')===9, 'PSM window protection survives rejected mapping');
 $GLOBALS['variables'][41447]=false;
-$oldPending=$m2->pending; $oldPlan=$m1->GetBuffer('SafetyPlan');
+$oldPending=$m2->pending; $oldPlan=$m1->ReadAttributeString('SafetyPlan');
 invokePrivate($m2,'ImportConfiguration',json_encode(['SensorGroupInstanceID'=>23172,'DispatchTargetID'=>56438,'ArmingDelayDuration'=>5,'GroupMapping'=>$badMapping]));
-check($m2->pending===$oldPending && $m1->GetBuffer('SafetyPlan')===$oldPlan, 'invalid PSM import is nonmutating and cannot replace active dependencies');
+check($m2->pending===$oldPending && $m1->ReadAttributeString('SafetyPlan')===$oldPlan, 'invalid PSM import is nonmutating and cannot replace active dependencies');
 IPS_SetProperty(56438,'GroupMapping',json_encode(mapping())); IPS_ApplyChanges(56438);
 // Each required input independently unknown in armed/disarmed states.
 foreach ([23917,16297,16860,29023,17939,22324,41447,57544,10822] as $id) {
@@ -223,9 +236,9 @@ check(json_decode($m1->attributes['LastTargetProjectionState'],true)['57380']===
 $GLOBALS['fail_dispatch'][57380]=false;
 $before=$dispatchCount(); $m1->RequestStateSync(); check($dispatchCount()>$before, 'sync retries changed undelivered state');
 // Repeated snapshot reads reuse the compiled graph and do not mutate motion state.
-$before=$m1->GetBuffer('SafetyPlan'); $runtime=$m1->attributes['ClassStateAttribute'];
+$before=$m1->ReadAttributeString('SafetyPlan'); $runtime=$m1->attributes['ClassStateAttribute'];
 for ($i=0;$i<100;$i++) $m1->GetSafetySnapshot(json_encode(mapping()),56438);
-check($m1->GetBuffer('SafetyPlan')===$before && $m1->attributes['ClassStateAttribute']===$runtime, '100 safety reads reuse bounded plan without touching motion state');
+check($m1->ReadAttributeString('SafetyPlan')===$before && $m1->attributes['ClassStateAttribute']===$runtime, '100 safety reads reuse bounded plan without touching motion state');
 // Pending edits can be previewed repeatedly without regenerating a new class identity.
 $new=$config['ClassList']; $new[]=['ClassName'=>'New draft class','LogicMode'=>0,'Threshold'=>1,'TimeWindow'=>10,'LabelMode'=>0];
 IPS_SetProperty(23172,'ClassList',json_encode($new));
@@ -301,5 +314,5 @@ ob_start(); $m1->UI_RestoreBackup(json_encode($backup)); ob_end_clean();
 check(invokePrivate($m1,'ReadTargetThrottleConfig')===[],'backup restore clears throttle added after export');
 // Healthy snapshot API benchmark is informational; assertions concern bounded behavior, not host speed.
 $start=microtime(true); for ($i=0;$i<1000;$i++) $m1->GetSafetySnapshot(json_encode(mapping()),56438);
-printf("Safety API: 1000 reads in %.1f ms; cache %.1f KiB\n",(microtime(true)-$start)*1000,strlen($m1->GetBuffer('SafetyPlan'))/1024);
+printf("Safety API: 1000 reads in %.1f ms; cache %.1f KiB\n",(microtime(true)-$start)*1000,strlen($m1->ReadAttributeString('SafetyPlan'))/1024);
 echo "PASS: $count checks\n";

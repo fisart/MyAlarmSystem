@@ -31,8 +31,14 @@ class IPSModule
     public function GetValue($name) { return GetValue($this->GetIDForIdent($name)); }
     public function SetValue($name, $value) { $GLOBALS['variables'][$this->GetIDForIdent($name)] = $value; }
     public function GetIDForIdent($name) { return $this->idents[$name] ?? 0; }
-    public function GetBuffer($name) { return $this->buffers[$name] ?? ''; }
-    public function SetBuffer($name, $value) { $this->buffers[$name] = $value; }
+    public function GetBuffer($name) {
+        if (($GLOBALS['unavailable_buffer_interface'] ?? 0) === $this->InstanceID) throw new RuntimeException('InstanceInterface is not available');
+        return $this->buffers[$name] ?? '';
+    }
+    public function SetBuffer($name, $value) {
+        if (($GLOBALS['unavailable_buffer_interface'] ?? 0) === $this->InstanceID) throw new RuntimeException('InstanceInterface is not available');
+        $this->buffers[$name] = $value;
+    }
     public function GetTimerInterval($name) { return $this->timers[$name] ?? 0; }
     public function SetTimerInterval($name, $value) { $this->timers[$name] = $value; }
     public function RegisterTimer($name, $value, $script) { $this->timers[$name] = $value; }
