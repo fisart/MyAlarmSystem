@@ -1,6 +1,6 @@
 # Module 1-only FIFO: revised design
 
-Status: scope accepted by Artur on 2026-09-13. Documentation only; no runtime change. The earlier independent review covered the coordinated architecture, not approval of an implementation of this narrower design.
+Status: scope accepted by Artur on 2026-09-13. Ordinary native message observations have been received and analyzed; see [native results](module1-fifo-native-results.md). No FIFO runtime is enabled. The earlier independent review covered the coordinated architecture, not approval of an implementation of this narrower design.
 Baseline: main commit `59e413ead4d6a85a5336583af7788ee9175d0a49`, Module 1 v2.13.3 / Module 2 v7.3.2.
 
 ## Decision and scope

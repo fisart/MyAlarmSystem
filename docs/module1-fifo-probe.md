@@ -70,3 +70,7 @@ The watchdog retains ten heartbeat entries, including per-target `runtime_ms`, s
 Confirm integer token/reset and boolean open/close native Data layouts, same-value refresh indicators, source callback order and any contention notice. Check Capture Status, timer cessation, report lifecycle flags and version fields. Record watchdog runtimes and timeout margins under ordinary use and observed bursts. Full-string truncation prevents using large payload strings as complete alarm evidence.
 
 After this evidence is reviewed, proceed to Module 1 shadow comparisons and load measurements. Native bootstrap convergence, pulse/COUNT behavior, configuration cutover and worker races still require focused implementation checks. No conclusion that the entire alarm system is healthy follows from this probe alone.
+
+## Received production observation
+
+Artur supplied a completed capture on 2026-09-13. See the [aggregated native results](module1-fifo-native-results.md): typed ordinary updates and two heartbeat token/reset pairs were observed; all ten retained watchdog cycles were OK. This supports beginning shadow implementation, not enabling production FIFO.

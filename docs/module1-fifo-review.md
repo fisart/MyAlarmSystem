@@ -19,6 +19,12 @@ The separate reviewer independently reviewed SensorEventProbe and its [productio
 
 The probe has bounded capture/formatting, no sensor writes or alarm dispatch, and identical observation handling for heartbeat and other selected inputs. Native callback layouts, semaphore/lifecycle behavior and scheduling latency remain to be observed in Symcon. This approval covers only the diagnostic probe; no FIFO runtime is enabled or approved for production.
 
+## Received native evidence: independent review (2026-09-13)
+
+A separate reviewer independently parsed Artur's production observer report and watchdog history. The [aggregated results](module1-fifo-native-results.md) agree with the independent analysis: 83 typed observations consistently support native value/changed/prior fields, both heartbeat token/reset pairs were distinct, and ten retained cycles were OK at all four monitored targets. No reported capture fault or counter regression occurred. The 714 ms callback was after capture ended and cannot be attributed to the observer capture.
+
+Verdict: proceed to an opt-in, read-only Module 1 shadow implementation; do not enable production FIFO. No further probe is necessary before shadow development for the observed boolean/integer inputs. Float/string dependencies actually used, rapid transitions, concurrent admission, startup/configuration boundaries, full evaluation/dispatch cost and the future worker's shorter scheduling interval still require validation before activation. This evidence does not establish lossless capture or revise the accepted downstream limitations.
+
 ## Independent code findings
 
 - Module 1's current dispatch treats a normal return from RequestAction as success without a receiver acceptance acknowledgement.
