@@ -9,6 +9,8 @@ Implement a bounded inbound FIFO and one evaluator in Module 1. Capture native s
 
 Do not introduce receiver acceptance protocols, independent delivery outboxes, automatic delivery retries, matching PSM decision contexts, receiver deduplication, intrusion cancellation or changes to the PSM webpage. Existing synchronous dispatch, target throttles and receiver behavior remain. A slow receiver can therefore delay the Module 1 worker; FIFO capacity only absorbs a bounded burst.
 
+Heartbeat policy (Artur, 2026-09-13): heartbeat observations use the same admission, FIFO, evaluator and dispatch path as all other sensor inputs. No priority, reserved queue capacity, bypass or special recovery path. Heartbeat delay/loss must remain capable of revealing shared-path problems. Observe token/reset timing and watchdog timeout margin in tests without giving heartbeat privileged handling. A successful heartbeat exercises its configured route; it does not prove every alarm rule or output policy.
+
 Guarantee sought: within a running session and the validated native message contract, admitted sensor changes are evaluated in admission order by one worker. No claim of physical sensor-time ordering, crash-proof buffering, downstream alarm detection or exactly-once external actions.
 
 ## Accepted limitations
@@ -50,7 +52,7 @@ Measure capacities and worker intervals against the live configuration (393 rule
 
 ## Implementation and acceptance
 
-1. Run the bounded native read-only probe and measure production-shaped bursts, rule cost, synchronous dispatch latency and memory.
+1. Run the [bounded native read-only probe](module1-fifo-probe.md) and measure production-shaped bursts, rule cost, synchronous dispatch latency and memory. The optional observer captures native evidence and supplies timing observations; additional shadow/load measurements are still required for implementation acceptance.
 2. Implement a shadow path that compares Module 1 evaluations without sending additional downstream actions.
 3. Verify rapid open/close, duplicate refreshes, duplicate rule IDs/variables, dynamic references, COUNT/pulse timing, worker shutdown/enqueue races, sync, configuration cutover, overflow and restart. Check existing receivers accept unchanged payloads and tokens.
 4. Supervise the Module 1 production rollout with its rollback prepared. Modules 2/3 remain at their existing compatible versions. Rollback cannot recover lost observations or undo actions already sent.

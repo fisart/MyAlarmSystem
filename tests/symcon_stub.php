@@ -11,6 +11,7 @@ class IPSModule
     public array $pending = [], $properties = [], $attributes = [], $buffers = [], $idents = [], $timers = [], $messages = [], $logs = [];
     public function __construct(int $id) { $this->InstanceID = $id; $GLOBALS['objects'][$id] = $this; }
     public function Create() {}
+    public function Destroy() {}
     public function ApplyChanges() {}
     public function __call(string $name, array $args) {
         if (str_starts_with($name, 'RegisterProperty')) { $this->properties[$args[0]] ??= $args[1]; $this->pending[$args[0]] ??= $args[1]; return; }
@@ -73,7 +74,11 @@ function assertOutsideApply() {
 function IPS_VariableExists($id) { return array_key_exists($id, $GLOBALS['variables']); }
 function IPS_ObjectExists($id) { return IPS_VariableExists($id) || IPS_InstanceExists($id); }
 function IPS_InstanceExists($id) { return isset($GLOBALS['objects'][$id]); }
-function GetValue($id) { if (!IPS_VariableExists($id)) throw new RuntimeException("Missing variable $id"); return $GLOBALS['variables'][$id]; }
+function GetValue($id) {
+    if (isset($GLOBALS['on_get_value'])) ($GLOBALS['on_get_value'])($id);
+    if (!IPS_VariableExists($id)) throw new RuntimeException("Missing variable $id");
+    return $GLOBALS['variables'][$id];
+}
 function GetValueFormatted($id) { return (string)GetValue($id); }
 function IPS_GetParent($id) { return 0; }
 function IPS_GetName($id) { return "Object $id"; }
@@ -101,7 +106,10 @@ function MYALARM_GetSafetySnapshot($id, $mapping, $target, $remember) {
 function IPS_LogMessage(...$args) {}
 function IPS_GetKernelDir() { return '/tmp/'; }
 function invokePrivate($object, $method, ...$args) { return (new ReflectionMethod($object, $method))->invoke($object, ...$args); }
-function IPS_SemaphoreEnter($name, $timeout) { return true; }
+function IPS_SemaphoreEnter($name, $timeout) {
+    if (isset($GLOBALS['on_semaphore_enter'])) ($GLOBALS['on_semaphore_enter'])($name);
+    return empty($GLOBALS['semaphore_busy'][$name]);
+}
 function IPS_SemaphoreLeave($name) {}
 
 function IPS_GetVariableProfile($name) { return ['Associations'=>array_map(static fn($id)=>['Value'=>$id,'Name'=>'State '.$id],[0,2,3,6,9])]; }

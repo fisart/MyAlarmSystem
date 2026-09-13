@@ -13,6 +13,12 @@ Artur subsequently limited PR #3 to Module 1 and explicitly accepted the downstr
 
 Approved as a staged architecture/design. No remaining design-blocking findings after revision. This is not approval to deploy an implementation or claim lossless delivery. The independent reviewer was a separate agent, read the source and complete draft, and did not edit the design or code. The author incorporated the findings and the reviewer reread the revised document before approval.
 
+## Optional native probe review (2026-09-13)
+
+The separate reviewer independently reviewed SensorEventProbe and its [production instructions](module1-fifo-probe.md). Initial callback/session, idle timer/Start and Apply/Start races were reproduced and then resolved through pinned session identity/start-time checks, mutex-owned timer changes and an attribute lifecycle fence. Lifecycle-interruption reporting was corrected. The reviewer reread the fixes and approved the optional observer with no remaining blockers; 43 focused probe checks and PHP lint passed independently. The existing safety regression suite passed 124 checks locally after the test-stub additions.
+
+The probe has bounded capture/formatting, no sensor writes or alarm dispatch, and identical observation handling for heartbeat and other selected inputs. Native callback layouts, semaphore/lifecycle behavior and scheduling latency remain to be observed in Symcon. This approval covers only the diagnostic probe; no FIFO runtime is enabled or approved for production.
+
 ## Independent code findings
 
 - Module 1's current dispatch treats a normal return from RequestAction as success without a receiver acceptance acknowledgement.

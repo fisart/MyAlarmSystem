@@ -14,4 +14,6 @@ jobs:
           php -l PropertyStateManager/module.php
           php -l PropertyStateManager/StateIntegrity.php
           php -l libs/AlarmSafety.php
+          php -l SensorEventProbe/module.php
           php tests/state_integrity.php
+          php tests/sensor_event_probe.php
