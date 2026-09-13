@@ -28,6 +28,10 @@ The stub does not emulate Symcon scheduling, console form callbacks, device driv
 
 ## Delivery
 
+### Production follow-up: Module 1 v2.13.1
+
+Live diagnostics identified integer value 2 on the four guest-room/office usage selectors, with valid Boolean door values. The safety evaluator previously accepted only Boolean and integer 0/1. It now accepts integer selectors using the same zero/nonzero conversion as existing BEDROOM_SYNC. With Module 2's configured `unused` polarity, 0 means used and 2 means unused. Missing variables and unsupported types remain unknown; door evaluation is unchanged. Regression checks cover the reported live values, internal arming with an unused bedroom open, disarming when the selector changes to used, and rejection of missing/malformed usage. This adds no reads, timers or logging.
+
 ### Production follow-up: Module 2 v7.3.1
 
 The first production report showed an unavailable/invalid safety snapshot followed by all seven missing roles. The normal read omitted the fourth API argument while configuration validation supplied it. Module 2 now supplies `Remember=true` explicitly so it also works with generated wrappers that require every argument. The stub now requires all four arguments: the previous implementation fails the healthy-baseline test; the corrected version passes 114 checks including the live export. This reproduces a likely cause; confirmation on the actual Symcon installation is still needed. Snapshot and configuration-validation exceptions now expose their class and a bounded message through existing health-transition diagnostics. No timers, sensor evaluation policy or normal logging frequency were added.

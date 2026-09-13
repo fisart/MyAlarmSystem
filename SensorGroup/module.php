@@ -1,5 +1,5 @@
 <?php
-// Version2.13.0
+// Version2.13.1
 declare(strict_types=1);
 
 require_once __DIR__ . '/StateIntegrity.php';
@@ -6106,7 +6106,7 @@ class SensorGroup extends IPSModule
             [
                 [
                     'title' => 'Active Var (IPSView)',
-                    'text'  => 'Boolean variable representing whether that bedroom is active or occupied in the bedroom synchronization payload. Its current value is sent as SwitchState.'
+                    'text'  => 'Boolean or integer variable sent as SwitchState: zero becomes false and nonzero integers become true. Module 2 applies its configured bedroom usage polarity.'
                 ],
                 [
                     'title' => 'Door Class (Trigger)',

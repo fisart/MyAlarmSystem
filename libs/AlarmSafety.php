@@ -262,7 +262,9 @@ final class AlarmSafety
             $unknown = false;
             $used = $bed['enabled'] ? $value($bed['switch']) : null;
             $door = $bed['enabled'] ? $nodeValue($bed['node']) : null;
-            if (!is_bool($used) && $used !== 0 && $used !== 1) $used = null;
+            // Legacy BEDROOM_SYNC casts integer selectors to Boolean: 0=false, nonzero=true.
+            // Keep missing values and unsupported types unknown instead of treating them as secure.
+            if (!is_bool($used) && !is_int($used)) $used = null;
             if ($used === null || $door === null || $unknown) $errors[] = 'Unknown bedroom input: ' . $bed['name'];
             $bedrooms[] = ['GroupName' => $bed['name'], 'SwitchState' => $used === null ? null : (bool)$used, 'DoorTripped' => $door];
         }

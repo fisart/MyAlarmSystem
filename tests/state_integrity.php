@@ -49,6 +49,12 @@ if ($livePath) {
     $values = array_fill_keys(array_keys($plan['dependencies']), false);
     $result = AlarmSafety::evaluate($plan, static fn($id) => $values[$id] ?? null);
     check(!$result['errors'], 'all live dependencies evaluate when available');
+    // Values reported from production: integer bedroom selectors and Boolean door contacts.
+    foreach ([10822=>0,51095=>2,37976=>2,17066=>2,41330=>2,24493=>false,31261=>true,10730=>true,54877=>true,21441=>true] as $id=>$value) $values[$id]=$value;
+    $result = AlarmSafety::evaluate($plan, static fn($id) => $values[$id] ?? null);
+    check(!$result['errors'], 'reported production bedroom values are known');
+    $rooms = array_column($result['bedrooms'], null, 'GroupName');
+    check($rooms['Master Bedroom Artur']['SwitchState'] === false && $rooms['Big Guest Bedroom']['SwitchState'] === true && $rooms['Big Guest Bedroom']['DoorTripped'] === true, 'production integer selectors retain legacy Boolean meaning without hiding open doors');
     $values[41447] = 1; unset($values[17939]);
     $result = AlarmSafety::evaluate($plan, static fn($id) => $values[$id] ?? null);
     check($result['sources'][5]['value'] === false && $result['errors'], 'live window breach survives missing presence');
@@ -95,6 +101,17 @@ $GLOBALS['variables'][57544] = true; $m2->RefreshSafetyState();
 check($m2->GetValue('SystemState') === 0, 'used bedroom opening disarms internal');
 $GLOBALS['variables'][10822] = true; $m2->RefreshSafetyState();
 check($m2->GetValue('SystemState') === 2, 'unused bedrooms do not block internal arming');
+$GLOBALS['variables'][10822] = 2; $m2->RefreshSafetyState();
+check($m2->GetValue('MonitoringHealthy') && $m2->GetValue('SystemState') === 2, 'integer 2 means unused under unused polarity and permits internal arming');
+$m2->HandleTimer();
+check($m2->GetValue('SystemState') === 6, 'integer 2 usage permits completion of internal arming with an unused bedroom door open');
+$GLOBALS['variables'][10822] = 0; $m2->RefreshSafetyState();
+check($m2->GetValue('SystemState') === 0, 'integer zero means used and an open bedroom disarms internal');
+$GLOBALS['variables'][10822] = 'invalid'; $m2->RefreshSafetyState();
+check(!$m2->GetValue('MonitoringHealthy') && $m2->GetValue('SystemState') === 0, 'malformed usage value remains unknown and blocks arming');
+unset($GLOBALS['variables'][10822]); $m2->RefreshSafetyState();
+check(!$m2->GetValue('MonitoringHealthy') && $m2->GetValue('SystemState') === 0, 'missing usage variable remains unknown and blocks arming');
+$GLOBALS['variables'][10822] = true; $m2->RefreshSafetyState();
 $GLOBALS['variables'][57544] = false;
 // Global API failures preserve protected states and block new arming.
 $GLOBALS['snapshot_failure'] = true;
