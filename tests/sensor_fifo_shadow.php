@@ -204,6 +204,34 @@ $m->StartFifoShadow(); invokePrivate($m,'ShadowFault','current incident');
 shadowCheck(liveReport($m)['fault']==='current incident', 'Current fault publishes across serialized boundary');
 $m->StopFifoShadow();
 
+$m=liveShadow(7106); $m->StartFifoShadow();
+$outputCount=count($GLOBALS['calls']);
+$GLOBALS['variables'][101]=true;
+$m->MessageSink(3000,101,VM_UPDATE,[true,true,true]); // Deliberately inconsistent native previous value.
+$r=liveReport($m); $detail=$r['fault_details']['details'];
+shadowCheck($detail['variable_id']===101 && $detail['native_counter']===3000, 'First gap identifies source and counter');
+shadowCheck($detail['baseline']===['type'=>'boolean','value'=>false] && $detail['native_previous']===['type'=>'boolean','value'=>true] && $detail['native_value']===['type'=>'boolean','value'=>true], 'Gap retains typed conflicting values');
+shadowCheck(isset($r['fault_details']['recorded_at'],$r['fault_details']['recorded_ns'],$r['fault_details']['callback_ns']), 'Fault timing retained separately from stop timing');
+shadowCheck(count($GLOBALS['calls'])>$outputCount && $r['metrics']['admitted']===0, 'Gap diagnostic adds no record and leaves live dispatch running');
+invokePrivate($m,'ShadowFault','later fault');
+shadowCheck(liveReport($m)['fault_details']===$r['fault_details'], 'First fault evidence not overwritten');
+$m->PublishFifoShadow();
+shadowCheck(isset(liveReport($m)['metrics']['stop_lateness_ms']), 'Stop reports lateness independently of fault time');
+
+$m=liveShadow(7107);
+$GLOBALS['variables'][101]='baseline';
+$m->MessageSink(3100,101,VM_UPDATE,['baseline',true,false]);
+$m->StartFifoShadow();
+$unicodePrevious=str_repeat('a',95).'é';
+$GLOBALS['variables'][101]='1';
+$outputCount=count($GLOBALS['calls']);
+$m->MessageSink(3101,101,VM_UPDATE,['1',true,$unicodePrevious]);
+$r=liveReport($m);
+shadowCheck($r['fault']!=='' && $r['fault_details']['details']['native_previous']===['type'=>'string','value'=>str_repeat('a',95)], 'Unicode clipping cannot lose a native string gap fault');
+shadowCheck(count($GLOBALS['calls'])>$outputCount && $r['metrics']['admitted']===0, 'Unicode gap retains live dispatch with no shadow admission');
+$m->PublishFifoShadow();
+shadowCheck(!$m->attributes['FifoShadowActive'], 'Unicode gap stops diagnostics rather than continuing a broken baseline');
+
 // Native Apply removes unowned variables: model real children and deletion.
 $m=liveShadow(7110,false);
 $c=shadowFixtureConfig(); $c['BedroomList']=[];

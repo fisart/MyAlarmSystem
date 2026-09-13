@@ -1,6 +1,6 @@
 # Module 1 FIFO shadow test
 
-Build: `2.14.0-shadow.1`, branch `design/module1-fifo`, draft PR #3.
+Build: `2.14.0-shadow.2`, branch `design/module1-fifo`, draft PR #3.
 
 This build adds an optional comparison inside Module 1. The existing live evaluator and dispatch continue to operate. A second, isolated evaluator processes captured observations in FIFO order and compares its decisions with the live evaluator. It never dispatches additional alarm actions. Modules 2, 3 and the watchdog are unchanged.
 
@@ -8,7 +8,7 @@ Heartbeat inputs use exactly the same admission, suppression, queue and shadow e
 
 ## Production steps
 
-1. Update the module library on branch `design/module1-fifo`. Confirm the Module 1 file has marker `Version2.14.0-shadow.1`. Keep your working rollback available.
+1. Update the module library on branch `design/module1-fifo`. Confirm the Module 1 file has marker `Version2.14.0-shadow.2`. Keep your working rollback available.
 2. Open Module 1 instance `23172`, expand **FIFO shadow testing**, check **Allow read-only FIFO shadow testing**, set duration to **300 seconds**, then Apply. Wait for normal post-Apply processing to finish.
 3. Click **Start shadow**. Check **FIFO Shadow Health** below the instance. It should say **Running shadow only**. Enabling the setting alone does not start capture.
 4. For five minutes, use ordinary sensor inputs and allow the normal heartbeat cycles. Include door open/close, presence and bedroom usage changes where practical. The live alarm rules remain active, so your normal production procedures still apply. Do not generate synthetic alarm events solely for this test.
@@ -34,6 +34,8 @@ echo json_encode([
 | Field | Meaning |
 |---|---|
 | `fault` | Invalid observation, baseline gap, contention, capacity or processing failure detected by the diagnostic path. |
+| `fault_details` | First fault time and callback time; baseline gaps include sensor ID/counter and typed baseline, native previous and current values. Strings are limited to 96 bytes. |
+| `stop_lateness_ms` | In metrics: stop time beyond the configured deadline, separate from fault time. |
 | `comparison_incomplete` | Capture stopped with pending or uncommitted comparisons. Do not treat the final interval as verified. |
 | `lifecycle_interruption` | Apply/restart invalidated the captured configuration session. |
 | `observed` / `ingress_suppressed` | Observed native inputs and exact typed unchanged refreshes filtered before queuing. |
@@ -72,8 +74,14 @@ For compatibility comparisons, the pure evaluator preserves existing shared vari
 
 ## Verification before publishing
 
-An independent, read-only reviewer approved this build for bounded opt-in shadow testing after fixes to Apply cleanup, stale-session fault publication and incomplete comparison reporting. The focused suite passes 55 checks; existing state-integrity and native-probe suites pass 124 and 43 checks. CI includes all three suites and PHP syntax checks.
+An independent, read-only reviewer approved this build for bounded opt-in shadow testing after fixes to Apply cleanup, stale-session fault publication and incomplete comparison reporting. The focused suite passes 64 checks; existing state-integrity and native-probe suites pass 124 and 43 checks. CI includes all three suites and PHP syntax checks.
 
 A local PHP 8.3 pure-engine exercise used the uploaded configuration shape: 393 rules, 61 classes, 55 groups and 377 dependencies including comparison/bedroom references. With synthetic integer values, 1,000 frames took 176.803 ms (median 0.166 ms, p99 0.356 ms, maximum 0.450 ms). Compact configuration was 84,771 bytes, resulting serialized state 7,105 bytes and retained PHP allocation increase 129,848 bytes. This excludes Symcon, queue integration, real values, dispatch and native concurrency; it is not a production load measurement.
 
 Before actual FIFO activation, review real shadow differences, native scalar types, rapid/concurrent changes, lifecycle boundaries, burst capacity, scheduling, CPU/resident memory and heartbeat results. The accepted Module 2/3 live-state, context and delivery limitations remain in the [Module 1-only design](module1-fifo-design.md).
+
+## First production shadow report (2026-09-13)
+
+35 admitted records were processed with zero decision mismatches; 513 unchanged refreshes were suppressed. Queue peak was two records / 891 bytes. Maximum queue lag was 166.015 ms, live evaluation 112.275 ms and worker batch 3.130 ms; total measured worker elapsed time was 80.199 ms. End-of-worker PHP allocation delta reached 786,432 bytes, which is not resident process memory.
+
+The run reported a captured-prior/admission-baseline gap. This is not a clean acceptance pass, despite no pending accepted records. The original report lacked sensor/conflicting-value/fault-time information and showed stop at 357 seconds for a 300-second duration. Build shadow.2 adds bounded first-fault evidence and independent stop lateness for a follow-up run. It preserves the strict gap check; no later live value is substituted and no alarm behavior is changed. The report alone does not establish whether the cause is native payload semantics, startup overlap, reordered/missing callbacks or a diagnostic defect.

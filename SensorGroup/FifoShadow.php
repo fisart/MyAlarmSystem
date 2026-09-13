@@ -193,7 +193,16 @@ trait SensorGroupFifoShadow
                 $oldBucket = $this->GetBuffer($name);
                 $bucket = json_decode($oldBucket, true);
                 $entry = $bucket['values'][$record['variable_id']] ?? null;
-                if (($bucket['session'] ?? null) !== $meta['session'] || !is_array($entry) || !array_key_exists('value', $entry) || $entry['value'] !== $record['previous']) throw new RuntimeException('Captured prior value does not match admission baseline; diagnostic baseline/event gap.');
+                if (($bucket['session'] ?? null) !== $meta['session'] || !is_array($entry) || !array_key_exists('value', $entry) || $entry['value'] !== $record['previous']) {
+                    $detail = ['variable_id' => $record['variable_id'], 'native_counter' => $record['native_counter'],
+                        'baseline_present' => is_array($entry) && array_key_exists('value', $entry),
+                        'bucket_session_matches' => ($bucket['session'] ?? null) === $meta['session'],
+                        'baseline' => $this->ShadowDescribe($entry['value'] ?? null),
+                        'native_previous' => $this->ShadowDescribe($record['previous']),
+                        'native_value' => $this->ShadowDescribe($record['value'])];
+                    $this->ShadowFault('Captured prior value does not match admission baseline; diagnostic baseline/event gap.', $entered, $meta['session'], $detail);
+                    return null;
+                }
                 ++$meta['observed'];
                 $filter = $entry['filter'] ?? null;
                 $type = $this->GetVariableTypeName($record['value']);
@@ -359,6 +368,7 @@ trait SensorGroupFifoShadow
                 if ($expectedSession !== null && ($meta['session'] ?? null) !== $expectedSession) return;
                 $meta['stop_reason'] = $this->ShadowFaultReason() !== '' ? $this->ShadowFaultReason() : 'manual/duration stop';
                 $meta['stopped_at'] = date(DATE_ATOM);
+                $meta['stop_lateness_ms'] = max(0, (hrtime(true) - ($meta['deadline_ns'] ?? hrtime(true))) / 1000000);
                 $this->ShadowSaveMeta($meta);
                 $this->WriteAttributeBoolean('FifoShadowActive', false);
                 $this->SetTimerInterval('FifoShadowWorker', 0);
@@ -400,7 +410,7 @@ trait SensorGroupFifoShadow
             $meta = $this->ShadowMeta();
             return $this->ShadowEncode(['mode' => 'shadow only; no additional alarm outputs', 'active' => $this->ReadAttributeBoolean('FifoShadowActive'),
                 'comparison_incomplete' => !$this->ReadAttributeBoolean('FifoShadowActive') && (($meta['count'] ?? 0) > 0 || ($meta['admitted'] ?? 0) !== ($meta['processed'] ?? 0)),
-                'metrics' => $meta, 'fault' => $this->ShadowFaultReason(),
+                'metrics' => $meta, 'fault' => $this->ShadowFaultReason(), 'fault_details' => $this->ShadowCurrentFault(),
                 'lifecycle_interruption' => isset($meta['fence']) && $meta['fence'] !== $this->ReadAttributeString('FifoShadowFence'),
                 'limits' => ['slots' => self::SHADOW_SLOTS, 'queue_bytes' => self::SHADOW_QUEUE_BYTES, 'state_bytes' => self::SHADOW_STATE_BYTES],
                 'comparison_limits' => 'Decision projections only, not formatted payloads/delivery. Legacy shared variable pulse maps and integer wall-second semantics preserved. Mirror/live races can differ. Serialized bytes are not PHP resident memory. Worker elapsed time is not CPU utilization.']);
@@ -411,7 +421,7 @@ trait SensorGroupFifoShadow
     {
         return $this->ReadAttributeBoolean('FifoShadowActive') && ($meta['fence'] ?? null) === $this->ReadAttributeString('FifoShadowFence') && ($meta['revision'] ?? null) === $this->ReadAttributeString('ActiveRevision');
     }
-    private function ShadowFault(string $reason, ?int $entered = null, ?string $session = null): void
+    private function ShadowFault(string $reason, ?int $entered = null, ?string $session = null, array $details = []): void
     {
         $locked = false;
         try {
@@ -421,15 +431,30 @@ trait SensorGroupFifoShadow
             if (!$this->ShadowSessionActive($meta) || ($entered !== null && $entered < $meta['start_ns']) ||
                 ($session !== null && $session !== $meta['session'])) return;
             if ($this->ShadowFaultReason() === '') $this->SetBuffer('FifoShadowFault', $this->ShadowEncode([
-                'session' => $meta['session'], 'reason' => substr($reason, 0, 256)]));
+                'session' => $meta['session'], 'reason' => substr($reason, 0, 256),
+                'recorded_at' => date(DATE_ATOM), 'recorded_ns' => hrtime(true), 'callback_ns' => $entered, 'details' => $details]));
         } catch (Throwable $ignored) { /* Diagnostics must never throw into production. */ }
         finally { if ($locked) IPS_SemaphoreLeave($this->ShadowFaultLock()); }
     }
+    private function ShadowDescribe($value): array
+    {
+        $type = gettype($value);
+        if (is_string($value)) {
+            $value = substr($value, 0, 96);
+            // Keep a valid UTF-8 prefix so diagnostic JSON cannot lose the fault.
+            while ($value !== '' && preg_match('//u', $value) !== 1) $value = substr($value, 0, -1);
+        }
+        return ['type' => $type, 'value' => $value];
+    }
     private function ShadowFaultReason(): string
+    {
+        return $this->ShadowCurrentFault()['reason'] ?? '';
+    }
+    private function ShadowCurrentFault(): array
     {
         $fault = json_decode($this->GetBuffer('FifoShadowFault'), true);
         $meta = $this->ShadowMeta();
-        return is_array($fault) && ($fault['session'] ?? null) === ($meta['session'] ?? null) ? ($fault['reason'] ?? '') : '';
+        return is_array($fault) && ($fault['session'] ?? null) === ($meta['session'] ?? null) ? $fault : [];
     }
     private function ShadowMeta(): array { return json_decode($this->GetBuffer('FifoShadowMeta'), true) ?: []; }
     private function ShadowSaveMeta(array $meta): void { $this->SetBuffer('FifoShadowMeta', $this->ShadowEncode($meta)); }
