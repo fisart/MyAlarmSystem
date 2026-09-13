@@ -182,4 +182,30 @@ fifoCheck(fifoReport($m)['fault']!=='' && preg_match('//u',fifoReport($m)['incid
 $m->properties['EnableFifoShadow']=true; $blocked=false;
 try { $m->StartFifoShadow(); } catch(RuntimeException $e) { $blocked=str_contains($e->getMessage(),'live input FIFO'); }
 fifoCheck($blocked,'Live FIFO and legacy shadow comparator are mutually exclusive');
+// Repeated recovery must retain the actual later cause behind an older latched startup incident.
+$m=fifoFixture(7216); $m->attributes['FifoIncident']='Earlier startup incident';
+$m->MessageSink(2,103,VM_UPDATE,[1,1,0]); $r=fifoReport($m); $first=$r['last_fault'];
+fifoCheck(str_contains($first['reason'],'variable 103') && str_contains($first['reason'],'changed=int') && $first['observed_at']!==null && $first['revision']===$m->attributes['ActiveRevision'], 'Invalid native shape retains bounded timestamp, revision and source evidence');
+fifoCheck($r['incident']==='Earlier startup incident' && $r['metrics']['admitted']===0, 'Latest fault does not replace original incident or manufacture admitted frames');
+fifoSend($m,101,false); $m->RecoverInputFifo(); $r=fifoReport($m);
+fifoCheck($r['ready'] && $r['fault']==='' && $r['last_fault']===$first && $r['previous_session']['recovery_fault']===$first && $r['previous_session']['omitted_after_fault']===1, 'Recovered session retains the fault responsible for omitted observations');
+$secret=str_repeat('PRIVATE-',256); $m->MessageSink(3,102,VM_UPDATE,[$secret,true,false]);
+$second=fifoReport($m)['last_fault'];
+fifoCheck(str_contains($second['reason'],'variable 102') && str_contains($second['reason'],'string(2048 bytes)') && !str_contains(json_encode($second),'PRIVATE-') && strlen($m->attributes['FifoLastFault'])<4096, 'Oversized native string reports byte size without retaining payload');
+$m->RecoverInputFifo(); $r=fifoReport($m);
+fifoCheck($r['metrics']['recoveries']===3 && $r['metrics']['processed']===0 && $r['previous_session']['recovery_fault']===$second && $r['last_fault']===$second, 'Zero-processing recovery loop preserves its most recent causal fault');
+$m->ClearInputFifoIncident(); fifoCheck(fifoReport($m)['incident']==='' && fifoReport($m)['last_fault']===$second, 'Clearing acknowledged incident retains diagnostic history');
+$m->buffers=[]; $m->messages=[]; $m->Create(); $m->pending['EnableInputFifo']=false; IPS_ApplyChanges(7216);
+fifoCheck(!fifoReport($m)['enabled'] && fifoReport($m)['last_fault']===$second, 'Latest fault survives interface recreation and disabling FIFO');
+// With no precise current record, contended fault publication retains explicit missing detail.
+$m=fifoFixture(7217); $GLOBALS['semaphore_busy']['Mod1_InputQueue_7217']=true; $GLOBALS['semaphore_busy']['Mod1_InputFault_7217']=true;
+fifoSend($m,101,true); unset($GLOBALS['semaphore_busy']['Mod1_InputQueue_7217'],$GLOBALS['semaphore_busy']['Mod1_InputFault_7217']);
+$m->RecoverInputFifo(); $r=fifoReport($m);
+fifoCheck($r['last_fault']['details_unavailable']===true && $r['last_fault']['observed_at']===null && $r['previous_session']['recovery_fault']===$r['last_fault'], 'Recovery retains explicit unavailable-detail fallback after fault-lock contention');
+// Later failures may coalesce under contention; history identifies the last published observation.
+$m=fifoFixture(7218); $m->MessageSink(2,103,VM_UPDATE,[1,1,0]); $published=fifoReport($m)['last_fault'];
+$GLOBALS['semaphore_busy']['Mod1_InputFault_7218']=true;
+$m->MessageSink(3,102,VM_UPDATE,[true,1,false]); unset($GLOBALS['semaphore_busy']['Mod1_InputFault_7218']);
+fifoCheck(fifoReport($m)['last_fault']===$published && str_contains(fifoReport($m)['fault'],'variable 103'), 'Contended later observation does not invent successful fault publication');
+$m->RecoverInputFifo(); fifoCheck(fifoReport($m)['previous_session']['recovery_fault']===$published, 'Recovery retains available published cause when later faults coalesce');
 echo "Input FIFO runtime: $checks checks passed. CPU/resident RAM impact remains unmeasured.\n";

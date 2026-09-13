@@ -1,6 +1,6 @@
 # Module 1 live input FIFO — supervised opt-in build
 
-Build marker: `Version2.14.0-fifo.2`. This includes the [bedroom form/COMMIT repair](module1-bedroom-commit-recovery.md). Default: **disabled** (`EnableInputFifo=false`). Independent code review approves publication for supervised opt-in production testing. This is a live alarm-processing option, unlike the preceding shadow comparator. No Module 2, Module 3 or heartbeat watchdog runtime files change.
+Build marker: `Version2.14.0-fifo.3`. This includes the [bedroom form/COMMIT repair](module1-bedroom-commit-recovery.md) and [retained recovery diagnostics](module1-fifo-recovery-diagnostics.md). Default: **disabled** (`EnableInputFifo=false`). Production revealed repeated recovery despite resolved unknown inputs; keep live FIFO disabled except for the short supervised diagnostic capture described in that document. The cause is not yet established. This is a live alarm-processing option, unlike the preceding shadow comparator. No Module 2, Module 3 or heartbeat watchdog runtime files change.
 
 ## Evidence and limits
 
@@ -8,7 +8,7 @@ Artur supplied two clean shadow captures on 13 September 2026: 61 and 174 admitt
 
 Artur has no CPU/resident RAM records and authorized proceeding without them. Their production impact remains **unmeasured**; serialized sizes and worker elapsed time are not substitutes. Previous shadow timing is evidence for the comparator alongside the old live path, not a measurement of this new FIFO's synchronous delivery latency.
 
-The executable model passes 330 checks: safety 129, read-only probe 44, shadow 64, live FIFO 69 and configuration form 24. The new suite covers captured raw/formatted payloads, bedroom mirrors, refresh suppression, ordinary heartbeat-shaped token/reset frames, COUNT references/sync, pulse expiry, saturation/prefix drain, Apply cutover, interface recreation, dynamic tamper subscriptions, missing/disabled dependencies, recovery seeding, ownership races, consumer reentrancy, shutdown wake, partial frame/metadata failures, baseline callback failure and UTF-8 fault handling. Tests model selected interleavings; they are not a native concurrency stress test.
+The executable model passes 343 checks: safety 129, read-only probe 44, shadow 64, live FIFO 82 and configuration form 24. The new suite covers captured raw/formatted payloads, bedroom mirrors, refresh suppression, ordinary heartbeat-shaped token/reset frames, COUNT references/sync, pulse expiry, saturation/prefix drain, Apply cutover, interface recreation, dynamic tamper subscriptions, missing/disabled dependencies, recovery seeding, ownership races, consumer reentrancy, shutdown wake, partial frame/metadata failures, baseline callback failure and UTF-8 fault handling. Diagnostics also retain later failure evidence across repeated zero-processing recoveries, incident acknowledgement, disabling and interface recreation, without storing oversized input payloads. Tests model selected interleavings; they are not a native concurrency stress test.
 
 ## Runtime behavior
 
@@ -34,16 +34,18 @@ Recovery does **not** require acknowledgement to continue processing and adds no
 |---|---|
 | Input FIFO Health | Disabled, running, Apply waiting, unknown inputs or recovery pending. |
 | Input FIFO Incident | Retained timestamp/reason. Restore unknown inputs or inspect known loss before clearing. |
-| Module 1 Mermaid webpage | Authenticated status panel refreshes every five seconds, outside graph filters. It shows health and incident. |
+| Module 1 Mermaid webpage | Authenticated status panel refreshes every five seconds, outside graph filters. It shows health, incident and the last retained fault. |
 | Retry input FIFO baseline | Retry current-state acquisition after restoring inputs. Does not invent historical edges. |
 | Clear recovered FIFO incident | Clears only the warning after valid current monitoring; it is not required for automatic recovery. |
-| Print input FIFO report | Read-on-demand JSON with session/previous-session metrics, unknown inputs and limits. |
+| Print input FIFO report | Read-on-demand JSON with session/previous-session metrics, unknown inputs and limits; last_fault retains the last published fault through disabling/recreation, and previous_session.recovery_fault identifies available evidence captured before recovery cleared the current fault. Later observations can coalesce under fault-lock contention. |
 
 ## Bounds and performance
 
 Queue: 128 records / 256 KiB combined serialized bytes / 16 KiB per record. Configuration, evaluation state (mirror + maps) and ingress each cap at 512 KiB. At most 1,024 dependencies/sensor rows, 256 classes/groups and 16 source entries per ingress bucket. Strings cap at 1,024 valid UTF-8 bytes; floats must be finite. COUNT history caps at 2,048 per class and 8,192 total. Limits cause an explicit degraded condition, never unbounded allocation. A configuration exceeding global supported capacities cannot activate this evaluator successfully; disable FIFO to return to the existing evaluator.
 
 These are serialized bounds, not a PHP resident-memory budget. Arrays, copy-on-write state snapshots, current payload strings, formatting and synchronous receivers add overhead. A whole evaluation-state size check is performed before dispatch for each evaluated frame; persistent runtime-map/mirror writes occur once per completed batch. No routine event logging, archive writes, resident idle polling or full-queue rewrites are added. Recovery polls once per second only while fault/startup acquisition is pending. The existing webpage gains one lightweight status request every five seconds while open.
+
+The diagnostic hotfix adds one bounded retained fault record, with a reason capped at the existing 512-byte prefix (UTF-8 replacement can add a few bytes). It writes only on faults or when retaining an unavailable-detail fallback at recovery, suppressing identical record writes. Native type/byte descriptions are built only for rejected inputs; sensor strings are not retained. Healthy input admission, queue ordering and recovery/dispatch policy are unchanged. CPU/resident RAM remain unmeasured; these anomaly-only diagnostics do not establish FIFO performance or correct the production recovery loop.
 
 ## Supervised production procedure
 

@@ -1,5 +1,5 @@
 <?php
-// Version2.14.0-fifo.2
+// Version2.14.0-fifo.3
 declare(strict_types=1);
 
 require_once __DIR__ . '/StateIntegrity.php';
@@ -3914,7 +3914,7 @@ class SensorGroup extends IPSModule
         if (($_GET['api'] ?? '') === 'fifo_status') {
             header('Content-Type: application/json; charset=utf-8');
             if ($this->ReadAttributeBoolean('FifoOwned')) $this->PublishInputFifo();
-            echo json_encode(['health' => $this->GetValue('InputFifoHealth'), 'incident' => $this->ReadAttributeString('FifoIncident')]);
+            echo json_encode(['health' => $this->GetValue('InputFifoHealth'), 'incident' => $this->ReadAttributeString('FifoIncident'), 'last_fault' => json_decode($this->ReadAttributeString('FifoLastFault'), true)]);
             return;
         }
 
@@ -5025,6 +5025,7 @@ class SensorGroup extends IPSModule
                         const data = await response.json();
                         const panel = document.getElementById("fifo-status");
                         panel.textContent = data.health + (data.incident ? "\\n" + data.incident : "");
+                        if (data.last_fault) panel.textContent += "\\nLast FIFO fault (retained): " + (data.last_fault.observed_at || "time unavailable") + " | " + data.last_fault.reason;
                         panel.style.background = data.incident ? "#603d00" : "#20332a";
                     } catch(e) {}
                 }

@@ -17,6 +17,7 @@ trait SensorGroupFifoRuntime
         foreach (['FifoOwned', 'FifoReady', 'FifoHasPending', 'FifoApplyPending', 'FifoLegacyOverlap', 'FifoFrameInFlight', 'FifoFaultPending', 'FifoCutover'] as $name) $this->RegisterAttributeBoolean($name, false);
         $this->RegisterAttributeString('FifoFence', '');
         $this->RegisterAttributeString('FifoIncident', '');
+        $this->RegisterAttributeString('FifoLastFault', '');
         $this->RegisterAttributeString('FifoUnknownInputs', '[]');
         // A recreated interface cannot inherit an executing legacy PHP invocation.
         $this->WriteAttributeBoolean('FifoLegacyOverlap', false);
@@ -97,7 +98,10 @@ trait SensorGroupFifoRuntime
         if (!IPS_SemaphoreEnter($this->FifoFaultLock(), 1)) return;
         try {
             if ($fence !== $this->ReadAttributeString('FifoFence')) return;
-            $this->SetBuffer('InputFifoFault', $this->FifoEncode(['fence' => $fence, 'reason' => $this->FifoReason($reason)]));
+            $raw = $this->FifoEncode(['fence' => $fence, 'revision' => $this->ReadAttributeString('ActiveRevision'), 'observed_at' => date(DATE_ATOM), 'reason' => $this->FifoReason($reason)]);
+            $this->SetBuffer('InputFifoFault', $raw);
+            // One bounded anomaly record survives recovery, disabling and interface recreation.
+            if ($this->ReadAttributeString('FifoLastFault') !== $raw) $this->WriteAttributeString('FifoLastFault', $raw);
             $this->FifoRecordIncident($reason);
             $this->SetTimerInterval('InputFifoRecovery', 1000);
         } finally { IPS_SemaphoreLeave($this->FifoFaultLock()); }
@@ -114,7 +118,13 @@ trait SensorGroupFifoRuntime
         $entered ??= hrtime(true);
         $fence = $this->ReadAttributeString('FifoFence');
         try {
-            if (!is_int($counter) || !is_array($data) || !array_key_exists(0, $data) || !isset($data[1]) || !is_bool($data[1]) || !array_key_exists(2, $data) || !$this->FifoScalar($data[0]) || !$this->FifoScalar($data[2])) throw new RuntimeException('Invalid native input at variable ' . $id . '; current baseline recovery required.');
+            if (!is_int($counter) || !is_array($data) || !array_key_exists(0, $data) || !isset($data[1]) || !is_bool($data[1]) || !array_key_exists(2, $data) || !$this->FifoScalar($data[0]) || !$this->FifoScalar($data[2])) {
+                // Describe the contract failure without retaining sensor values or large strings.
+                $describe = static fn($v): string => get_debug_type($v) . (is_string($v) ? '(' . strlen($v) . ' bytes)' : '');
+                $shape = 'counter=' . $describe($counter) . '; data=' . $describe($data);
+                foreach ([0 => 'current', 1 => 'changed', 2 => 'previous'] as $key => $label) $shape .= '; ' . $label . '=' . (is_array($data) && array_key_exists($key, $data) ? $describe($data[$key]) : 'missing');
+                throw new RuntimeException('Invalid native input at variable ' . $id . ': ' . $shape . '; current baseline recovery required.');
+            }
             $this->FifoAdmit(['kind' => 'input', 'variable_id' => $id, 'value' => $data[0], 'previous' => $data[2], 'native_counter' => $counter], $fence, $entered);
         } catch (Throwable $e) { $this->FifoFault($e->getMessage(), $fence); }
     }
@@ -281,6 +291,15 @@ trait SensorGroupFifoRuntime
                 if (!IPS_SemaphoreEnter($this->FifoFaultLock(), 1)) throw new RuntimeException('FIFO fault publication busy; recovery will retry.');
                 try {
                     $old = $this->FifoMeta();
+                    $priorFault = $this->FifoFaultReason($fence);
+                    if ($priorFault !== '') {
+                        $fault = json_decode($this->GetBuffer('InputFifoFault'), true) ?: [];
+                        if (($fault['fence'] ?? '') !== $fence) $fault = ['fence' => $fence, 'revision' => $this->ReadAttributeString('ActiveRevision'), 'observed_at' => null, 'reason' => $this->FifoReason($priorFault), 'details_unavailable' => true];
+                        $old['recovery_fault'] = $fault;
+                        $old['recovered_at'] = date(DATE_ATOM);
+                        $raw = $this->FifoEncode($fault);
+                        if ($this->ReadAttributeString('FifoLastFault') !== $raw) $this->WriteAttributeString('FifoLastFault', $raw);
+                    }
                     if ($old) {
                         if (($old['count'] ?? 0) > 0) {
                             $old['discarded'] = ($old['discarded'] ?? 0) + $old['count'];
@@ -292,7 +311,6 @@ trait SensorGroupFifoRuntime
                     foreach ($rawBuckets as $i => $raw) $this->SetBuffer('InputFifoIngress' . $i, $raw);
                     for ($i = 0; $i < self::FIFO_SLOTS; ++$i) $this->SetBuffer('InputFifoSlot' . $i, '');
                     $this->SetBuffer('InputFifoState', $this->FifoEncode(['values' => $values]));
-                    $priorFault = $this->FifoFaultReason($fence);
                     if ($priorFault !== '') $this->FifoRecordIncident($priorFault);
                     $this->SetBuffer('InputFifoFault', '');
                     $this->WriteAttributeBoolean('FifoFaultPending', false);
@@ -442,7 +460,7 @@ trait SensorGroupFifoRuntime
     public function GetInputFifoReport(): string
     {
         if ($this->ReadAttributeBoolean('FifoOwned')) $this->PublishInputFifo();
-        return $this->FifoEncode(['enabled' => $this->ReadAttributeBoolean('FifoOwned'), 'ready' => $this->ReadAttributeBoolean('FifoReady'), 'incident' => $this->ReadAttributeString('FifoIncident'), 'unknown_inputs' => json_decode($this->ReadAttributeString('FifoUnknownInputs'), true), 'metrics' => $this->FifoMeta(), 'previous_session' => json_decode($this->GetBuffer('InputFifoPreviousSession'), true), 'fault' => $this->FifoFaultReason($this->ReadAttributeString('FifoFence')), 'limits' => ['slots' => self::FIFO_SLOTS, 'queue_bytes' => self::FIFO_BYTES, 'evaluation_state_bytes' => self::FIFO_STATE_BYTES], 'performance' => 'CPU and resident RAM unmeasured; synchronous receiver calls can exceed batch budget.']);
+        return $this->FifoEncode(['enabled' => $this->ReadAttributeBoolean('FifoOwned'), 'ready' => $this->ReadAttributeBoolean('FifoReady'), 'incident' => $this->ReadAttributeString('FifoIncident'), 'last_fault' => json_decode($this->ReadAttributeString('FifoLastFault'), true), 'unknown_inputs' => json_decode($this->ReadAttributeString('FifoUnknownInputs'), true), 'metrics' => $this->FifoMeta(), 'previous_session' => json_decode($this->GetBuffer('InputFifoPreviousSession'), true), 'fault' => $this->FifoFaultReason($this->ReadAttributeString('FifoFence')), 'limits' => ['slots' => self::FIFO_SLOTS, 'queue_bytes' => self::FIFO_BYTES, 'evaluation_state_bytes' => self::FIFO_STATE_BYTES], 'performance' => 'CPU and resident RAM unmeasured; synchronous receiver calls can exceed batch budget.']);
     }
     private function PublishInputFifo(): void
     {
