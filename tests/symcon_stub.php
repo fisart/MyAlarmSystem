@@ -66,7 +66,8 @@ function IPS_RequestAction($id, $ident, $value) {
     if (method_exists($GLOBALS['objects'][$id], 'RequestAction')) $GLOBALS['objects'][$id]->RequestAction($ident, $value);
 }
 function MYALARM_GetConfiguration($id) { return $GLOBALS['objects'][$id]->GetConfiguration(); }
-function MYALARM_GetSafetySnapshot($id, $mapping, $target, $remember = true) {
+// Exercise wrappers that require every argument even when the module method has a default.
+function MYALARM_GetSafetySnapshot($id, $mapping, $target, $remember) {
     if (!empty($GLOBALS['snapshot_failure'])) throw new RuntimeException('Simulated API failure');
     return $GLOBALS['objects'][$id]->GetSafetySnapshot($mapping, $target, $remember);
 }

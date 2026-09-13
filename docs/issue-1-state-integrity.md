@@ -28,4 +28,8 @@ The stub does not emulate Symcon scheduling, console form callbacks, device driv
 
 ## Delivery
 
+### Production follow-up: Module 2 v7.3.1
+
+The first production report showed an unavailable/invalid safety snapshot followed by all seven missing roles. The normal read omitted the fourth API argument while configuration validation supplied it. Module 2 now supplies `Remember=true` explicitly so it also works with generated wrappers that require every argument. The stub now requires all four arguments: the previous implementation fails the healthy-baseline test; the corrected version passes 114 checks including the live export. This reproduces a likely cause; confirmation on the actual Symcon installation is still needed. Snapshot and configuration-validation exceptions now expose their class and a bounded message through existing health-transition diagnostics. No timers, sensor evaluation policy or normal logging frequency were added.
+
 Install both module updates and their helper files together. Existing configuration exports remain compatible. Keep the pull request in draft until the Symcon integration checks and independent review are accepted. Roll back the repository version if necessary; do not import new runtime attributes into an old version.

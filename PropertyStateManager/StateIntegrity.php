@@ -35,7 +35,7 @@ trait PropertyStateIntegrity
             // Validation must not replace the active consumer's dependency cache.
             $result = json_decode(MYALARM_GetSafetySnapshot($source, (string)($candidate['GroupMapping'] ?? ''), $this->InstanceID, false), true);
             if (!is_array($result) || ($result['configuration_valid'] ?? false) !== true) return 'Invalid Module 1 source/mapping: ' . implode('; ', array_slice($result['errors'] ?? ['snapshot unavailable'], 0, 8));
-        } catch (Throwable $e) { return 'Module 1 configuration validation unavailable'; }
+        } catch (Throwable $e) { return 'Module 1 configuration validation unavailable: ' . get_class($e) . ': ' . substr($e->getMessage(), 0, 500); }
         return '';
     }
 
@@ -59,13 +59,23 @@ trait PropertyStateIntegrity
     {
         $source = $this->SafetySetting('SensorGroupInstanceID');
         $snapshot = null;
+        $snapshotError = 'Module 1 safety snapshot unavailable or invalid';
         try {
-            if ($source > 0 && IPS_InstanceExists($source) && function_exists('MYALARM_GetSafetySnapshot')) {
-                $snapshot = json_decode(MYALARM_GetSafetySnapshot($source, $this->SafetySetting('GroupMapping'), $this->InstanceID), true);
+            if ($source <= 0 || !IPS_InstanceExists($source)) {
+                $snapshotError = 'Module 1 source instance unavailable: ' . $source;
+            } elseif (!function_exists('MYALARM_GetSafetySnapshot')) {
+                $snapshotError = 'Module 1 safety API MYALARM_GetSafetySnapshot is unavailable';
+            } else {
+                // Pass every argument explicitly: generated Symcon wrappers may not preserve defaults.
+                $snapshot = json_decode(MYALARM_GetSafetySnapshot($source, $this->SafetySetting('GroupMapping'), $this->InstanceID, true), true);
+                if (json_last_error() !== JSON_ERROR_NONE) $snapshotError = 'Module 1 safety snapshot JSON invalid: ' . json_last_error_msg();
             }
-        } catch (Throwable $e) { /* A failed synchronous read is unknown, never secure. */ }
+        } catch (Throwable $e) {
+            // The existing health-transition logging keeps this bounded and anomaly-only.
+            $snapshotError = 'Module 1 safety snapshot failed: ' . get_class($e) . ': ' . substr($e->getMessage(), 0, 500);
+        }
         if (!is_array($snapshot) || ($snapshot['schema'] ?? 0) !== 1 || (int)($snapshot['source_id'] ?? 0) !== $source || (int)($snapshot['target_id'] ?? 0) !== $this->InstanceID || !is_array($snapshot['sources'] ?? null) || !is_array($snapshot['bedrooms'] ?? null) || !is_array($snapshot['errors'] ?? null)) {
-            $snapshot = ['valid' => false, 'sources' => [], 'bedrooms' => [], 'errors' => ['Module 1 safety snapshot unavailable or invalid']];
+            $snapshot = ['valid' => false, 'sources' => [], 'bedrooms' => [], 'errors' => [$snapshotError]];
         }
         if ($this->SafetySetting('DispatchTargetID') !== $this->InstanceID) {
             $snapshot['valid'] = false;

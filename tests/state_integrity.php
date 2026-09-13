@@ -186,6 +186,7 @@ $GLOBALS['variables'][41447]=false;
 foreach (AlarmSafety::LISTS as $key) IPS_SetProperty(23172,$key,json_encode($config[$key])); IPS_ApplyChanges(23172);
 // Recovery timer exists only while degraded and retries a failed snapshot with no new sensor event.
 $GLOBALS['snapshot_failure']=true; $m2->RefreshSafetyState();
+check(str_contains($m2->GetValue('InputHealth'), 'RuntimeException: Simulated API failure'), 'snapshot failure reports the underlying exception');
 check($m2->GetTimerInterval('SafetyRetryTimer')===30000, 'degraded-only retry is bounded to 30 seconds');
 $GLOBALS['snapshot_failure']=false; $m2->RefreshSafetyState();
 check($m2->GetTimerInterval('SafetyRetryTimer')===0, 'recovery stops retry timer');

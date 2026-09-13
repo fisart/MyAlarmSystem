@@ -1262,7 +1262,7 @@ class PropertyStateManager extends IPSModule
         $snapshot = [
             'export_type'     => 'PSM_CONFIG',
             'schema_version'  => 1,
-            'module_version'  => '7.3.0', // optional, keep or remove
+            'module_version'  => '7.3.1', // optional, keep or remove
             'exported_at'     => time(),
 
             // --- Properties you actually want to backup ---
@@ -1398,7 +1398,7 @@ class PropertyStateManager extends IPSModule
     public function GetMappingHints()
     {
         $schemaVersion = 1;
-        $module2Version = "7.3.0"; // keep aligned with your module versioning
+        $module2Version = "7.3.1"; // keep aligned with your module versioning
         $warnings = [];
 
         // --- Inputs (read-only) ---
