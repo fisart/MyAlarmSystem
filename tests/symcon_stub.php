@@ -48,8 +48,10 @@ class IPSModule
     }
     public function GetTimerInterval($name) { return $this->timers[$name] ?? 0; }
     public function SetTimerInterval($name, $value) {
+        if (($GLOBALS['reject_timer_interval'][$this->InstanceID . ':' . $name] ?? -1) === $value) return false;
         $this->timers[$name] = $value;
         if (isset($GLOBALS['on_set_timer_interval'])) ($GLOBALS['on_set_timer_interval'])($this, $name, $value);
+        return true;
     }
     public function RegisterTimer($name, $value, $script) { $this->timers[$name] = $value; }
     public function RegisterMessage($id, $message) { $this->messages[$id] = [$message]; }

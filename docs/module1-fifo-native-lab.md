@@ -1,6 +1,43 @@
 # Native FIFO timing lab
 
-## fifo.8 throughput measurement (current next step)
+## fifo.9 scheduling experiment (current next step)
+
+`Version2.14.0-fifo.9` retains the **50 ms initial idle wake** and ordinary FIFO continuation. During **applied diagnostic failure-capture mode only**, a batch that leaves queued work requests a **10 ms continuation interval**. The switch occurs once under the existing queue mutex; later busy batches query the interval and do not reset it. An empty queue stops the timer under the same lock as the next admission. Pending recovery retains an already-fast diagnostic timer. A false return/exception from the new continuation update follows the existing explicit fault/pause/no-replay path.
+
+Worker ownership, one-attempt semaphore waits (admission/essential commit10ms, dequeue/worker owner1ms), queue capacities,32-record maximum/soft20msbatch target, rule semantics and all-source/heartbeat treatment remain unchanged. A single slow frame or native call can exceed the target. No per-event asynchronous script, spin loop, larger batch or timer per sensor is introduced. Diagnostic mode includes any instance where failure capture is explicitly applied; **keep production FIFO/shadow/capture off** and run this experiment only on the zero-route lab.
+
+The SDK documents [GetTimerInterval](https://www.symcon.de/en/service/documentation/developer-area/sdk-tools/sdk-php/module/gettimerinterval/) (available since5.2) as an integer millisecond query and [SetTimerInterval](https://www.symcon.de/en/service/documentation/developer-area/sdk-tools/sdk-php/module/settimerinterval/) as a millisecond update returning success/failure. These establish API compatibility with Symcon9, not actual10ms precision, timer reentrancy or native thread fairness. Faster timer requests can consume additional shared threads/ownership attempts and concentrate evaluation work. There is no CPU/residentRAM claim.
+
+Next native actions:
+
+1. Confirm lab54312 has drained (`processed70`, `count0`, actual `enabledfalse`, already supplied for fifo.8). Update **design/module1-fifo**, retaining production FIFO/shadow/capture OFF. No Symcon restart.
+2. Existing **MyAlarmFifoLoadLab** / **Module1Test54312**: set **Scenario** to `concurrent_flicker`, run **RunScenario once**, send **Result**. No reinstall or full initial test sequence.
+3. Send fresh **real heartbeat history covering the run** (the synthetic Token input is not the actual watchdog). Obtain it from the watchdog UI or a separate script:
+
+```php
+<?php
+echo AHW_GetHeartbeatHistory(35750);
+```
+
+Keep that script separate from RunScenario. Heartbeat observations are shared-service health evidence, not measured CPU/RAM or proof of every alarm policy.
+
+Report `limits` now exposes50msidle/ordinary,10msdiagnostic continuation and20ms/32records batch targets. `worker_interval_ms` queries the currently requested native interval (not measured timer latency); it is normally0 in fifo_before and after_disable, and can also be0 in fifo_after after a completed drain. Use policy fields and `diagnostic_timing.pending_gap_*` / recent gap samples to assess the experiment. The original2/4/2second bounded startup/producer/drain deadlines remain; do not extend them to hide backlog. Require all70 admissions/processed, stable baseline, no new fault, empty queue and actual Disable. If unfinished, obtain a later lab-only `MYALARM_GetInputFifoReport(54312)` before another run/update.
+
+After this targeted result, review whether reduced lag costs real heartbeat/shared-service health. The deliberate40ms admission-contention check and native per-source/value/order/COUNT/ONCE verification remain later gates. Aggregate counts alone cannot validate exact rule/output behavior. A supervised production trial is later, after those gates; Modules2/3/watchdog remain unchanged.
+
+Local verification: **580 checks** across10suites (new scheduling31);22workflow PHP syntax files; clean whitespace. Independent review/native fifo.9 results recorded in current handoff/PR Conversation. Native fifo.9 results pending.
+
+## Completed fifo.8 graph-size evidence
+
+- Small concurrent session03cbe197edbe3e4f:70/70,21batches, evaluation479.550ms, pending gaps1027.883ms, maxlag1421.263ms, empty and actualOFF.
+- Larger sequential09c15b83f2f95a06:9/9,5batches, evaluation73.428ms, queuepeak2, maxlag63.807ms, no backlog after each batch, complete/current coverage, actualOFF.
+- Larger interleaved1f54ffc92d418317:36/36,16batches, evaluation360.554ms, pending gaps769.601ms, queuepeak30, maxlag1011.725ms, complete/current coverage, actualOFF.
+- Larger concurrent2c3a65515455ee7b:70admitted,55processed at the2sdrain snapshot (14queued/1dequeued),57processed/13queued at deferred Disable snapshot. **Initial comparison remains incomplete/timely acceptance failed.** Later same-baseline report confirms processed70/count0/actualOFF/nofault/recoveries3unchanged. Final34batches, evaluation871.713ms, worker953.437ms, worker queue waits1.162ms/0misses, pending gaps1699.285ms, maxlag2527.698ms. This shows delayed completed admission accounting, not recorded loss. Historical timing becomes not-current after Disable/Apply; retained legacy guard remains.
+
+Generic larger graph61classes392rules55groups69members370unique rule inputs377totalinputs;0bedrooms/routes. Private production topology/types/activation/bedroom/receiver costs are not replicated. The recorded ~51ms pending gaps dominate measured walltime, but include diagnostic persistence/owner-release/native scheduling; they are not pure timer latency, admission-lock wait or CPU utilization. No claim that this lab establishes original production legacy event-loss causality.
+
+
+## Historical fifo.8 measurement instructions (completed)
 
 `Version2.14.0-fifo.8` adds worker timing **only while the applied failure-capture test mode is active**. Ordinary FIFO receives no timing history. Existing queue waits, timer interval, batch target, trigger semantics and routing remain unchanged. No production activation or Symcon restart is required.
 
@@ -33,7 +70,7 @@ Read **fifo_after.diagnostic_timing** in Result:
 A separate volatile timing buffer is written **once per batch outside the queue lock**, capped at **8 KiB / eight recent samples**. It contains only numeric timing/counter fields, stage and baseline identity, not sensor values or event logs. Optional capture failure must not fault processing or replay a record. CPU and resident RAM remain unmeasured; fifo.7's 1.348-second delay is neither a CPU figure nor solely a mutex wait.
 
 
-Branch `design/module1-fifo`, actual Module 1 fifo.8 diagnostics. Main remains stable Module 1 v2.13.4. The lab exercises the actual runtime; fifo.8 adds test-mode-only timing and a generic larger profile. It does not implement a different FIFO.
+Branch `design/module1-fifo`, actual Module 1 fifo.9 diagnostics. Main remains stable Module 1 v2.13.4. The lab exercises the actual runtime; fifo.8 adds test-mode-only timing and a generic larger profile. It does not implement a different FIFO.
 
 ## Purpose and scope
 
@@ -85,9 +122,9 @@ Configuration validation occurs at script entry and before configuration activat
 
 Native API signatures were checked against the official [Symcon GlobalStubs](https://github.com/symcon/SymconStubs/blob/master/GlobalStubs.php): instance/variable/script creation, script content installation, `IPS_RunScriptEx`, `SetValue` and `IPS_Sleep`. Stubs establish API shape, not native ordering, timing or completion guarantees. Mock verification supplements the existing suites; live results remain required.
 
-## Current review and checks
+## Historical fifo.8 review and checks
 
-All nine local suites pass **549 checks**, including **57 lab checks and 24 timing checks**. Independent read-only review reran the final 57/24 suites and approved only supervised isolated lab testing. PHP syntax (21 workflow files) and whitespace checks pass. Native fifo.8 timing/load acceptance remains pending.
+All nine local suites pass **549 checks**, including **57 lab checks and 24 timing checks**. Independent read-only review reran the final 57/24 suites and approved only supervised isolated lab testing. PHP syntax (21 workflow files) and whitespace checks pass. Those checks preceded the completed fifo.8 evidence above; current fifo.9 acceptance is pending.
 
 ## Historical fifo.7 review and evidence
 

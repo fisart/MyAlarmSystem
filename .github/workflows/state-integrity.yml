@@ -17,6 +17,8 @@ jobs:
           php -l SensorEventProbe/module.php
           php -l SensorGroup/FifoRuntime.php
           php tests/sensor_fifo_runtime.php
+          php -l tests/sensor_fifo_scheduling.php
+          php tests/sensor_fifo_scheduling.php
           php -l SensorGroup/FifoTiming.php
           php -l tests/sensor_fifo_timing.php
           php tests/sensor_fifo_timing.php
