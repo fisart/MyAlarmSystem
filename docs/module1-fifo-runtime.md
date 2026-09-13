@@ -2,6 +2,8 @@
 
 Build marker: `Version2.14.0-fifo.5`. Default: **disabled** (`EnableInputFifo=false`). Production revealed repeated recovery after unknown inputs were resolved; a retained concurrency guard subsequently blocked activation. **Keep live FIFO disabled. Do not restart IP-Symcon or clear the guard.** The current next step is the [passive input check](module1-fifo-passive-input-diagnostics.md), alongside existing alarm processing. Restart-free activation remains unapproved because old untracked calls cannot be proven finished. Module 2, Module 3 and heartbeat watchdog runtime files do not change.
 
+The first completed passive capture inspected 84 updates without rejection or interruption. Its result does not resolve activation or recovery. The current investigation is the [native execution boundary](module1-fifo-restart-free-boundary.md), with a one-shot script that needs no module update.
+
 ## Evidence and limits
 
 Artur supplied two clean shadow captures on 13 September 2026: 61 and 174 admitted/evaluated records, zero decision mismatches, empty queues and no lifecycle fault. All heartbeat targets were OK during both captures. In the second capture, Module 1 callback latency was 113–196 ms against the existing 45-second timeout. The second ring wrapped, but its peak occupancy was only two: it did not establish heavy concurrent-load behavior.

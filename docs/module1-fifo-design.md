@@ -1,6 +1,6 @@
 # Module 1-only FIFO: revised design
 
-Status: Module 1-only scope accepted by Artur on 2026-09-13. Native observations and two clean shadow captures have been received. The opt-in [live FIFO build](module1-fifo-runtime.md) is now implemented and independently reviewed for supervised production testing, disabled by default. Production CPU/resident RAM impact remains unmeasured; Artur authorized proceeding without historical records. Native live-delivery/load validation remains pending.
+Status: Module 1-only scope accepted by Artur on 2026-09-13. The opt-in [live FIFO build](module1-fifo-runtime.md) is implemented, but production revealed a repeated recovery loop and a retained legacy activation blocker. Keep live FIFO disabled; no service restart or guard reset is requested. The clean 84-update passive capture establishes sample payload compatibility only. See the [restart-free boundary investigation](module1-fifo-restart-free-boundary.md). Production CPU/resident RAM impact remains unmeasured by agreement; native FIFO acceptance remains deferred.
 Baseline: main commit `59e413ead4d6a85a5336583af7788ee9175d0a49`, Module 1 v2.13.3 / Module 2 v7.3.2.
 
 ## Decision and scope
