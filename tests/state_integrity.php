@@ -83,6 +83,18 @@ foreach (['', 'updating'] as $unreadyRevision) {
 }
 $m1->WriteAttributeString('ActiveRevision', $revision);
 $GLOBALS['unavailable_buffer_interface'] = 0;
+$GLOBALS['hold_post_apply'] = true;
+$beforeCalls = count($GLOBALS['calls']);
+IPS_ApplyChanges(23172); IPS_ApplyChanges(56438);
+check(count($GLOBALS['calls']) === $beforeCalls && $m2->attributes['SafetyApplyPending'], 'Apply defers outbound dispatch and snapshot validation');
+check(!$m2->GetValue('MonitoringHealthy') && str_starts_with($m2->GetValue('InputHealth'), 'Initializing:'), 'pending initialization does not retain a healthy indicator');
+$GLOBALS['kernel_runlevel'] = 0;
+drainPostApplyTimers(); $m2->RefreshSafetyState();
+check($m1->GetTimerInterval('PostApplyTimer') === 1000 && $m2->GetTimerInterval('SafetyApplyTimer') === 1000 && count($GLOBALS['calls']) === $beforeCalls, 'startup callbacks wait for kernel readiness without cross-module calls');
+$GLOBALS['kernel_runlevel'] = KR_READY;
+drainPostApplyTimers();
+check($m1->GetTimerInterval('PostApplyTimer') === 0 && $m2->GetTimerInterval('SafetyApplyTimer') === 0 && $m2->GetValue('MonitoringHealthy'), 'deferred initialization completes and disables both one-shot timers');
+$GLOBALS['hold_post_apply'] = false;
 $m2->HandleTimer(); check($m2->GetValue('SystemState') === 3, 'timer arms external');
 // Empty payloads are never used as evidence; current sensor state decides.
 $GLOBALS['variables'][41447] = true;
@@ -313,6 +325,16 @@ IPS_SetProperty(23172,'TargetThrottleList',json_encode([['InstanceID'=>57380,'Ma
 ob_start(); $m1->UI_RestoreBackup(json_encode($backup)); ob_end_clean();
 check(invokePrivate($m1,'ReadTargetThrottleConfig')===[],'backup restore clears throttle added after export');
 // Healthy snapshot API benchmark is informational; assertions concern bounded behavior, not host speed.
+$GLOBALS['hold_post_apply'] = true;
+$m2->SetValue('SystemState', 3);
+IPS_ApplyChanges(56438);
+check($m2->GetValue('SystemState') === 3, 'deferred Apply retains armed protection while pending');
+$GLOBALS['variables'][41447] = true;
+$m2->RefreshSafetyState();
+check($m2->GetValue('SystemState') === 9 && !$m2->attributes['SafetyApplyPending'], 'valid intrusion during pending initialization completes validation and alarms');
+$GLOBALS['variables'][41447] = false;
+$GLOBALS['hold_post_apply'] = false;
+check(($GLOBALS['lifecycle_cross_calls'] ?? 0) === 0, 'no PHP module API or dispatch calls occurred inside Apply throughout the suite');
 $start=microtime(true); for ($i=0;$i<1000;$i++) $m1->GetSafetySnapshot(json_encode(mapping()),56438);
 printf("Safety API: 1000 reads in %.1f ms; cache %.1f KiB\n",(microtime(true)-$start)*1000,strlen($m1->ReadAttributeString('SafetyPlan'))/1024);
 echo "PASS: $count checks\n";

@@ -159,12 +159,22 @@ trait PropertyStateIntegrity
 
     public function RefreshSafetyState(): void
     {
+        if (IPS_GetKernelRunlevel() !== KR_READY) return;
+        if ($this->ReadAttributeBoolean('SafetyApplyPending')) {
+            $this->CompleteSafetyApply();
+            return;
+        }
         if (!(json_decode($this->ReadAttributeString('ActiveSafetySettings'), true) ?: [])) $this->ActivateSafetySettings();
         $this->EvaluateState();
     }
 
     private function EvaluateState()
     {
+        if (IPS_GetKernelRunlevel() !== KR_READY) return;
+        if ($this->ReadAttributeBoolean('SafetyApplyPending')) {
+            $this->CompleteSafetyApply();
+            return;
+        }
         $inputs = $this->ReadSafetyInputs();
         $state = (int)$this->GetValue('SystemState');
         $next = $state;

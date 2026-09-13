@@ -1,5 +1,5 @@
 <?php
-// Version2.13.2
+// Version2.13.3
 declare(strict_types=1);
 
 require_once __DIR__ . '/StateIntegrity.php';
@@ -27,6 +27,8 @@ class SensorGroup extends IPSModule
         // Cross-module snapshot calls during interface creation cannot rely on runtime buffers.
         $this->RegisterAttributeString('ActiveRevision', '');
         $this->RegisterAttributeString('SafetyPlan', '');
+        $this->RegisterAttributeInteger('PostApplyAction', 0);
+        $this->RegisterTimer('PostApplyTimer', 0, 'MYALARM_RunPostApply($_IPS[\'TARGET\']);');
         $this->RegisterAttributeString('ConfigurationError', '');
         $this->RegisterAttributeString('DraftSections', '{}');
         $this->RegisterVariableString('ConfigurationHealth', 'Configuration Health', '', 96);
@@ -293,7 +295,8 @@ class SensorGroup extends IPSModule
             $this->ReportConfigurationError('Apply rejected: ' . implode('; ', array_slice($errors, 0, 10)));
             $previous = $this->ReadAttributeString('ActiveConfiguration');
             $this->WriteAttributeString('ActiveRevision', $previous === '' ? '' : hash('sha256', $previous));
-            $this->NotifySafetyConsumer(0);
+            $this->WriteAttributeInteger('PostApplyAction', 1);
+            $this->SetTimerInterval('PostApplyTimer', 1000);
             return; // Keep previous subscriptions, active graph and monitoring intact. Never prune.
         }
         $json = json_encode($candidate);
@@ -398,7 +401,19 @@ class SensorGroup extends IPSModule
         $this->UpdatePulseExpireTimer();
         $this->RefreshTrafficDiagnosticHeartbeatVariableIDs();
         $this->UpdateTrafficDiagnosticsTimer();
-        $this->CheckLogic(0, 'apply_changes');
+        // Cross-module dispatch must run after interface creation / Apply has returned.
+        $this->WriteAttributeInteger('PostApplyAction', 2);
+        $this->SetTimerInterval('PostApplyTimer', 1000);
+    }
+
+    public function RunPostApply(): void
+    {
+        if (IPS_GetKernelRunlevel() !== KR_READY) return;
+        $this->SetTimerInterval('PostApplyTimer', 0);
+        $action = $this->ReadAttributeInteger('PostApplyAction');
+        $this->WriteAttributeInteger('PostApplyAction', 0);
+        if ($action === 2) $this->CheckLogic(0, 'apply_changes');
+        elseif ($action === 1) $this->NotifySafetyConsumer(0);
     }
 
     public function CheckPulseExpiry()

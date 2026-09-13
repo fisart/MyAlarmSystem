@@ -31,6 +31,8 @@ class PropertyStateManager extends IPSModule
         $this->RegisterAttributeString('SafetyInputs', '{}');
         $this->RegisterAttributeString('ActiveSafetySettings', '{}');
         $this->RegisterAttributeString('SafetyConfigurationError', '');
+        $this->RegisterAttributeBoolean('SafetyApplyPending', false);
+        $this->RegisterTimer('SafetyApplyTimer', 0, 'PSM_CompleteSafetyApply($_IPS[\'TARGET\']);');
         $this->RegisterTimer('SafetyRetryTimer', 0, 'PSM_RefreshSafetyState($_IPS[\'TARGET\']);');
         $this->RegisterVariableBoolean('MonitoringHealthy', 'Monitoring Healthy', '', 1);
         $this->RegisterVariableString('InputHealth', 'Input Health / Arming Block', '', 2);
@@ -99,6 +101,19 @@ class PropertyStateManager extends IPSModule
         // Register the Webhook using the manual helper
         $this->RegisterHook('/hook/psm_logic_' . $this->InstanceID);
 
+        // Interface construction cannot call another PHP module's instance methods.
+        $this->WriteAttributeBoolean('SafetyApplyPending', true);
+        $this->SetValue('MonitoringHealthy', false);
+        $this->SetValue('InputHealth', 'Initializing: awaiting current Module 1 snapshot');
+        $this->SetTimerInterval('SafetyApplyTimer', 1000);
+    }
+
+    public function CompleteSafetyApply(): void
+    {
+        if (IPS_GetKernelRunlevel() !== KR_READY) return;
+        $this->SetTimerInterval('SafetyApplyTimer', 0);
+        if (!$this->ReadAttributeBoolean('SafetyApplyPending')) return;
+        $this->WriteAttributeBoolean('SafetyApplyPending', false);
         if (!$this->ActivateSafetySettings()) {
             $this->EvaluateState(); // Retain previous settings and protection on a rejected activation.
             return;
@@ -1262,7 +1277,7 @@ class PropertyStateManager extends IPSModule
         $snapshot = [
             'export_type'     => 'PSM_CONFIG',
             'schema_version'  => 1,
-            'module_version'  => '7.3.1', // optional, keep or remove
+            'module_version'  => '7.3.2', // optional, keep or remove
             'exported_at'     => time(),
 
             // --- Properties you actually want to backup ---
@@ -1398,7 +1413,7 @@ class PropertyStateManager extends IPSModule
     public function GetMappingHints()
     {
         $schemaVersion = 1;
-        $module2Version = "7.3.1"; // keep aligned with your module versioning
+        $module2Version = "7.3.2"; // keep aligned with your module versioning
         $warnings = [];
 
         // --- Inputs (read-only) ---

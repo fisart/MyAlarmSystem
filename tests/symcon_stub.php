@@ -3,6 +3,7 @@
 const VM_UPDATE = 10603;
 const KL_MESSAGE = 0;
 const KL_WARNING = 1;
+const KR_READY = 10103;
 $GLOBALS['objects'] = []; $GLOBALS['variables'] = []; $GLOBALS['calls'] = []; $GLOBALS['nextVar'] = 900000;
 class IPSModule
 {
@@ -50,7 +51,25 @@ class IPSModule
 function IPS_SetProperty($id, $name, $value) { $GLOBALS['objects'][$id]->pending[$name] = $value; }
 function IPS_GetProperty($id, $name) { return $GLOBALS['objects'][$id]->pending[$name]; }
 function IPS_HasChanges($id) { $o = $GLOBALS['objects'][$id]; return $o->pending !== $o->properties; }
-function IPS_ApplyChanges($id) { $o = $GLOBALS['objects'][$id]; $o->properties = $o->pending; $o->ApplyChanges(); }
+function IPS_ApplyChanges($id) {
+    $o = $GLOBALS['objects'][$id]; $o->properties = $o->pending;
+    $GLOBALS['apply_depth'] = ($GLOBALS['apply_depth'] ?? 0) + 1;
+    try { $o->ApplyChanges(); } finally { --$GLOBALS['apply_depth']; }
+    if (!$GLOBALS['apply_depth'] && empty($GLOBALS['hold_post_apply'])) drainPostApplyTimers();
+}
+function IPS_GetKernelRunlevel() { return $GLOBALS['kernel_runlevel'] ?? KR_READY; }
+function drainPostApplyTimers() {
+    foreach ($GLOBALS['objects'] as $o) {
+        if ($o->GetTimerInterval('PostApplyTimer') > 0) $o->RunPostApply();
+        if ($o->GetTimerInterval('SafetyApplyTimer') > 0) $o->CompleteSafetyApply();
+    }
+}
+function assertOutsideApply() {
+    if (!empty($GLOBALS['apply_depth'])) {
+        $GLOBALS['lifecycle_cross_calls'] = ($GLOBALS['lifecycle_cross_calls'] ?? 0) + 1;
+        throw new RuntimeException('InstanceInterface is not available during cross-module Apply');
+    }
+}
 function IPS_VariableExists($id) { return array_key_exists($id, $GLOBALS['variables']); }
 function IPS_ObjectExists($id) { return IPS_VariableExists($id) || IPS_InstanceExists($id); }
 function IPS_InstanceExists($id) { return isset($GLOBALS['objects'][$id]); }
@@ -67,13 +86,15 @@ function IPS_SetHidden($id, $hidden) {}
 function IPS_VariableProfileExists($name) { return true; }
 function IPS_SetVariableProfileAssociation(...$args) {}
 function IPS_RequestAction($id, $ident, $value) {
+    assertOutsideApply();
     $GLOBALS['calls'][] = [$id, $ident, $value];
     if (!empty($GLOBALS['fail_dispatch'][$id])) throw new RuntimeException('Simulated delivery failure');
     if (method_exists($GLOBALS['objects'][$id], 'RequestAction')) $GLOBALS['objects'][$id]->RequestAction($ident, $value);
 }
-function MYALARM_GetConfiguration($id) { return $GLOBALS['objects'][$id]->GetConfiguration(); }
+function MYALARM_GetConfiguration($id) { assertOutsideApply(); return $GLOBALS['objects'][$id]->GetConfiguration(); }
 // Exercise wrappers that require every argument even when the module method has a default.
 function MYALARM_GetSafetySnapshot($id, $mapping, $target, $remember) {
+    assertOutsideApply();
     if (!empty($GLOBALS['snapshot_failure'])) throw new RuntimeException('Simulated API failure');
     return $GLOBALS['objects'][$id]->GetSafetySnapshot($mapping, $target, $remember);
 }
