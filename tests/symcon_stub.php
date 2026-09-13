@@ -27,6 +27,9 @@ class IPSModule
             return $this->idents[$args[0]];
         }
         if ($name === 'UpdateFormField') { $this->buffers['test_form_' . $args[0]] = $args[2]; return; }
+        if ($name === 'UnregisterVariable' && !empty($GLOBALS['model_variable_cleanup'])) {
+            $id = $this->idents[$args[0]] ?? 0; unset($this->idents[$args[0]], $GLOBALS['variables'][$id]); return;
+        }
         if (in_array($name, ['ReloadForm', 'UpdateFormField', 'SendDebug', 'UnregisterVariable'], true)) return;
         throw new RuntimeException('Unstubbed method ' . $name);
     }
@@ -82,10 +85,10 @@ function GetValue($id) {
 function GetValueFormatted($id) { return (string)GetValue($id); }
 function IPS_GetParent($id) { return 0; }
 function IPS_GetName($id) { return "Object $id"; }
-function IPS_GetObject($id) { return ['ObjectType' => IPS_VariableExists($id) ? 2 : 1, 'ObjectIdent' => '', 'ObjectName' => IPS_GetName($id)]; }
+function IPS_GetObject($id) { return ['ObjectType' => IPS_VariableExists($id) ? 2 : 1, 'ObjectIdent' => $GLOBALS['model_idents'][$id] ?? '', 'ObjectName' => IPS_GetName($id)]; }
 function IPS_GetInstance($id) { return ['ModuleInfo' => ['ModuleID' => $GLOBALS['objects'][$id] instanceof PropertyStateManager ? '{D90786C5-5A3E-4B0F-935A-3A3A9D1C9E9A}' : '{OTHER}']]; }
 function IPS_GetVariable($id) { return ['VariableUpdated' => time(), 'VariableType' => is_bool(GetValue($id)) ? 0 : 1]; }
-function IPS_GetChildrenIDs($id) { return []; }
+function IPS_GetChildrenIDs($id) { return $GLOBALS['model_children'][$id] ?? []; }
 function IPS_GetInstanceListByModuleID($id) { return []; }
 function IPS_SetHidden($id, $hidden) {}
 function IPS_VariableProfileExists($name) { return true; }

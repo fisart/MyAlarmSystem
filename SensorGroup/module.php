@@ -1,15 +1,18 @@
 <?php
-// Version2.13.3
+// Version2.14.0-shadow.1
 declare(strict_types=1);
 
 require_once __DIR__ . '/StateIntegrity.php';
+require_once __DIR__ . '/FifoShadow.php';
 
 class SensorGroup extends IPSModule
 {
     use SensorGroupStateIntegrity;
+    use SensorGroupFifoShadow;
     public function Create()
     {
         parent::Create();
+        $this->FifoShadowCreate();
         $this->RegisterPropertyString('ClassList', '[]');
         $this->RegisterPropertyString('SensorList', '[]');
         $this->RegisterPropertyString('GroupList', '[]');
@@ -287,6 +290,9 @@ class SensorGroup extends IPSModule
         if ($this->ReadPropertyBoolean('DebugMode')) $this->LogMessage("DEBUG: ApplyChanges - START", KL_MESSAGE);
         parent::ApplyChanges();
 
+        $this->FifoShadowApplyBegin();
+        try {
+
         $this->WriteAttributeString('ActiveRevision', 'updating');
         $this->activeConfigCache = null;
         $candidate = $this->ConfigurationCandidate();
@@ -376,7 +382,7 @@ class SensorGroup extends IPSModule
         }
 
         // 4. VARIABLES (Status)
-        $keepIdents = ['Status', 'Sabotage', 'TrafficDiagnostics', 'EventData', 'ConfigurationHealth'];
+        $keepIdents = ['Status', 'Sabotage', 'TrafficDiagnostics', 'EventData', 'ConfigurationHealth', 'FifoShadowHealth', 'FifoShadowReport'];
         $pos = 20;
         foreach ($groupList as $group) {
             if (empty($group['GroupName'])) continue;
@@ -404,6 +410,9 @@ class SensorGroup extends IPSModule
         // Cross-module dispatch must run after interface creation / Apply has returned.
         $this->WriteAttributeInteger('PostApplyAction', 2);
         $this->SetTimerInterval('PostApplyTimer', 1000);
+        } finally {
+            $this->WriteAttributeBoolean('FifoShadowApplying', false);
+        }
     }
 
     public function RunPostApply(): void
@@ -2537,6 +2546,9 @@ class SensorGroup extends IPSModule
 
     public function MessageSink($TimeStamp, $SenderID, $Message, $Data)
     {
+        $shadowTicket = (int)$Message === VM_UPDATE
+            ? $this->FifoShadowInput($TimeStamp, (int)$SenderID, $Data)
+            : null;
         $val = null;
         $valType = 'n/a';
         $valFmt = 'n/a';
@@ -2574,6 +2586,7 @@ class SensorGroup extends IPSModule
         );
 
         if (!$valueChanged) {
+            $this->FifoShadowComplete($shadowTicket, null);
             // Preserve the diagnostic count of observed unchanged refreshes,
             // but do not count an execution because CheckLogic is not called.
             $this->TrafficDiagnosticRecordExecution(
@@ -2592,7 +2605,8 @@ class SensorGroup extends IPSModule
             (string)($diagnostic['source'] ?? 'other'),
             isset($diagnostic['changed']) && is_bool($diagnostic['changed'])
                 ? $diagnostic['changed']
-                : null
+                : null,
+            $shadowTicket
         );
     }
 
@@ -2648,9 +2662,15 @@ class SensorGroup extends IPSModule
     private function CheckLogic(
         $TriggeringID = 0,
         string $DiagnosticSource = 'other',
-        ?bool $DiagnosticValueChanged = null
+        ?bool $DiagnosticValueChanged = null,
+        ?array $shadowTicket = null
     ) {
         $diagnosticDispatchedTargetIDs = [];
+        if ($shadowTicket === null && (int)$TriggeringID === 0) {
+            $shadowTicket = $this->FifoShadowControl($DiagnosticSource);
+        }
+        $shadowSuccess = false;
+        try {
 
         $classList = $this->ActiveList('ClassList');
         $sensorList = $this->ActiveList('SensorList');
@@ -3414,6 +3434,19 @@ class SensorGroup extends IPSModule
             $DiagnosticValueChanged,
             $diagnosticDispatchedTargetIDs
         );
+        $shadowSuccess = true;
+        } finally {
+            if ($shadowTicket !== null) {
+                $shadowProjection = ['classes' => array_keys($activeClasses ?? []),
+                    'groups' => $activeGroups ?? [],
+                    'sensors' => array_values(array_unique($engineActiveSensors ?? [])),
+                    'sabotage' => $sabotageActive ?? false];
+                sort($shadowProjection['classes'], SORT_STRING);
+                sort($shadowProjection['groups'], SORT_STRING);
+                sort($shadowProjection['sensors'], SORT_NUMERIC);
+                $this->FifoShadowComplete($shadowTicket, $shadowProjection, $shadowSuccess);
+            }
+        }
     }
 
 
@@ -4973,6 +5006,18 @@ class SensorGroup extends IPSModule
 
         // Read-only help button. It has no property name and cannot change configuration data.
         array_unshift($form['elements'], $this->BuildModule1DocumentationPopup());
+
+        array_splice($form['elements'], 1, 0, [[
+            'type' => 'ExpansionPanel', 'caption' => 'FIFO shadow testing', 'expanded' => false,
+            'items' => [
+                ['type' => 'CheckBox', 'name' => 'EnableFifoShadow', 'caption' => 'Allow read-only FIFO shadow testing (Apply, then Start manually)'],
+                ['type' => 'NumberSpinner', 'name' => 'FifoShadowDurationSeconds', 'caption' => 'Maximum shadow duration in seconds', 'minimum' => 30, 'maximum' => 900],
+                ['type' => 'Label', 'caption' => 'Existing alarms continue normally. Shadow sends no additional outputs. Heartbeat has no priority or bypass. Reports are below this instance.'],
+                ['type' => 'Button', 'caption' => 'Start shadow', 'onClick' => 'MYALARM_StartFifoShadow($id);'],
+                ['type' => 'Button', 'caption' => 'Stop shadow', 'onClick' => 'MYALARM_StopFifoShadow($id);'],
+                ['type' => 'Button', 'caption' => 'Print shadow report', 'onClick' => 'echo MYALARM_GetFifoShadowReport($id);']
+            ]
+        ]]);
 
         array_splice($form['elements'], 1, 0, [[
             'type' => 'ExpansionPanel',

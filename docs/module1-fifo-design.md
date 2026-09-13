@@ -1,6 +1,6 @@
 # Module 1-only FIFO: revised design
 
-Status: scope accepted by Artur on 2026-09-13. Ordinary native message observations have been received and analyzed; see [native results](module1-fifo-native-results.md). No FIFO runtime is enabled. The earlier independent review covered the coordinated architecture, not approval of an implementation of this narrower design.
+Status: scope accepted by Artur on 2026-09-13. Ordinary native message observations have been received and analyzed; see [native results](module1-fifo-native-results.md). The opt-in [Module 1 shadow build](module1-fifo-shadow.md) has been independently reviewed for diagnostic testing. The production alarm evaluator has not been moved onto FIFO; native shadow/load validation remains required. The earlier architecture review covered the coordinated design.
 Baseline: main commit `59e413ead4d6a85a5336583af7788ee9175d0a49`, Module 1 v2.13.3 / Module 2 v7.3.2.
 
 ## Decision and scope
@@ -48,7 +48,7 @@ Report admission failure, overflow, invalid observations and ambiguous worker st
 
 On restart, discard volatile old-session state and establish a validated current Module 1 baseline. Do not add a manual acknowledgement requirement or alter Module 2 arming policy. Module 1 diagnostics cannot prove that all downstream destinations are healthy. The expanded house-state/Mermaid panel remains deferred.
 
-Measure capacities and worker intervals against the live configuration (393 rules, 371 distinct variables). Bound queue entries, serialized bytes, mirror/control state and incident retention; account separately for PHP object/array overhead. The earlier coordinated architecture's 2 MiB budget is not a validated budget for this narrower implementation. Prefer dependency indexes and compact data; avoid extra polling, repeated full configuration parsing, routine verbose logging and long semaphore waits.
+Measure capacities and worker intervals against the live configuration (393 rules, 371 distinct sensor variables; 377 dependencies including comparison and bedroom references). Bound queue entries, serialized bytes, mirror/control state and incident retention; account separately for PHP object/array overhead. The earlier coordinated architecture's 2 MiB budget is not a validated budget for this narrower implementation. Prefer dependency indexes and compact data; avoid extra polling, repeated full configuration parsing, routine verbose logging and long semaphore waits.
 
 ## Implementation and acceptance
 
