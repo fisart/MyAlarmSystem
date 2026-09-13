@@ -83,9 +83,10 @@ function GetValue($id) {
     if (!IPS_VariableExists($id)) throw new RuntimeException("Missing variable $id");
     return $GLOBALS['variables'][$id];
 }
+function GetValueFormattedEx($id, $value) { return (string)$value; }
 function GetValueFormatted($id) { return (string)GetValue($id); }
 function IPS_GetParent($id) { return 0; }
-function IPS_GetName($id) { return "Object $id"; }
+function IPS_GetName($id) { if (isset($GLOBALS["on_get_name"])) ($GLOBALS["on_get_name"])($id); return "Object $id"; }
 function IPS_GetObject($id) { return ['ObjectType' => IPS_VariableExists($id) ? 2 : 1, 'ObjectIdent' => $GLOBALS['model_idents'][$id] ?? '', 'ObjectName' => IPS_GetName($id)]; }
 function IPS_GetInstance($id) { return ['ModuleInfo' => ['ModuleID' => $GLOBALS['objects'][$id] instanceof PropertyStateManager ? '{D90786C5-5A3E-4B0F-935A-3A3A9D1C9E9A}' : '{OTHER}']]; }
 function IPS_GetVariable($id) { return ['VariableUpdated' => time(), 'VariableType' => is_bool(GetValue($id)) ? 0 : 1]; }
@@ -97,6 +98,7 @@ function IPS_SetVariableProfileAssociation(...$args) {}
 function IPS_RequestAction($id, $ident, $value) {
     assertOutsideApply();
     $GLOBALS['calls'][] = [$id, $ident, $value];
+    if (isset($GLOBALS['on_request_action'])) ($GLOBALS['on_request_action'])($id, $ident, $value);
     if (!empty($GLOBALS['fail_dispatch'][$id])) throw new RuntimeException('Simulated delivery failure');
     if (method_exists($GLOBALS['objects'][$id], 'RequestAction')) $GLOBALS['objects'][$id]->RequestAction($ident, $value);
 }

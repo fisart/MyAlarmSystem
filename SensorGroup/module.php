@@ -1,18 +1,21 @@
 <?php
-// Version2.14.0-shadow.3
+// Version2.14.0-fifo.1
 declare(strict_types=1);
 
 require_once __DIR__ . '/StateIntegrity.php';
 require_once __DIR__ . '/FifoShadow.php';
+require_once __DIR__ . '/FifoRuntime.php';
 
 class SensorGroup extends IPSModule
 {
     use SensorGroupStateIntegrity;
     use SensorGroupFifoShadow;
+    use SensorGroupFifoRuntime;
     public function Create()
     {
         parent::Create();
         $this->FifoShadowCreate();
+        $this->FifoCreate();
         $this->RegisterPropertyString('ClassList', '[]');
         $this->RegisterPropertyString('SensorList', '[]');
         $this->RegisterPropertyString('GroupList', '[]');
@@ -287,6 +290,17 @@ class SensorGroup extends IPSModule
 
     public function ApplyChanges()
     {
+        if (!$this->FifoApplyEnter()) return;
+        try {
+            $this->ApplyConfigurationGraph();
+        } finally {
+            $this->WriteAttributeBoolean('FifoCutover', false);
+            IPS_SemaphoreLeave($this->FifoWorkerLock());
+        }
+    }
+
+    private function ApplyConfigurationGraph(): void
+    {
         if ($this->ReadPropertyBoolean('DebugMode')) $this->LogMessage("DEBUG: ApplyChanges - START", KL_MESSAGE);
         parent::ApplyChanges();
 
@@ -302,6 +316,7 @@ class SensorGroup extends IPSModule
             $previous = $this->ReadAttributeString('ActiveConfiguration');
             $this->WriteAttributeString('ActiveRevision', $previous === '' ? '' : hash('sha256', $previous));
             $this->RestoreLastActiveInputRuntime();
+            $this->RegisterFifoDependencies();
             $this->WriteAttributeInteger('PostApplyAction', 1);
             $this->SetTimerInterval('PostApplyTimer', 1000);
             return; // Retain active graph; recreate missing interface subscriptions without activating the draft.
@@ -383,7 +398,7 @@ class SensorGroup extends IPSModule
         }
 
         // 4. VARIABLES (Status)
-        $keepIdents = ['Status', 'Sabotage', 'TrafficDiagnostics', 'EventData', 'ConfigurationHealth', 'FifoShadowHealth', 'FifoShadowReport'];
+        $keepIdents = ['Status', 'Sabotage', 'TrafficDiagnostics', 'EventData', 'ConfigurationHealth', 'FifoShadowHealth', 'FifoShadowReport', 'InputFifoHealth', 'InputFifoIncident'];
         $pos = 20;
         foreach ($groupList as $group) {
             if (empty($group['GroupName'])) continue;
@@ -403,6 +418,7 @@ class SensorGroup extends IPSModule
         if ($this->ReadAttributeString('LastMainStatus') === '') {
             $this->WriteAttributeString('LastMainStatus', '0');
         }
+        $this->RegisterFifoDependencies();
         // 5. RELOAD FORM
         $this->ReloadForm();
         $this->UpdatePulseExpireTimer();
@@ -420,6 +436,13 @@ class SensorGroup extends IPSModule
     {
         if (IPS_GetKernelRunlevel() !== KR_READY) return;
         $this->SetTimerInterval('PostApplyTimer', 0);
+        if ($this->ReadAttributeBoolean('FifoApplyPending')) { $this->ApplyChanges(); return; }
+        if ($this->ReadAttributeBoolean('FifoOwned') && !$this->ReadAttributeBoolean('FifoReady')) {
+            $this->SetTimerInterval('InputFifoRecovery', 1000);
+            $this->RecoverInputFifo();
+            $this->WriteAttributeInteger('PostApplyAction', 0);
+            return;
+        }
         $action = $this->ReadAttributeInteger('PostApplyAction');
         $this->WriteAttributeInteger('PostApplyAction', 0);
         if ($action === 2) $this->CheckLogic(0, 'apply_changes');
@@ -428,6 +451,11 @@ class SensorGroup extends IPSModule
 
     public function CheckPulseExpiry()
     {
+        if ($this->ReadAttributeBoolean('FifoOwned')) {
+            $this->SetTimerInterval('PulseExpireTimer', 0);
+            $this->FifoAdmitControl('pulse_expiry');
+            return;
+        }
         $pulseUntilMap = $this->ReadSensorPulseUntilMap();
         $now = time();
         $changed = false;
@@ -464,6 +492,7 @@ class SensorGroup extends IPSModule
     }
     private function UpdatePulseExpireTimer()
     {
+        if ($this->fifoFrame !== null) return; // Worker schedules once after committing its batch.
         $pulseUntilMap = $this->ReadSensorPulseUntilMap();
         $now = time();
 
@@ -2547,6 +2576,11 @@ class SensorGroup extends IPSModule
 
     public function MessageSink($TimeStamp, $SenderID, $Message, $Data)
     {
+        if ($this->ReadAttributeBoolean('FifoOwned')) {
+            if ((int)$Message === VM_UPDATE) $this->FifoAdmitInput($TimeStamp, (int)$SenderID, $Data);
+            return;
+        }
+        $legacyInput = ['counter' => $TimeStamp, 'id' => (int)$SenderID, 'data' => $Data, 'entered_ns' => hrtime(true)];
         $shadowTicket = (int)$Message === VM_UPDATE
             ? $this->FifoShadowInput($TimeStamp, (int)$SenderID, $Data)
             : null;
@@ -2607,7 +2641,8 @@ class SensorGroup extends IPSModule
             isset($diagnostic['changed']) && is_bool($diagnostic['changed'])
                 ? $diagnostic['changed']
                 : null,
-            $shadowTicket
+            $shadowTicket,
+            $legacyInput
         );
     }
 
@@ -2620,7 +2655,7 @@ class SensorGroup extends IPSModule
                 $parentID = IPS_GetParent($vid);
                 return ($parentID > 0) ? IPS_GetName($parentID) : "Root";
             case 2: // Status Text (Formatted Value)
-                return GetValueFormatted($vid);
+                return $this->EvaluationFormatted((int)$vid);
             case 0: // Sensor Name (Default)
             default:
                 return IPS_GetName($vid);
@@ -2660,7 +2695,27 @@ class SensorGroup extends IPSModule
         }
     }
 
-    private function CheckLogic(
+    private function CheckLogic($TriggeringID = 0, string $DiagnosticSource = 'other', ?bool $DiagnosticValueChanged = null, ?array $shadowTicket = null, ?array $legacyInput = null)
+    {
+        $routeFifo = function () use ($legacyInput, $DiagnosticSource): void {
+            if ($legacyInput !== null) $this->FifoAdmitInput($legacyInput['counter'], $legacyInput['id'], $legacyInput['data'], $legacyInput['entered_ns']);
+            else $this->FifoAdmitControl($DiagnosticSource);
+        };
+        if ($this->ReadAttributeBoolean('FifoOwned')) { $routeFifo(); return; }
+        // Track legacy calls so an opt-in boundary cannot overlap an already executing evaluator.
+        $owner = IPS_SemaphoreEnter($this->FifoWorkerLock(), 1);
+        if (!$owner) $this->WriteAttributeBoolean('FifoLegacyOverlap', true);
+        try {
+            if ($this->ReadAttributeBoolean('FifoOwned')) { $routeFifo(); return; }
+            if ($this->ReadAttributeBoolean('FifoCutover')) {
+                $this->FifoRecordIncident('Evaluator invocation crossed Apply boundary; historical input edges unavailable.');
+                return;
+            }
+            $this->EvaluateLogicFrame($TriggeringID, $DiagnosticSource, $DiagnosticValueChanged, $shadowTicket);
+        } finally { if ($owner) IPS_SemaphoreLeave($this->FifoWorkerLock()); }
+    }
+
+    private function EvaluateLogicFrame(
         $TriggeringID = 0,
         string $DiagnosticSource = 'other',
         ?bool $DiagnosticValueChanged = null,
@@ -2703,8 +2758,8 @@ class SensorGroup extends IPSModule
 
         $trigVal = null;
         $trigType = 'n/a';
-        if ($TriggeringID > 0 && IPS_VariableExists($TriggeringID)) {
-            $trigVal = GetValue($TriggeringID);
+        if ($TriggeringID > 0 && $this->EvaluationInputAvailable((int)$TriggeringID)) {
+            $trigVal = $this->EvaluationValue($TriggeringID);
             $trigType = gettype($trigVal);
         }
 
@@ -2717,7 +2772,7 @@ class SensorGroup extends IPSModule
                 " maint=" . (int)($this->ActiveConfig()['MaintenanceMode'] ?? false),
             KL_MESSAGE
         );
-        $classStates = json_decode($this->ReadAttributeString('ClassStateAttribute'), true);
+        $classStates = $this->ReadEvaluationClassState();
         if (!is_array($classStates)) $classStates = [];
 
         $sabotageActive = false;
@@ -2799,19 +2854,19 @@ class SensorGroup extends IPSModule
                     // reference variable caused the reevaluation, the alarm sensor
                     // remains the left-hand VariableID; the reference variable is
                     // never exposed as the alarm sensor in the existing payload API.
-                    if (($isDirectTriggerForSensor || $isReferenceTriggerForSensor) && $sensorVariableID > 0 && IPS_VariableExists($sensorVariableID)) {
+                    if (($isDirectTriggerForSensor || $isReferenceTriggerForSensor) && $sensorVariableID > 0 && $this->EvaluationInputAvailable($sensorVariableID)) {
                         $pID = IPS_GetParent($sensorVariableID);
                         $gpID = ($pID > 0) ? IPS_GetParent($pID) : 0;
                         $specificTriggerEvent = [
                             'variable_id' => $sensorVariableID,
-                            'value_raw'   => GetValue($sensorVariableID),
+                            'value_raw'   => $this->EvaluationValue($sensorVariableID),
                             'tag'         => $className,
                             'class_id'    => $classID,
                             'class_name'  => $className,
                             'var_name'    => IPS_GetName($sensorVariableID),
                             'parent_name' => ($pID > 0) ? IPS_GetName($pID) : "Root",
                             'grandparent_name' => ($gpID > 0) ? IPS_GetName($gpID) : "",
-                            'value_human' => GetValueFormatted($sensorVariableID),
+                            'value_human' => $this->EvaluationFormatted($sensorVariableID),
                             'smart_label' => $this->GetSmartLabel($sensorVariableID, $labelMode)
                         ];
                     }
@@ -2819,16 +2874,16 @@ class SensorGroup extends IPSModule
                     if ($isDirectTriggerForSensor || $isReferenceTriggerForSensor) {
                         $curVal = null;
                         $curType = 'n/a';
-                        if ($sensorVariableID > 0 && IPS_VariableExists($sensorVariableID)) {
-                            $curVal = GetValue($sensorVariableID);
+                        if ($sensorVariableID > 0 && $this->EvaluationInputAvailable($sensorVariableID)) {
+                            $curVal = $this->EvaluationValue($sensorVariableID);
                             $curType = gettype($curVal);
                         }
 
                         $comparisonDebug = $s['ComparisonValue'] ?? null;
                         if ($this->IsDynamicComparisonRow($s)) {
                             $referenceID = (int)($s['ComparisonVariableID'] ?? 0);
-                            $comparisonDebug = ($referenceID > 0 && IPS_VariableExists($referenceID))
-                                ? GetValue($referenceID)
+                            $comparisonDebug = ($referenceID > 0 && $this->EvaluationInputAvailable($referenceID))
+                                ? $this->EvaluationValue($referenceID)
                                 : null;
                         }
 
@@ -2852,14 +2907,14 @@ class SensorGroup extends IPSModule
 
                         $sensorDetail = [
                             'variable_id' => $vid,
-                            'value_raw'   => GetValue($vid),
+                            'value_raw'   => $this->EvaluationValue($vid),
                             'tag'         => $className,
                             'class_id'    => $classID,
                             'class_name'  => $className,
                             'var_name'    => IPS_GetName($vid),
                             'parent_name' => ($parentID > 0) ? IPS_GetName($parentID) : "Root",
                             'grandparent_name' => ($grandParentID > 0) ? IPS_GetName($grandParentID) : "",
-                            'value_human' => GetValueFormatted($vid),
+                            'value_human' => $this->EvaluationFormatted($vid),
                             'smart_label' => $this->GetSmartLabel($vid, $labelMode)
                         ];
 
@@ -2896,11 +2951,12 @@ class SensorGroup extends IPSModule
                     $buffer = $classStates[$classID]['Buffer'] ?? [];
                     $window = $classDef['TimeWindow'];
                     $thresh = $classDef['Threshold'];
-                    $now = time();
+                    $now = $this->EvaluationTime();
                     $buffer = array_filter($buffer, function ($ts) use ($now, $window) {
                         return ($now - $ts) <= $window;
                     });
                     if ($triggerInClass && $TriggeringID > 0) $buffer[] = $now;
+                    if ($this->fifoMaps !== null && count($buffer) > 2048) throw new RuntimeException('FIFO COUNT class history capacity reached.');
                     if (count($buffer) >= $thresh) {
                         $isActive = true;
                         if ($triggerInClass && $lastTriggerDetails) {
@@ -2912,7 +2968,13 @@ class SensorGroup extends IPSModule
                 if ($isActive) $activeClasses[$classID] = $lastTriggerDetails;
             }
         }
-        $this->WriteAttributeString('ClassStateAttribute', json_encode($classStates));
+        if ($this->fifoMaps !== null) {
+            $totalHistory = 0;
+            foreach ($classStates as $state) $totalHistory += is_array($state) ? count($state['Buffer'] ?? []) : 0;
+            if ($totalHistory > 8192) throw new RuntimeException('FIFO total COUNT history capacity reached.');
+        }
+        $this->WriteEvaluationClassState($classStates);
+        if ($this->fifoMaps !== null) $this->FifoCheckStateSize();
 
         // EXPORT THE PATH TO THE DASHBOARD
         $this->WriteAttributeString('ActiveClassesBuffer', json_encode(array_keys($activeClasses)));
@@ -3105,7 +3167,7 @@ class SensorGroup extends IPSModule
                     $vid = (int)($bed['ActiveVariableID'] ?? 0);
                     $bedStates[] = [
                         'GroupName'   => $bed['GroupName'],
-                        'SwitchState' => ($vid > 0 && IPS_VariableExists($vid)) ? (bool)GetValue($vid) : false,
+                        'SwitchState' => ($vid > 0 && $this->EvaluationInputAvailable($vid)) ? (bool)$this->EvaluationValue($vid) : false,
                         'DoorTripped' => isset($activeClasses[$cID]) // Checked: activeClasses uses ClassID as key
                     ];
                 }
@@ -3116,7 +3178,7 @@ class SensorGroup extends IPSModule
                         'event_type'  => 'BEDROOM_SYNC',
                         'event_epoch' => $token['epoch'],
                         'event_seq'   => $token['seq'],
-                        'timestamp'   => time(),
+                        'timestamp'   => $this->EvaluationTime(),
                         'source_id'   => $this->InstanceID,
                         'bedrooms'    => $bedStates
                     ]);
@@ -3172,7 +3234,7 @@ class SensorGroup extends IPSModule
                 'event_epoch' => $token['epoch'],
                 'event_seq'   => $token['seq'],
                 'event_id'    => uniqid(),
-                'timestamp'   => time(),
+                'timestamp'   => $this->EvaluationTime(),
                 'source_id' => $this->InstanceID,
                 'source_name' => IPS_GetName($this->InstanceID),
                 'primary_class' => $finalTriggerDetails['tag'] ?? 'General',
@@ -3202,7 +3264,7 @@ class SensorGroup extends IPSModule
                 'event_epoch' => $token['epoch'],
                 'event_seq'   => $token['seq'],
                 'event_id'    => uniqid(),
-                'timestamp'   => time(),
+                'timestamp'   => $this->EvaluationTime(),
                 'source_id' => $this->InstanceID,
                 'source_name' => IPS_GetName($this->InstanceID),
                 'primary_class' => '',
@@ -3454,34 +3516,40 @@ class SensorGroup extends IPSModule
 
     private function ReadLastSensorValueMap(): array
     {
+        if ($this->fifoMaps !== null) return $this->fifoMaps['last'];
         $data = json_decode($this->ReadAttributeString('LastSensorValueMap'), true);
         return is_array($data) ? $data : [];
     }
 
     private function WriteLastSensorValueMap(array $map): void
     {
+        if ($this->fifoMaps !== null) { $this->fifoMaps['last'] = $map; return; }
         $this->WriteAttributeString('LastSensorValueMap', json_encode($map));
     }
 
     private function ReadSensorPulseUntilMap(): array
     {
+        if ($this->fifoMaps !== null) return $this->fifoMaps['pulses'];
         $data = json_decode($this->ReadAttributeString('SensorPulseUntilMap'), true);
         return is_array($data) ? $data : [];
     }
 
     private function WriteSensorPulseUntilMap(array $map): void
     {
+        if ($this->fifoMaps !== null) { $this->fifoMaps['pulses'] = $map; return; }
         $this->WriteAttributeString('SensorPulseUntilMap', json_encode($map));
     }
 
     private function ReadSensorConditionStateMap(): array
     {
+        if ($this->fifoMaps !== null) return $this->fifoMaps['conditions'];
         $data = json_decode($this->ReadAttributeString('SensorConditionStateMap'), true);
         return is_array($data) ? $data : [];
     }
 
     private function WriteSensorConditionStateMap(array $map): void
     {
+        if ($this->fifoMaps !== null) { $this->fifoMaps['conditions'] = $map; return; }
         $this->WriteAttributeString('SensorConditionStateMap', json_encode($map));
     }
 
@@ -3560,11 +3628,11 @@ class SensorGroup extends IPSModule
         }
 
         $referenceID = (int)($row['ComparisonVariableID'] ?? 0);
-        if ($referenceID <= 0 || !IPS_VariableExists($referenceID)) {
+        if ($referenceID <= 0 || !$this->EvaluationInputAvailable($referenceID)) {
             return false;
         }
 
-        $referenceValue = GetValue($referenceID);
+        $referenceValue = $this->EvaluationValue($referenceID);
         if (!$this->AreDynamicComparisonValuesCompatible($sensorValue, $referenceValue)) {
             return false;
         }
@@ -3581,7 +3649,7 @@ class SensorGroup extends IPSModule
     private function CheckSensorRule($row, bool $stateOnly = false)
     {
         $id = (int)($row['VariableID'] ?? 0);
-        if ($id <= 0 || !IPS_VariableExists($id)) {
+        if ($id <= 0 || !$this->EvaluationInputAvailable($id)) {
             return false;
         }
 
@@ -3593,10 +3661,10 @@ class SensorGroup extends IPSModule
 
         if ($stateOnly && $triggerMode !== 0) {
             $pulses = $this->ReadSensorPulseUntilMap();
-            return (int)($pulses[(string)$id] ?? 0) > time();
+            return (int)($pulses[(string)$id] ?? 0) > $this->EvaluationTime();
         }
 
-        $val = GetValue($id);
+        $val = $this->EvaluationValue($id);
 
         // LEVEL = existing behavior, optionally comparing against the
         // current value of another IP-Symcon variable.
@@ -3628,7 +3696,7 @@ class SensorGroup extends IPSModule
 
             $conditionStateMap = $this->ReadSensorConditionStateMap();
             $pulseUntilMap = $this->ReadSensorPulseUntilMap();
-            $now = time();
+            $now = $this->EvaluationTime();
             $key = (string)$id;
             $hadPreviousState = array_key_exists($key, $conditionStateMap);
             $wasActive = $hadPreviousState ? (bool)$conditionStateMap[$key] : false;
@@ -3695,7 +3763,7 @@ class SensorGroup extends IPSModule
         $typeName = $this->GetVariableTypeName($val);
         $lastValueMap = $this->ReadLastSensorValueMap();
         $pulseUntilMap = $this->ReadSensorPulseUntilMap();
-        $now = time();
+        $now = $this->EvaluationTime();
 
         $key = (string)$id;
         $lastEntry = $lastValueMap[$key] ?? null;
@@ -3841,6 +3909,13 @@ class SensorGroup extends IPSModule
                     exit;
                 }
             }
+        }
+
+        if (($_GET['api'] ?? '') === 'fifo_status') {
+            header('Content-Type: application/json; charset=utf-8');
+            if ($this->ReadAttributeBoolean('FifoOwned')) $this->PublishInputFifo();
+            echo json_encode(['health' => $this->GetValue('InputFifoHealth'), 'incident' => $this->ReadAttributeString('FifoIncident')]);
+            return;
         }
 
         // 1b. Toggle active state from Mermaid dashboard clicks
@@ -4941,6 +5016,20 @@ class SensorGroup extends IPSModule
                 </head>
 
                 <body>
+                <div id="fifo-status" role="status" style="padding:12px;white-space:pre-wrap;"></div>
+                <script>
+                async function refreshFifoStatus() {
+                    try {
+                        const response = await fetch(window.location.pathname + "?api=fifo_status");
+                        if (!response.ok) return;
+                        const data = await response.json();
+                        const panel = document.getElementById("fifo-status");
+                        panel.textContent = data.health + (data.incident ? "\\n" + data.incident : "");
+                        panel.style.background = data.incident ? "#603d00" : "#20332a";
+                    } catch(e) {}
+                }
+                refreshFifoStatus(); setInterval(refreshFifoStatus, 5000);
+                </script>
                 <div class="header">
                     <h2>Sensors -> Groups -> Targets</h2>
                     <small>Instance ID: ' . $this->InstanceID . '</small>
@@ -5550,6 +5639,15 @@ class SensorGroup extends IPSModule
                 }
             }
         }
+
+        $form['elements'][] = ['type' => 'ExpansionPanel', 'caption' => 'Ordered input FIFO (supervised testing)', 'items' => [
+            ['type' => 'CheckBox', 'name' => 'EnableInputFifo', 'caption' => 'Use FIFO for live Module 1 alarm processing'],
+            ['type' => 'Label', 'caption' => (string)$this->GetValue('InputFifoHealth')],
+            ['type' => 'Label', 'caption' => 'Heartbeat uses the same input queue and evaluator. CPU/resident RAM impact is unmeasured.'],
+        ]];
+        $form['actions'][] = ['type' => 'Button', 'caption' => 'Retry input FIFO baseline', 'onClick' => 'MYALARM_RecoverInputFifo($id);'];
+        $form['actions'][] = ['type' => 'Button', 'caption' => 'Print input FIFO report', 'onClick' => 'echo MYALARM_GetInputFifoReport($id);'];
+        $form['actions'][] = ['type' => 'Button', 'caption' => 'Clear recovered FIFO incident', 'onClick' => 'MYALARM_ClearInputFifoIncident($id);'];
 
         // === DEBUG: exit GetConfigurationForm ===
         if ($this->ReadPropertyBoolean('DebugMode')) IPS_LogMessage('SensorGroup', 'DEBUG: GetConfigurationForm EXIT returning json');

@@ -37,6 +37,7 @@ trait SensorGroupFifoShadow
 
     public function StartFifoShadow(): void
     {
+        if ($this->ReadAttributeBoolean('FifoOwned')) throw new RuntimeException('Disable live input FIFO before starting the legacy shadow comparator.');
         if (!$this->ReadPropertyBoolean('EnableFifoShadow')) throw new RuntimeException('Enable FIFO shadow in the form and Apply first.');
         $duration = $this->ReadPropertyInteger('FifoShadowDurationSeconds');
         if ($duration < 30 || $duration > 900) throw new InvalidArgumentException('Shadow duration must be 30–900 seconds.');

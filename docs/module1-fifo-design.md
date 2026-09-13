@@ -1,6 +1,6 @@
 # Module 1-only FIFO: revised design
 
-Status: scope accepted by Artur on 2026-09-13. Ordinary native message observations have been received and analyzed; see [native results](module1-fifo-native-results.md). The opt-in [Module 1 shadow build](module1-fifo-shadow.md) has been independently reviewed for diagnostic testing. The production alarm evaluator has not been moved onto FIFO; native shadow/load validation remains required. The earlier architecture review covered the coordinated design.
+Status: Module 1-only scope accepted by Artur on 2026-09-13. Native observations and two clean shadow captures have been received. The opt-in [live FIFO build](module1-fifo-runtime.md) is now implemented and independently reviewed for supervised production testing, disabled by default. Production CPU/resident RAM impact remains unmeasured; Artur authorized proceeding without historical records. Native live-delivery/load validation remains pending.
 Baseline: main commit `59e413ead4d6a85a5336583af7788ee9175d0a49`, Module 1 v2.13.3 / Module 2 v7.3.2.
 
 ## Decision and scope
@@ -57,7 +57,7 @@ Measure capacities and worker intervals against the live configuration (393 rule
 3. Verify rapid open/close, duplicate refreshes, duplicate rule IDs/variables, dynamic references, COUNT/pulse timing, worker shutdown/enqueue races, sync, configuration cutover, overflow and restart. Check existing receivers accept unchanged payloads and tokens.
 4. Supervise the Module 1 production rollout with its rollback prepared. Modules 2/3 remain at their existing compatible versions. Rollback cannot recover lost observations or undo actions already sent.
 
-Runtime acceptance must measure CPU, memory, lock waits and event-to-dispatch latency. A successful FIFO test does not establish downstream intrusion detection or output execution.
+Runtime acceptance records CPU/resident memory as unmeasured where no records are available; this is not a claim of zero impact. Observe live heartbeat and event-to-dispatch latency during supervised validation. A successful FIFO test does not establish downstream intrusion detection or output execution.
 
 ## Deferred work
 

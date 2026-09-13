@@ -15,6 +15,8 @@ jobs:
           php -l PropertyStateManager/StateIntegrity.php
           php -l libs/AlarmSafety.php
           php -l SensorEventProbe/module.php
+          php -l SensorGroup/FifoRuntime.php
+          php tests/sensor_fifo_runtime.php
           php -l SensorGroup/FifoShadow.php
           php -l libs/SensorFifoShadow.php
           php tests/sensor_fifo_shadow.php
