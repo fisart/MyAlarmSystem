@@ -85,3 +85,10 @@ A separate read-only reviewer approved this hotfix for guarded recovery testing,
 The independent read-only reviewer first rejected the runtime for ownership/cutover races, recovery traversal of disabled rows, missing dynamic tamper subscriptions, fault-latch contention and inherited volatile ownership. Root corrected these and added executable interleaving tests. A second review caught baseline failure after a reentrant enqueue; the recovery path now classifies that dependent queue and restores the seeded maps instead of deadlocking. Bounded UTF-8 fault summaries and previous-session discarded evidence are covered.
 
 Final independent rerun: 129 safety + 44 probe + 64 shadow + 69 runtime checks passed; `git diff --check` clean. No blocking correctness findings remain. Approval is for publication and supervised opt-in production testing only. Native live FIFO synchronous dispatch timing, heavy concurrency, CPU/resident RAM and downstream detection are not established by the earlier shadow captures. See the [runtime/testing instructions](module1-fifo-runtime.md). No M2/M3/watchdog runtime change.
+
+
+## Bedroom form/COMMIT hotfix review — 13 September 2026
+
+The independent reviewer confirmed that non-editable hidden BedroomList columns lacked explicit persistence under the documented Symcon List contract. Static and generated fallback now set save:true and use supplied working rows. Explicit RestoreActiveBedroomDraft stages only validated running bedroom rows, preserving sensor deletions and runtime state until COMMIT. Legitimate edits/intentional deletion still follow explicit draft authority; invalid active configuration cannot be used for restoration.
+
+Independent rerun passed 330 checks: 129 safety, 44 probe, 64 shadow, 69 FIFO runtime and 24 form tests. Approved for publication; native console persistence still requires confirmation. This hotfix does not change the FIFO evaluator/heartbeat path or M2/M3 runtime. See [recovery instructions](module1-bedroom-commit-recovery.md).

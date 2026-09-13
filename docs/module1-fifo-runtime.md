@@ -1,6 +1,6 @@
 # Module 1 live input FIFO — supervised opt-in build
 
-Build marker: `Version2.14.0-fifo.1`. Default: **disabled** (`EnableInputFifo=false`). Independent code review approves publication for supervised opt-in production testing. This is a live alarm-processing option, unlike the preceding shadow comparator. No Module 2, Module 3 or heartbeat watchdog runtime files change.
+Build marker: `Version2.14.0-fifo.2`. This includes the [bedroom form/COMMIT repair](module1-bedroom-commit-recovery.md). Default: **disabled** (`EnableInputFifo=false`). Independent code review approves publication for supervised opt-in production testing. This is a live alarm-processing option, unlike the preceding shadow comparator. No Module 2, Module 3 or heartbeat watchdog runtime files change.
 
 ## Evidence and limits
 
@@ -8,7 +8,7 @@ Artur supplied two clean shadow captures on 13 September 2026: 61 and 174 admitt
 
 Artur has no CPU/resident RAM records and authorized proceeding without them. Their production impact remains **unmeasured**; serialized sizes and worker elapsed time are not substitutes. Previous shadow timing is evidence for the comparator alongside the old live path, not a measurement of this new FIFO's synchronous delivery latency.
 
-The executable model passes 306 checks: safety 129, read-only probe 44, shadow 64 and live FIFO 69. The new suite covers captured raw/formatted payloads, bedroom mirrors, refresh suppression, ordinary heartbeat-shaped token/reset frames, COUNT references/sync, pulse expiry, saturation/prefix drain, Apply cutover, interface recreation, dynamic tamper subscriptions, missing/disabled dependencies, recovery seeding, ownership races, consumer reentrancy, shutdown wake, partial frame/metadata failures, baseline callback failure and UTF-8 fault handling. Tests model selected interleavings; they are not a native concurrency stress test.
+The executable model passes 330 checks: safety 129, read-only probe 44, shadow 64, live FIFO 69 and configuration form 24. The new suite covers captured raw/formatted payloads, bedroom mirrors, refresh suppression, ordinary heartbeat-shaped token/reset frames, COUNT references/sync, pulse expiry, saturation/prefix drain, Apply cutover, interface recreation, dynamic tamper subscriptions, missing/disabled dependencies, recovery seeding, ownership races, consumer reentrancy, shutdown wake, partial frame/metadata failures, baseline callback failure and UTF-8 fault handling. Tests model selected interleavings; they are not a native concurrency stress test.
 
 ## Runtime behavior
 

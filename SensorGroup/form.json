@@ -328,19 +328,23 @@
         {
           "caption": "GroupName",
           "name": "GroupName",
-          "width": "150px"
+          "width": "150px",
+          "save": true
         },
         {
           "caption": "ActiveVariableID",
           "name": "ActiveVariableID",
-          "width": "120px"
+          "width": "120px",
+          "save": true
         },
         {
           "caption": "BedroomDoorClassID",
           "name": "BedroomDoorClassID",
-          "width": "150px"
+          "width": "150px",
+          "save": true
         }
-      ]
+      ],
+      "loadValuesFromConfiguration": false
     }
   ],
   "actions": [

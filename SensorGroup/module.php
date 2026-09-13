@@ -1,5 +1,5 @@
 <?php
-// Version2.14.0-fifo.1
+// Version2.14.0-fifo.2
 declare(strict_types=1);
 
 require_once __DIR__ . '/StateIntegrity.php';
@@ -5177,14 +5177,15 @@ class SensorGroup extends IPSModule
             $form['elements'][] = [
                 "type"     => "List",
                 "name"     => "BedroomList",
+                "loadValuesFromConfiguration" => false,
                 "visible"  => false,
                 "rowCount" => 1,
                 "add"      => false,
                 "delete"   => false,
                 "columns"  => [
-                    ["caption" => "GroupName",          "name" => "GroupName",          "width" => "150px"],
-                    ["caption" => "ActiveVariableID",   "name" => "ActiveVariableID",   "width" => "120px"],
-                    ["caption" => "BedroomDoorClassID", "name" => "BedroomDoorClassID", "width" => "150px"]
+                    ["caption" => "GroupName",          "name" => "GroupName",          "width" => "150px", "save" => true],
+                    ["caption" => "ActiveVariableID",   "name" => "ActiveVariableID",   "width" => "120px", "save" => true],
+                    ["caption" => "BedroomDoorClassID", "name" => "BedroomDoorClassID", "width" => "150px", "save" => true]
                 ],
                 "values" => []
             ];
@@ -5483,6 +5484,11 @@ class SensorGroup extends IPSModule
                                     ]
                                 ]
                             ]
+                        ],
+                        [
+                            'type' => 'Button',
+                            'caption' => 'Restore bedroom draft from running configuration',
+                            'onClick' => 'echo MYALARM_RestoreActiveBedroomDraft($id);'
                         ],
                         [
                             'type'     => 'List',
