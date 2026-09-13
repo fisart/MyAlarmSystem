@@ -36,6 +36,10 @@ These describe code behavior and risks, not observed occurrences of every failur
 
 1. Verify native Symcon VM_UPDATE data, ordering/concurrency, bootstrap and timer/lifecycle behavior with a bounded read-only probe. The SDK page leaves Data layout unspecified, and the prior regression stub missed native initialization behavior.
 2. Measure real rule/payload sizes, burst throughput, latency, memory and lock/thread usage before fixing capacities, wake intervals and retention ages.
-3. Obtain Artur's design decisions on requiring acknowledgement after an unclean restart/known loss, and cancelling queued intrusion siren/ASK actions after a newer trustworthy disarm.
+3. Cancellation of queued intrusion siren/ASK actions after a newer trustworthy disarm remains a user decision.
+
+## Subsequent user-directed policy revision (2026-09-13)
+
+After the independent architecture review, Artur raised unattended travel as a constraint. He accepted automatic recovery after an unclean restart/known loss once current inputs and the ordered baseline are valid, with a full new arming delay where applicable. Incident acknowledgement does not gate recovery or arming; known gaps remain visible until reviewed. Artur also requires persistent status and required-action display on the existing house-state/Mermaid webpage. These revisions are recorded in the design and were not part of the earlier independent review. Implementation review must cover unattended recovery, active-fault versus incident separation, stale page status, bounded incident retention and acknowledgement races.
 
 No runtime files changed and no live alarm tests were performed as part of this design review. Implementation acceptance must include outcomes and failure cases across all three modules, not only FIFO ordering assertions.
