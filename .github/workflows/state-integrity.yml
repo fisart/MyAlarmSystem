@@ -17,11 +17,15 @@ jobs:
           php -l SensorEventProbe/module.php
           php -l SensorGroup/FifoRuntime.php
           php tests/sensor_fifo_runtime.php
+          php -l SensorGroup/FifoTiming.php
+          php -l tests/sensor_fifo_timing.php
+          php tests/sensor_fifo_timing.php
           php -l SensorGroup/FifoFailureCapture.php
           php -l tests/sensor_fifo_failure_capture.php
           php tests/sensor_fifo_failure_capture.php
           php -l libs/tools/FifoLab.php
           php -l libs/tools/symcon_fifo_lab_install.php
+          php -l libs/tools/symcon_fifo_load_lab_install.php
           php -l tests/sensor_fifo_lab.php
           php tests/sensor_fifo_lab.php
           php -l SensorGroup/FifoInputDiagnostic.php

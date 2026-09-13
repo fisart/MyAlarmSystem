@@ -1,6 +1,39 @@
 # Native FIFO timing lab
 
-Branch `design/module1-fifo`, actual Module 1 fifo.7 diagnostics. Main remains stable Module 1 v2.13.4. This lab does not change alarm-module runtime or implement a different FIFO.
+## fifo.8 throughput measurement (current next step)
+
+`Version2.14.0-fifo.8` adds worker timing **only while the applied failure-capture test mode is active**. Ordinary FIFO receives no timing history. Existing queue waits, timer interval, batch target, trigger semantics and routing remain unchanged. No production activation or Symcon restart is required.
+
+1. Update `design/module1-fifo` in module control. Keep production FIFO, shadow and failure capture disabled.
+2. In the existing **MyAlarmFifoLab**, set **Scenario** to `concurrent_flicker`, run **RunScenario** once, and provide **Result**. This repeats the small seven-class/seven-rule fixture with timing, before changing graph size.
+3. After that result is reviewed, install the separate larger fixture using a temporary script:
+
+```php
+<?php
+$labToolsDirectory = rtrim(IPS_GetKernelDir(), '/\\') . '/modules/MyAlarmSystem/libs/tools';
+require_once $labToolsDirectory . '/FifoLab.php';
+echo json_encode(FifoLab::install('production_size'), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+```
+
+The checked-in equivalent is `libs/tools/symcon_fifo_load_lab_install.php`. It creates **MyAlarmFifoLoadLab**, its own **Module1Test**, **Scenario**, **RunScenario**, **StopScenario** and **Result**. Existing small lab IDs/state are preserved. Initial Scenario is `sequential`: **nine changed writes**, not a 370-input burst. Start with this scenario and review Result before a larger burst. Existing startup/producer/drain limits remain 2/4/2 seconds; missed deadlines produce incomplete results rather than an unbounded retry.
+
+The generic fixture has **61 classes, 392 sensor-rule rows, 55 groups, 69 memberships, 370 distinct left-hand sensor variables and 377 total input variables**. The extra seven inputs are one Boolean reference and six integer comparison references. Boolean filler inputs and integer references start false/zero; six strict-greater comparisons keep filler rules inactive. Class modes are 58 OR, two COUNT and one AND. It approximates the exported graph counts, **not production rule types, activation patterns, topology or delivery**. It has zero dispatch routes and **zero bedroom rules**: the existing safety validator requires bedroom rules to have a configured dispatch target, so the fixture omits the export's six bedroom rules instead of weakening that gate. Bedroom-sync and receiver costs are not measured.
+
+Installation performs one bounded creation/configuration pass. There is no archive or recurring input generator. Scenario setup resets only its eight base inputs; it does not rewrite hundreds of fillers. Entry/cleanup validation checks every local input and the whole expected graph, which itself consumes native server calls. Keep the fixture configuration and filler inputs unchanged. Generated plans can write only the eight base inputs. Both lab instances share the production library, CPU and script threads even though their inputs/routes are separate.
+
+Read **fifo_after.diagnostic_timing** in Result:
+
+- `evaluation_total_ms` and recent `evaluation_max_ms`: full graph evaluation, including native status writes and any configured synchronous calls. Failed evaluation samples can include fault-handling time and are marked incomplete.
+- `queue_wait_total_ms`, attempts/misses: **worker** dequeue/progress/shutdown lock acquisition; these exclude producer admission waits.
+- `state_commit_total_ms`: completed batch map/state persistence and pulse-timer update.
+- `pending_gap_total_ms` / maximum and recent `gap_before_ms`: time between observed batches when the previous batch left queued work. It includes summary persistence, owner release and scheduling; it is not a pure timer-latency measurement. Idle time is excluded. Work arriving after an empty shutdown is not included in this gap metric.
+- `worker_elapsed_total_ms`: measured worker wall time through health publication, excluding the optional timing-summary write. Overlapping phase totals are not independent CPU measurements.
+- `is_current_baseline` and `covers_processed_snapshot`: only compare summaries for the current baseline and completed committed batches. Missing/failed summaries, an in-flight frame, replaced baseline or disabled Apply must not be treated as complete evidence. Coverage refers to processed progress, not queue ordering, admission coverage or downstream delivery.
+
+A separate volatile timing buffer is written **once per batch outside the queue lock**, capped at **8 KiB / eight recent samples**. It contains only numeric timing/counter fields, stage and baseline identity, not sensor values or event logs. Optional capture failure must not fault processing or replay a record. CPU and resident RAM remain unmeasured; fifo.7's 1.348-second delay is neither a CPU figure nor solely a mutex wait.
+
+
+Branch `design/module1-fifo`, actual Module 1 fifo.8 diagnostics. Main remains stable Module 1 v2.13.4. The lab exercises the actual runtime; fifo.8 adds test-mode-only timing and a generic larger profile. It does not implement a different FIFO.
 
 ## Purpose and scope
 
@@ -52,7 +85,13 @@ Configuration validation occurs at script entry and before configuration activat
 
 Native API signatures were checked against the official [Symcon GlobalStubs](https://github.com/symcon/SymconStubs/blob/master/GlobalStubs.php): instance/variable/script creation, script content installation, `IPS_RunScriptEx`, `SetValue` and `IPS_Sleep`. Stubs establish API shape, not native ordering, timing or completion guarantees. Mock verification supplements the existing suites; live results remain required.
 
-## Review and checks
+## Current review and checks
+
+All nine local suites pass **549 checks**, including **57 lab checks and 24 timing checks**. Independent read-only review reran the final 57/24 suites and approved only supervised isolated lab testing. PHP syntax (21 workflow files) and whitespace checks pass. Native fifo.8 timing/load acceptance remains pending.
+
+## Historical fifo.7 review and evidence
+
+The following records the completed earlier milestones. The current next action is the fifo.8 small concurrent measurement above, not a restart of the old sequence.
 
 All eight local suites pass **510 checks**; the harness contributes **42** covering installation, scope/plan bounds, route/manifest/pending-property refusal, four successful scenario lifecycles, startup cancellation, partial-control stop, stale completion refusal, cleanup-write failure and delayed callbacks. Changed PHP lint and whitespace checks pass. Independent read-only review reran the 34 checks and approved this harness for supervised testing with no remaining blockers. Mock script execution is deterministic and does not validate native parallel scheduling.
 

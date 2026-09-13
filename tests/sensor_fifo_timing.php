@@ -1,0 +1,47 @@
+<?php
+declare(strict_types=1);
+ob_start(); require __DIR__.'/sensor_fifo_runtime.php'; ob_end_clean();
+$checks=0;
+$m=fifoFixture(7600); fifoSend($m,101,true); fifoDrain($m);
+fifoCheck(!isset($m->buffers['InputFifoTiming']) && fifoReport($m)['diagnostic_timing']===null,'Ordinary FIFO does not create timing summaries');
+$m=fifoFixture(7601); $m->attributes['FifoTestActive']=true;
+$writes=0; $GLOBALS['on_set_buffer']=function($module,$name,$value)use(&$writes){if($name==='InputFifoTiming')++$writes;};
+for($i=0;$i<40;++$i)fifoSend($m,101,$i%2===0,$i+1);
+fifoDrain($m); unset($GLOBALS['on_set_buffer']); $r=fifoReport($m); $t=$r['diagnostic_timing'];
+fifoCheck($r['metrics']['processed']===40 && $t['evaluation_attempts']===40,'Diagnostic run evaluates all admitted changes');
+fifoCheck($writes===$r['metrics']['batches'] && $writes<40,'Timing buffer is written once per batch, never per record');
+fifoCheck($t['is_current_baseline'] && $t['covers_processed_snapshot'],'Finished current summary covers committed progress');
+fifoCheck(count($t['samples'])<=8 && strlen($m->buffers['InputFifoTiming'])<=8192,'Timing storage remains bounded');
+fifoCheck($t['evaluation_total_ms']>=0 && $t['queue_wait_total_ms']>=0 && $t['queue_attempts']>0,'Phase and acquisition totals are present');
+// Force more batches without relying on machine speed; idle intervals are excluded.
+for($i=0;$i<10;++$i){fifoSend($m,101,$i%2===0,100+$i);fifoDrain($m);}
+$t=fifoReport($m)['diagnostic_timing'];
+fifoCheck(count($t['samples'])===8 && end($t['samples'])['gap_before_ms']===null,'Recent samples capped at eight; quiet idle time is not pending delay');
+$s=json_decode($m->buffers['InputFifoTiming'],true); $s['ended_ns']=hrtime(true)-100000000; $s['pending_after']=1;
+$m->buffers['InputFifoTiming']=json_encode($s);fifoSend($m,101,true,200);fifoDrain($m);$t=fifoReport($m)['diagnostic_timing'];
+fifoCheck(end($t['samples'])['gap_before_ms']>=100 && $t['pending_gap_max_ms']>=100,'Pending batch gap is measured separately from evaluation');
+$before=$m->buffers['InputFifoTiming'];fifoReport($m);fifoReport($m);
+fifoCheck($m->buffers['InputFifoTiming']===$before,'Report polling does not persist or extend timing history');
+$m->attributes['FifoFrameInFlight']=true;
+fifoCheck(!fifoReport($m)['diagnostic_timing']['covers_processed_snapshot'],'In-flight frame cannot claim complete coverage');$m->attributes['FifoFrameInFlight']=false;
+$meta=json_decode($m->buffers['InputFifoMeta'],true); $meta['start_ns']+=1;$m->buffers['InputFifoMeta']=json_encode($meta);
+fifoCheck(!fifoReport($m)['diagnostic_timing']['is_current_baseline'],'Replacement baseline makes old timing historical even with same fence');
+fifoSend($m,101,false,201);fifoDrain($m);$t=fifoReport($m)['diagnostic_timing'];
+fifoCheck($t['baseline_start_ns']===$meta['start_ns'] && $t['evaluation_attempts']===1,'Next batch resets timing for new baseline');
+fifoCheck(!$t['covers_processed_snapshot'],'Missing earlier baseline batch summaries are not presented as complete');
+$m=fifoFixture(7602);$m->attributes['FifoTestActive']=true;
+$GLOBALS['on_set_buffer']=function($module,$name,$value){if($name==='InputFifoTiming'){unset($GLOBALS['on_set_buffer']);$module->buffers[$name]='';throw new RuntimeException('Optional timing write failed');}};
+fifoSend($m,101,true);fifoDrain($m);$r=fifoReport($m);
+fifoCheck($r['ready'] && $r['fault']==='' && $r['metrics']['processed']===1 && $r['diagnostic_timing']===null,'Optional timing write failure does not fault or replay processing');
+fifoSend($m,101,false,2);fifoDrain($m);
+fifoCheck(!fifoReport($m)['diagnostic_timing']['covers_processed_snapshot'],'Dropped batch summary stays visibly incomplete');
+$m->buffers['InputFifoTiming']=str_repeat('x',8193);
+fifoCheck(fifoReport($m)['diagnostic_timing']===null,'Oversized diagnostic buffer refused on read');
+$m->buffers['InputFifoTiming']='{"schema":1';fifoCheck(fifoReport($m)['diagnostic_timing']===null,'Malformed timing buffer refused on read');
+$m=fifoFixture(7603);$m->attributes['FifoTestActive']=true;fifoSend($m,101,true);
+$entries=0;$GLOBALS['on_semaphore_enter']=function($name)use(&$entries){if($name==='Mod1_InputQueue_7603' && ++$entries===2)$GLOBALS['semaphore_busy'][$name]=true;};
+$m->RunInputFifo();unset($GLOBALS['on_semaphore_enter'],$GLOBALS['semaphore_busy']['Mod1_InputQueue_7603']);$r=fifoReport($m);$t=$r['diagnostic_timing'];
+fifoCheck(!$r['ready'] && $r['metrics']['processed']===0 && $t['evaluation_attempts']===1,'Failed progress commit is distinguished from successful frame evaluation');
+fifoCheck(!$t['complete'] && !$t['covers_processed_snapshot'] && $t['queue_misses']>0,'Essential commit failure cannot claim complete timing/progress coverage');
+fifoCheck(end($t['samples'])['records_evaluated']===1 && end($t['samples'])['stage']==='worker_progress_commit','Failed batch records evaluated count and failure stage without claiming delivery');
+echo "FIFO timing: $checks checks passed. Elapsed time is not CPU utilization.\n";

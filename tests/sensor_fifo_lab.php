@@ -99,4 +99,27 @@ labCheck(!$r['comparison_incomplete'] && $r['changed_write_count_matches_process
 $bad=$m;$bad['result']=$bad['inputs']['Door'];SetValue($manifestID,json_encode($bad));$blocked=false;
 try{FifoLab::execute($m['root'],['SENDER'=>'Execute']);}catch(RuntimeException $e){$blocked=true;}
 labCheck($blocked,'Diagnostic status cannot alias input variables');SetValue($manifestID,json_encode($m));
+// Production-size profile is separate, generic and bounded; it uses only local inputs.
+$smallInputs=array_map('GetValue',$m['inputs']);$smallProperties=$module->pending;$smallResult=GetValue($m['result']);
+$load=FifoLab::install('production_size');$lc=FifoLab::configuration($load['inputs'],'production_size');
+labCheck($load['root']!==$m['root'] && $load['module']!==$m['module'] && IPS_GetObject($load['root'])['ObjectIdent']===FifoLab::LOAD_IDENT,'Load lab is a separate Module 1 instance/root');
+labCheck(count($lc['ClassList'])===61 && count($lc['SensorList'])===392 && count($lc['GroupList'])===55 && count($lc['GroupMembers'])===69 && count($lc['BedroomList'])===0,'Load fixture matches graph counts while omitting routed bedrooms');
+labCheck(count(array_unique(array_column($lc['SensorList'],'VariableID')))===370 && count($load['inputs'])===377,'Load fixture has 370 unique rule inputs plus reference and six local integer references');
+labCheck(AlarmSafety::validate($lc)===[] && $lc['DispatchTargets']===[] && $lc['GroupDispatch']===[] && $lc['BedroomTarget']===0,'Larger graph validates and has no output routes');
+labCheck(array_count_values(array_column($lc['ClassList'],'LogicMode'))===[0=>58,2=>2,1=>1],'Generic load has the exported class-mode counts');
+labCheck(FifoLab::install('production_size')===$load && !json_decode(MYALARM_GetInputFifoReport($load['module']),true)['enabled'],'Load reinstall preserves IDs and leaves actual FIFO disabled');
+labCheck(array_map('GetValue',$m['inputs'])===$smallInputs && $module->pending===$smallProperties && GetValue($m['result'])===$smallResult,'Installing larger lab preserves existing small lab state');
+$blocked=false;try{FifoLab::install('invalid');}catch(RuntimeException $e){$blocked=true;}labCheck($blocked,'Unknown load profile refused');
+$loadManifest=0;foreach(IPS_GetChildrenIDs($load['root'])as$id)if(IPS_GetObject($id)['ObjectIdent']==='Manifest')$loadManifest=$id;
+$bad=$load;$bad['profile']='small';SetValue($loadManifest,json_encode($bad));$blocked=false;
+try{FifoLab::execute($load['root'],['SENDER'=>'Execute']);}catch(RuntimeException $e){$blocked=true;}
+labCheck($blocked,'Load manifest cannot masquerade as small root');SetValue($loadManifest,json_encode($load));
+$loadWrites=0;$GLOBALS['on_lab_write']=function($id,$v)use($load,&$loadWrites){if(in_array($id,array_slice(array_values($load['inputs']),8),true))++$loadWrites;};
+ob_start();FifoLab::execute($load['root'],['SENDER'=>'Execute']);$r=json_decode(ob_get_clean(),true);unset($GLOBALS['on_lab_write']);
+labCheck(!isset($r['error']) && !$r['comparison_incomplete'] && $r['processed_delta']===9,'Larger lab runs initial nine-change sequential scenario');
+labCheck($r['profile']==='production_size' && $r['module_id']===$load['module'] && $r['graph_counts']['SensorList']===392,'Result identifies larger instance/profile and graph size');
+labCheck($loadWrites===0,'Scenario setup never rewrites hundreds of filler/usage inputs');
+labCheck(!$r['after_disable']['enabled'] && !$r['after_disable']['configured_enabled'] && GetValue($load['active'])==='','Larger lab cleans up to disabled FIFO');
+labCheck($r['fifo_after']['diagnostic_timing']['covers_processed_snapshot'],'Larger lab captures diagnostic timing for committed work');
+labCheck($GLOBALS['calls']===[],'Larger lab performs no downstream dispatch');
 echo "FIFO lab: $checks checks passed. Mock timing is not native concurrency evidence.\n";

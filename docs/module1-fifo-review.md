@@ -148,3 +148,14 @@ The narrow follow-up wakes the periodic worker only on a genuine idle-to-pending
 Independent read-only review found no new lost-wake/Apply blocker. Reviewer requested a deterministic multi-batch test; burst changed to 40 records with batches >= 2. Final runtime suite independently passed 109 checks; reviewer also separately passed first-failure 59 and lab 34. Approved for supervised native re-test, not production/main rollout. All eight local suites total 502 checks; changed PHP lint/whitespace checks pass.
 
 Remaining limits: 10 ms is experimental and may still time out or expose same-source continuity under native scheduling. Each contended acquisition can occupy a thread up to 9 ms longer; worker 20 ms elapsed target is soft and includes native waits/evaluation/shutdown. Actual CPU/resident RAM and lock-holder duration remain unmeasured. Native sequential/interleaved/concurrent_flicker re-test remains required. Main and Module 2/3/watchdog runtime are unchanged.
+
+
+## fifo.8 independent review — 2026-09-13
+
+A separate read-only reviewer inspected diagnostic timing, worker integration and the larger lab profile, independently passing the final **24 timing checks / 57 lab checks** and finding no code blocker. Narrow approval: **supervised isolated native lab measurement only**, not a main merge or production FIFO acceptance.
+
+Existing semaphore waits/single attempts, timers, queue capacities, trigger/rule semantics and heartbeat treatment are unchanged. Timing Begin/End failures are isolated from evaluator faults/replay. Capture stores at most eight samples / 8 KiB once per worker batch outside the queue lock; current-baseline/progress coverage rejects missing, stale, in-flight or evaluated-but-uncommitted evidence.
+
+The larger generic graph is 61 classes / 392 rules / 55 groups / 69 memberships / 370 unique rule inputs / 377 local inputs. Review identified that the six auxiliary comparisons must use strict **>** (operator 2) to remain inactive at false/zero baseline; this was corrected before publication. Actual installation validation identified that bedroom rows require a configured dispatch target: the profile omits the six production bedroom rows and preserves zero routes instead of weakening AlarmSafety. Root/profile identity, direct-child ownership, strict graph checks, existing small-lab preservation and no filler resets are verified.
+
+Limits: worker queue waits exclude producer admission waits; pending gaps include diagnostic persistence/owner-release/scheduling, not pure timer latency. Generic inactive graph omits real activation/topology/bedroom/receiver costs. Elapsed timing is not CPU utilization/resident memory or proof of production behavior. Documentation now labels superseded fifo.7 evidence separately. Full local suite: **549 checks**, 21 PHP syntax checks, clean whitespace. Native fifo.8 results pending.
