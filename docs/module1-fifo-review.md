@@ -2,9 +2,14 @@
 
 Date: 2026-09-13.
 Baseline: `59e413ead4d6a85a5336583af7788ee9175d0a49` (merged PR #2).
-Design: [module1-fifo-design.md](module1-fifo-design.md).
+Reviewed design: [deferred coordinated architecture](module1-fifo-coordinated-backlog.md).
+Current scope: [Module 1-only design](module1-fifo-design.md).
 
-## Verdict
+## Scope change after review (2026-09-13)
+
+Artur subsequently limited PR #3 to Module 1 and explicitly accepted the downstream live-state, context, delivery and restart limitations. Modules 2/3 protocol changes, cancellation and expanded webpage status are deferred. The historical verdict and findings below apply to the coordinated proposal; they do not establish independent approval of the revised Module 1-only design or its implementation. Native probing, compatibility checks and focused implementation review remain necessary.
+
+## Historical verdict
 
 Approved as a staged architecture/design. No remaining design-blocking findings after revision. This is not approval to deploy an implementation or claim lossless delivery. The independent reviewer was a separate agent, read the source and complete draft, and did not edit the design or code. The author incorporated the findings and the reviewer reread the revised document before approval.
 
@@ -32,7 +37,7 @@ These describe code behavior and risks, not observed occurrences of every failur
 | Cancelling sirens by device type could suppress a Hazard action | Cancellation is proposed only for explicitly classified intrusion OutputIDs/bundles; unrelated Hazard outputs are excluded. |
 | Backup restore can reuse sequence generations | Include a fresh boot nonce and negotiate session identity; do not reuse the legacy wall-clock comparator. |
 
-## Remaining prerequisites
+## Prerequisites of the deferred coordinated architecture
 
 1. Verify native Symcon VM_UPDATE data, ordering/concurrency, bootstrap and timer/lifecycle behavior with a bounded read-only probe. The SDK page leaves Data layout unspecified, and the prior regression stub missed native initialization behavior.
 2. Measure real rule/payload sizes, burst throughput, latency, memory and lock/thread usage before fixing capacities, wake intervals and retention ages.
