@@ -43,7 +43,7 @@ Adding future tracking does not retroactively satisfy the first three requiremen
 
 ## Inventory procedure already completed
 
-Run [the execution inventory script](../tools/symcon_fifo_execution_inventory.php) once in the existing Symcon script editor, with live FIFO disabled. Paste the complete file including its PHP opening tag. Send its JSON output. No module update or restart is needed to run it.
+Run [the execution inventory script](../libs/tools/symcon_fifo_execution_inventory.php) once in the existing Symcon script editor, with live FIFO disabled. Paste the complete file including its PHP opening tag. Send its JSON output. No module update or restart is needed to run it.
 
 The script checks PHP-callable capabilities, reads the thread list once and inspects at most eight entries. Each detail retains at most 32 field names/type labels and allowlisted numeric ID/timing/status fields. Script text, source, parameters, strings and exception messages are not copied. A thread finishing between list/detail reads is marked unavailable, not healthy. It does not invoke the JSON-RPC-only API, alarm modules, sensor writes, semaphore operations, logging, archives, sleep, polling, reload or thread termination.
 

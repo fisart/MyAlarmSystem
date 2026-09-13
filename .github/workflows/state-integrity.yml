@@ -20,13 +20,13 @@ jobs:
           php -l SensorGroup/FifoFailureCapture.php
           php -l tests/sensor_fifo_failure_capture.php
           php tests/sensor_fifo_failure_capture.php
-          php -l tools/FifoLab.php
-          php -l tools/symcon_fifo_lab_install.php
+          php -l libs/tools/FifoLab.php
+          php -l libs/tools/symcon_fifo_lab_install.php
           php -l tests/sensor_fifo_lab.php
           php tests/sensor_fifo_lab.php
           php -l SensorGroup/FifoInputDiagnostic.php
           php -l tests/sensor_fifo_input_diagnostic.php
-          php -l tools/symcon_fifo_execution_inventory.php
+          php -l libs/tools/symcon_fifo_execution_inventory.php
           php tests/sensor_fifo_input_diagnostic.php
           php -l tests/sensor_configuration_form.php
           php tests/sensor_configuration_form.php

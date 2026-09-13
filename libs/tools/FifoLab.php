@@ -30,7 +30,7 @@ final class FifoLab
     {
         if (!function_exists('MYALARM_GetInputFifoReport')) throw new RuntimeException('Load design/module1-fifo with FIFO diagnostics first; keep production FIFO and shadow disabled.');
         $existing=self::child(self::IDENT,0);
-        if($existing){$manifest=self::load($existing);self::validate($manifest);return $manifest;}
+        if($existing){$manifest=self::load($existing);self::validate($manifest);self::updateScriptPaths($manifest);return $manifest;}
         $root = self::create(self::IDENT, 0, 0, static fn() => IPS_CreateCategory());
         $manifestID = self::create('Manifest', $root, 2, static fn() => IPS_CreateVariable(3));
         if (GetValue($manifestID) !== '') { $manifest=self::load($root); self::validate($manifest); return $manifest; }
@@ -55,6 +55,33 @@ final class FifoLab
         $manifest=['schema'=>1,'root'=>$root,'module'=>$module,'inputs'=>$inputs,'active'=>$active,'result'=>$result,'scenario'=>$scenario,'done'=>$done,'runner'=>$runner,'stop'=>$stop];
         SetValue($manifestID,json_encode($manifest,JSON_THROW_ON_ERROR)); self::validate($manifest);
         return $manifest;
+    }
+
+    /** Repair only our exact previously generated scripts, without resetting lab state. */
+    private static function updateScriptPaths(array $m): void
+    {
+        $legacyFile = dirname(__DIR__, 2) . '/tools/FifoLab.php';
+        $templates = [
+            $m['runner'] => "FifoLab::execute(".$m['root'].", \$_IPS);\n",
+            $m['stop'] => "FifoLab::execute(".$m['root'].", ['SENDER'=>'RunScript','lab_action'=>'stop']);\n"
+        ];
+        $updates = [];
+        foreach ($templates as $id => $tail) {
+            $current = "<?php\nrequire_once " . var_export(__FILE__, true) . ";\n" . $tail;
+            $existing = IPS_GetScriptContent($id);
+            if ($existing === $current) continue;
+            $legacy = "<?php\nrequire_once " . var_export($legacyFile, true) . ";\n" . $tail;
+            if ($existing !== $legacy) throw new RuntimeException('Lab script was customized; refusing to overwrite it.');
+            $updates[$id] = $current;
+        }
+        if (!$updates) return;
+        if (GetValue($m['active']) !== '' || self::report($m)['enabled']) throw new RuntimeException('Disable and finish the lab run before updating script paths.');
+        $lock = 'MyAlarmFifoLabRun_' . $m['root'];
+        if (!IPS_SemaphoreEnter($lock, 1)) throw new RuntimeException('Lab run is busy; retry script-path update after it finishes.');
+        try {
+            if (GetValue($m['active']) !== '' || self::report($m)['enabled']) throw new RuntimeException('Lab run became active; refusing script-path update.');
+            foreach ($updates as $id => $content) IPS_SetScriptContent($id, $content);
+        } finally { IPS_SemaphoreLeave($lock); }
     }
 
     public static function configuration(array $inputs): array

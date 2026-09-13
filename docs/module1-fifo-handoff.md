@@ -28,7 +28,7 @@ Environment: Symcon 9.0, Ubuntu Docker amd64, build 15.06.2026 `f2880badc0d6`, P
 
 ## Published implementation
 
-Follow [native lab instructions](module1-fifo-native-lab.md). `tools/symcon_fifo_lab_install.php` loads `tools/FifoLab.php` from the installed module library. The installer creates a dedicated SensorGroup instance and eight synthetic inputs under `MyAlarmFifoLab`, with no external dispatch, bedroom or vault routes. Existing valid installation is returned without resetting it; malformed/partial ownership or pending configuration is rejected.
+Follow [native lab instructions](module1-fifo-native-lab.md). `libs/tools/symcon_fifo_lab_install.php` loads `libs/tools/FifoLab.php` from the installed module library. The installer creates a dedicated SensorGroup instance and eight synthetic inputs under `MyAlarmFifoLab`, with no external dispatch, bedroom or vault routes. Existing valid installation is returned without resetting it; an inactive validated lab can have only its exact formerly generated runner/stop helper paths migrated from tools to libs/tools. Customized/active/busy lab script migration is refused; malformed/partial ownership or pending configuration is rejected.
 
 This drives the actual MessageSink, FIFO and worker, rather than duplicating their implementation in an emulator. Inputs/routes are isolated, **library code and server CPU/threads are shared with production**. Switching library branches therefore also changes code loaded by production instances, which use the branch's legacy evaluator with FIFO disabled.
 
@@ -42,7 +42,7 @@ fifo.6 failure capture overrides the activation guard only for explicitly config
 
 ## Verification
 
-502 local checks pass: safety 129, probe 44, shadow 64, FIFO runtime 109, configuration form 24, passive input diagnostic 39, first-failure capture 59, native lab 34. Runtime includes idle wake/stop, deterministic multi-batch timer retention, in-flight and post-shutdown admission, single bounded transient/persistent lock policy and report bounds. Native semaphore timing is not modelled. Changed PHP lint and whitespace checks pass.
+510 local checks pass: safety 129, probe 44, shadow 64, FIFO runtime 109, configuration form 24, passive input diagnostic 39, first-failure capture 59, native lab 42. Runtime includes idle wake/stop, deterministic multi-batch timer retention, in-flight and post-shutdown admission, single bounded transient/persistent lock policy and report bounds. Native semaphore timing is not modelled. Changed PHP lint and whitespace checks pass.
 
 Independent review approved after verifying startup cancellation, lock release even when cleanup/result persistence fails, stale producer status handling and waiting for delayed native callbacks despite an initially empty queue. The new harness tests use mocked asynchronous execution and do not establish native parallel behavior.
 
@@ -51,7 +51,7 @@ Independent review approved after verifying startup cancellation, lock release e
 ## Next actions
 
 1. Keep production FIFO/shadow/capture disabled; update diagnostic branch to fifo.7 without a Symcon restart. Confirm real heartbeat health after the shared library update.
-2. Reuse the installed lab. Rerun sequential/interleaved, then concurrent_flicker; copy each Result before overwriting and check after_disable actual enabled=false. The report limits should show admission/worker_commit wait 10 ms and dequeue wait 1 ms.
+2. Packaging correction: helpers now reside in libs/tools because Symcon treats root tools as an invalid module without module.json. Replace the temporary installer with the current libs/tools/symcon_fifo_lab_install.php and run once to migrate the two existing generated lab scripts while inactive, preserving instance/input IDs, configuration and results. Reuse the installed lab. Rerun sequential/interleaved, then concurrent_flicker; copy each Result before overwriting and check after_disable actual enabled=false. The report limits should show admission/worker_commit wait 10 ms and dequeue wait 1 ms.
 3. If ordinary concurrency passes, continue refresh_noise. If any unexpected fault occurs, inspect its current/historical fence and obtain a later lab-only report for deferred drainage. Intentional baseline/contention scenarios come later.
 4. Evaluate admission critical-section work and native behavior before further changes. fifo.7 skips redundant timer/pending updates and permits one bounded native wait; it does not prove losslessness, source ordering or production load readiness. Each contended callback/essential commit can occupy a thread up to 9 ms longer than before; worker elapsed budget remains soft.
 5. Consider per-source pending state/fair scheduling only with existing trigger/count/timing semantics preserved. The lab is smaller than production's 61 classes/392 sensor rules. Keep Module 2/3 deferred risks visible.
@@ -74,3 +74,7 @@ Reference: [design](module1-fifo-design.md), [first-failure diagnostic](module1-
 The user explicitly requests frequent GitHub status reports so another AI can continue. Post PR #3 Conversation checkpoints at significant design/code/review/test/publication/native-evidence milestones and when blocked or stopping active work. Include commit IDs, verified results, uncertainty, constraints and concrete next actions. Keep this handoff current when the strategy or evidence changes. This is milestone reporting during authorized work, not unsolicited background activity while the user is away.
 
 Initial lab checkpoint: [2026-09-13](https://github.com/fisart/MyAlarmSystem/pull/3#issuecomment-5654725984).
+
+## Packaging follow-up
+
+Artur reported the module-discovery error for tools on update. The official Symcon directory exclusions explain this publication mistake. All three helpers moved to libs/tools; alarm runtime still fifo.7, main unchanged. CI now lints the corrected paths and the lab suite checks every root directory against documented module/helper layout. The installer migrates only exact generated old script contents after validating lab ownership/configuration/inactive state and coordinator ownership; it preserves lab IDs and state. Latest packaging commit/CI results are in PR Conversation checkpoints. Native corrected-library update and fifo.7 retest remain pending.

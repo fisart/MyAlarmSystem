@@ -3,7 +3,7 @@ declare(strict_types=1);
 require __DIR__.'/symcon_stub.php';
 require __DIR__.'/../SensorGroup/module.php';
 require __DIR__.'/../PropertyStateManager/module.php';
-require __DIR__.'/../tools/FifoLab.php';
+require __DIR__.'/../libs/tools/FifoLab.php';
 $GLOBALS['lab_next']=8000;
 function labObject(int $type):int { $id=++$GLOBALS['lab_next'];$GLOBALS['model_objects'][$id]=['ObjectType'=>$type,'ObjectIdent'=>'','ObjectName'=>''];$GLOBALS['objects'][$id]=new IPSModule($id);return $id; }
 function IPS_CreateCategory(){return labObject(0);}
@@ -14,6 +14,7 @@ function IPS_SetParent($id,$parent){$GLOBALS['model_parents'][$id]=$parent;$GLOB
 function IPS_SetIdent($id,$ident){$GLOBALS['model_objects'][$id]['ObjectIdent']=$ident;}
 function IPS_SetName($id,$name){$GLOBALS['model_objects'][$id]['ObjectName']=$name;}
 function IPS_SetScriptContent($id,$content){$GLOBALS['lab_scripts'][$id]=$content;}
+function IPS_GetScriptContent($id){return $GLOBALS['lab_scripts'][$id];}
 function SetValue($id,$value){if(isset($GLOBALS['on_lab_write']))($GLOBALS['on_lab_write'])($id,$value);$old=GetValue($id);$GLOBALS['variables'][$id]=$value;if(!empty($GLOBALS['lab_defer_native']) && in_array($id,$GLOBALS['lab_inputs'],true) && GetValue($GLOBALS['lab_active'])!==''){$GLOBALS['lab_deferred'][]=[$id,$value,$old];return;}foreach($GLOBALS['objects']as$m)if($m instanceof SensorGroup && isset($m->messages[$id]))$m->MessageSink(1,$id,VM_UPDATE,[$value,$old!==$value,$old]);}
 function MYALARM_GetInputFifoReport($id){return $GLOBALS['objects'][$id]->GetInputFifoReport();}
 function MYALARM_RecoverInputFifo($id){$GLOBALS['objects'][$id]->RecoverInputFifo();}
@@ -26,6 +27,32 @@ labCheck(AlarmSafety::validate(FifoLab::configuration($m['inputs']))===[],'Lab c
 labCheck(count($m['inputs'])===8 && count($m['done'])===3,'Installer creates bounded input and producer inventory');
 labCheck(!MYALARM_GetInputFifoReport($m['module']) || !json_decode(MYALARM_GetInputFifoReport($m['module']),true)['enabled'],'Installer leaves FIFO disabled');
 labCheck(FifoLab::install()===$m,'Repeated installation is read-only and reuses validated lab');
+// Match Symcon's documented module-discovery exclusions, not a duplicate FIFO.
+$invalid=[];
+foreach(new DirectoryIterator(dirname(__DIR__)) as$entry) {
+    $name=$entry->getFilename();
+    if(!$entry->isDir() || str_starts_with($name,'.') || in_array($name,['libs','docs','imgs','tests','actions'],true)) continue;
+    if(!is_file($entry->getPathname().'/module.json')) $invalid[]=$name;
+}
+labCheck($invalid===[],'Every root directory is a documented helper exception or has module.json');
+$scripts=$GLOBALS['lab_scripts'];$legacyFile=dirname(__DIR__).'/tools/FifoLab.php';
+foreach([$m['runner'],$m['stop']] as$id) $GLOBALS['lab_scripts'][$id]=str_replace(var_export(realpath(__DIR__.'/../libs/tools/FifoLab.php'),true),var_export($legacyFile,true),$scripts[$id]);
+$legacyScripts=$GLOBALS['lab_scripts'];SetValue($m['scenario'],'interleaved');SetValue($m['result'],'saved-result');$beforeInputs=array_map('GetValue',$m['inputs']);$beforeProperties=$module->pending;
+labCheck(FifoLab::install()===$m && $GLOBALS['lab_scripts']===$scripts,'Installer repairs exact legacy runner/stop helper paths on existing lab');
+labCheck(GetValue($m['result'])==='saved-result' && GetValue($m['scenario'])==='interleaved' && array_map('GetValue',$m['inputs'])===$beforeInputs && $module->pending===$beforeProperties,'Script path repair preserves results/scenario/inputs/configuration and IDs');
+labCheck(FifoLab::install()===$m && $GLOBALS['lab_scripts']===$scripts,'Current generated script paths remain unchanged on reinstall');
+$GLOBALS['lab_scripts']=$legacyScripts;$GLOBALS['lab_scripts'][$m['stop']]="<?php // custom script\n";$beforeScripts=$GLOBALS['lab_scripts'];$blocked=false;
+try{FifoLab::install();}catch(RuntimeException $e){$blocked=true;}
+labCheck($blocked && $GLOBALS['lab_scripts']===$beforeScripts,'Customized script refuses migration before either script is overwritten');
+$GLOBALS['lab_scripts']=$legacyScripts;SetValue($m['active'],str_repeat('a',16));$blocked=false;
+try{FifoLab::install();}catch(RuntimeException $e){$blocked=true;}
+labCheck($blocked && $GLOBALS['lab_scripts']===$legacyScripts,'Active session refuses script-path migration');SetValue($m['active'],'');
+$GLOBALS['semaphore_busy']['MyAlarmFifoLabRun_'.$m['root']]=true;$blocked=false;
+try{FifoLab::install();}catch(RuntimeException $e){$blocked=true;}
+labCheck($blocked && $GLOBALS['lab_scripts']===$legacyScripts,'Coordinator ownership refuses migration even before session publication');unset($GLOBALS['semaphore_busy']['MyAlarmFifoLabRun_'.$m['root']]);
+$module->attributes['FifoOwned']=true;$blocked=false;try{FifoLab::install();}catch(RuntimeException $e){$blocked=true;}
+labCheck($blocked && $GLOBALS['lab_scripts']===$legacyScripts,'Actually enabled FIFO refuses migration even when requested settings are off');$module->attributes['FifoOwned']=false;
+FifoLab::install();SetValue($m['scenario'],'sequential');SetValue($m['result'],'');
 labCheck($GLOBALS['calls']===[],'Installing lab makes no downstream dispatch calls');
 foreach(FifoLab::SCENARIOS as$scenario){$operations=0;$valid=true;for($role=0;$role<3;++$role){$plan=FifoLab::plan($scenario,$role);$operations+=count($plan);foreach($plan as[$name,$v,$delay])$valid=$valid && isset($m['inputs'][$name]) && $delay>=1 && $delay<=50;}labCheck($valid && $operations<=128,'Scenario bounds variable set, delays and write count: '.$scenario);}
 $blocked=false;try{FifoLab::plan('invalid',0);}catch(RuntimeException $e){$blocked=true;}labCheck($blocked,'Invalid scenario refuses execution');
