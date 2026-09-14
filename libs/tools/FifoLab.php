@@ -7,13 +7,15 @@ final class FifoLab
 {
     public const IDENT = 'MyAlarmFifoLab';
     public const LOAD_IDENT = 'MyAlarmFifoLoadLab';
+    public const TEMPERATURE_IDENT = 'MyAlarmFifoTemperatureLab';
+    public const TEMPERATURE_SCENARIOS = ['temperature_simple', 'temperature_refresh', 'temperature_parallel'];
     public const MODULE = '{43FBB397-C412-41B2-192E-97054481316D}';
     public const SCENARIOS = ['sequential', 'interleaved', 'concurrent_flicker', 'refresh_noise', 'baseline_race', 'admission_contention', 'rule_verification', 'heartbeat_overlap'];
     public const INPUTS = ['Door'=>0, 'NoiseA'=>0, 'NoiseB'=>0, 'NoiseC'=>0, 'Token'=>1, 'Count'=>0, 'Once'=>0, 'Reference'=>0];
 
     private static function rootIdent(string $profile): string
     {
-        return match ($profile) { 'small'=>self::IDENT, 'production_size'=>self::LOAD_IDENT,
+        return match ($profile) { 'small'=>self::IDENT, 'production_size'=>self::LOAD_IDENT, 'temperature'=>self::TEMPERATURE_IDENT,
             default=>throw new RuntimeException('Unknown lab profile.') };
     }
 
@@ -21,6 +23,7 @@ final class FifoLab
     {
         self::rootIdent($profile);
         $types=self::INPUTS;
+        if($profile==='temperature')$types['Temperature']=2;
         if($profile==='production_size') {
             for($i=1;$i<=363;++$i)$types[sprintf('Load%03d',$i)]=0;
             for($i=1;$i<=6;++$i)$types['Usage'.$i]=1;
@@ -47,7 +50,7 @@ final class FifoLab
 
     public static function install(string $profile = 'small'): array
     {
-        if (!function_exists('MYALARM_GetInputFifoReport')) throw new RuntimeException('Load design/module1-fifo with FIFO diagnostics first; keep production FIFO and shadow disabled.');
+        if (!function_exists('MYALARM_GetInputFifoReport')) throw new RuntimeException('Load the FIFO diagnostic branch before installing the lab.');
         $ident=self::rootIdent($profile);$types=self::inputTypes($profile);
         $existing=self::child($ident,0);
         if($existing){$manifest=self::load($existing);self::validate($manifest);self::updateScriptPaths($manifest);return $manifest;}
@@ -56,7 +59,7 @@ final class FifoLab
         if (GetValue($manifestID) !== '') { $manifest=self::load($root); self::validate($manifest); return $manifest; }
         $inputs=[];
         foreach ($types as $name=>$type) $inputs[$name]=self::create($name,$root,2,static fn()=>IPS_CreateVariable($type));
-        foreach ($inputs as $name=>$id) SetValue($id,$types[$name]===1 ? 0 : false);
+        foreach ($inputs as $name=>$id) SetValue($id,$types[$name]===2 ? 54.0 : ($types[$name]===1 ? 0 : false));
         $active=self::create('ActiveSession',$root,2,static fn()=>IPS_CreateVariable(3));
         $result=self::create('Result',$root,2,static fn()=>IPS_CreateVariable(3));
         $scenario=self::create('Scenario',$root,2,static fn()=>IPS_CreateVariable(3));
@@ -67,7 +70,7 @@ final class FifoLab
         // Only newly installed lab state is initialized. Existing installation is read-only above.
         IPS_SetScriptContent($runner,"<?php\nrequire_once " . var_export(__FILE__,true) . ";\nFifoLab::execute(".$root.", \$_IPS);\n");
         IPS_SetScriptContent($stop,"<?php\nrequire_once " . var_export(__FILE__,true) . ";\nFifoLab::execute(".$root.", ['SENDER'=>'RunScript','lab_action'=>'stop']);\n");
-        SetValue($scenario,'sequential'); SetValue($active,''); SetValue($result,'');
+        SetValue($scenario,$profile==='temperature'?'temperature_simple':'sequential'); SetValue($active,''); SetValue($result,'');
         $config=self::configuration($inputs,$profile);
         foreach ($config as $name=>$value) IPS_SetProperty($module,$name,is_array($value)?json_encode($value,JSON_THROW_ON_ERROR):$value);
         foreach (['EnableInputFifo','EnableFifoFailureCapture','EnableFifoShadow','DebugMode','EnableTrafficDiagnostics'] as $name) IPS_SetProperty($module,$name,false);
@@ -115,6 +118,12 @@ final class FifoLab
             $config['GroupList'][]=['GroupID'=>'lab-group-'.$name,'GroupName'=>$name,'GroupLogic'=>0];
             $config['GroupMembers'][]=['GroupName'=>$name,'ClassID'=>$cid];
         }
+        if($profile==='temperature') {
+            $config['ClassList'][]=['ClassID'=>'lab-Temperature','ClassName'=>'Temperature','LogicMode'=>0,'Threshold'=>1,'TimeWindow'=>10];
+            $config['SensorList'][]=['ClassID'=>'lab-Temperature','VariableID'=>$inputs['Temperature'],'Operator'=>3,'ComparisonValue'=>'45','TriggerMode'=>2,'PulseSeconds'=>1];
+            $config['GroupList'][]=['GroupID'=>'lab-group-Temperature','GroupName'=>'Temperature','GroupLogic'=>0];
+            $config['GroupMembers'][]=['GroupName'=>'Temperature','ClassID'=>'lab-Temperature'];
+        }
         $config['SensorList'][0]['ComparisonSource']=1; $config['SensorList'][0]['ComparisonVariableID']=$inputs['Reference'];
         if($profile==='production_size') {
             // Generic count-shaped fixture; no production names, IDs, rules or routes.
@@ -134,7 +143,7 @@ final class FifoLab
 
     private static function load(int $root): array
     {
-        if ($root<=0 || !in_array(IPS_GetObject($root)['ObjectIdent']??'',[self::IDENT,self::LOAD_IDENT],true) || IPS_GetParent($root)!==0) throw new RuntimeException('Invalid lab root.');
+        if ($root<=0 || !in_array(IPS_GetObject($root)['ObjectIdent']??'',[self::IDENT,self::LOAD_IDENT,self::TEMPERATURE_IDENT],true) || IPS_GetParent($root)!==0) throw new RuntimeException('Invalid lab root.');
         $id=self::child('Manifest',$root); if(!$id)throw new RuntimeException('Run lab installer first.');
         $raw=GetValue($id);if(!is_string($raw)||strlen($raw)>32768)throw new RuntimeException('Lab manifest exceeds its size limit.');
         $m=json_decode($raw,true,32,JSON_THROW_ON_ERROR);
@@ -171,9 +180,16 @@ final class FifoLab
     /** Deliberate input plans, not a duplicate FIFO implementation. Millisecond requests are not real-time guarantees. */
     public static function plan(string $scenario, int $role): array
     {
-        if(!in_array($scenario,self::SCENARIOS,true)||$role<0||$role>2)throw new RuntimeException('Unknown scenario/producer.');
+        if(!in_array($scenario,array_merge(self::SCENARIOS,self::TEMPERATURE_SCENARIOS),true)||$role<0||$role>2)throw new RuntimeException('Unknown scenario/producer.');
         $ops=[];
-        if(in_array($scenario,['sequential','rule_verification'],true)) {
+        if(in_array($scenario,self::TEMPERATURE_SCENARIOS,true)) {
+            if($role===0) {
+                if($scenario!=='temperature_simple')for($i=0;$i<8;++$i)$ops[]=['Temperature',54.0,25];
+                $ops[]=['Temperature',53.0,25];
+                if($scenario!=='temperature_simple')for($i=0;$i<4;++$i)$ops[]=['Temperature',53.0,25];
+            }
+            if($scenario==='temperature_parallel' && $role>0)for($i=0;$i<32;++$i)$ops[]=[$role===1?'NoiseA':'NoiseB',$i%2===0,5];
+        } elseif(in_array($scenario,['sequential','rule_verification'],true)) {
             if($role===0)foreach([['Door',true],['Door',false],['Count',true],['Count',false],['Count',true],['Once',true],['Once',false],['Token',71001],['Token',0]] as [$name,$v])$ops[]=[$name,$v,$scenario==='rule_verification'?1:50];
         } elseif($scenario==='interleaved') {
             if($role===0)for($i=0;$i<16;++$i){$ops[]=['NoiseA',$i%2===0,5];$ops[]=['NoiseB',$i%2===0,5];if($i===4||$i===12){$ops[]=['Token',71000+$i,20];$ops[]=['Token',0,5];}}
@@ -214,10 +230,12 @@ final class FifoLab
         try {
             if(GetValue($m['active'])!=='')throw new RuntimeException('Previous lab session is still active; stop it before another run.');
             SetValue($m['active'],$session);$ownsSession=true;
-            $scenario=(string)GetValue($m['scenario']);if(!in_array($scenario,self::SCENARIOS,true))throw new RuntimeException('Choose one of: '.implode(', ',self::SCENARIOS));
+            $allowed=($m['profile']??'small')==='temperature'?self::TEMPERATURE_SCENARIOS:self::SCENARIOS;
+            $scenario=(string)GetValue($m['scenario']);if(!in_array($scenario,$allowed,true))throw new RuntimeException('Choose one of: '.implode(', ',$allowed));
             if($scenario==='heartbeat_overlap')$heartbeat=FifoHeartbeatLab::prepare($m);
             // Only the eight scenario inputs are reset. Never flood the load graph.
             foreach(self::INPUTS as$name=>$type)SetValue($m['inputs'][$name],$type===1?0:false);
+            if(($m['profile']??'small')==='temperature')SetValue($m['inputs']['Temperature'],54.0);
             SetValue($m['inputs']['Reference'],true);self::disabled($m);self::waitMs(150);
             if(GetValue($m['active'])!==$session)throw new RuntimeException('Lab session cancelled during setup.');
             IPS_SetProperty($m['module'],'EnableInputFifo',true);IPS_SetProperty($m['module'],'EnableFifoFailureCapture',true);IPS_ApplyChanges($m['module']);
@@ -226,6 +244,10 @@ final class FifoLab
             do { $before=self::report($m);if(($before['ready']??false)||($before['test']['paused']??false))break;self::waitMs(25); }while(hrtime(true)<$deadline);
             if(!($before['ready']??false)||($before['test']['paused']??false))throw new RuntimeException('Lab startup did not establish a clean baseline; inspect retained first fault.');
             if(GetValue($m['active'])!==$session)throw new RuntimeException('Lab session cancelled before producer launch.');
+            if(in_array($scenario,self::TEMPERATURE_SCENARIOS,true)) {
+                if(!MYALARM_StartFifoContinuityDiagnostic($m['module'],$m['inputs']['Temperature']))throw new RuntimeException('Temperature capture requires an idle isolated diagnostic baseline.');
+                $before=self::report($m);
+            }
             if($scenario==='rule_verification') {
                 $selection=['sources'=>array_intersect_key($m['inputs'],self::INPUTS),'classes'=>array_map(static fn($n)=>'lab-'.$n,['Door','NoiseA','NoiseB','NoiseC','Token','Count','Once'])];
                 if(!MYALARM_StartFifoVerification($m['module'],json_encode($selection,JSON_THROW_ON_ERROR)))throw new RuntimeException('Lab verification could not acquire an idle baseline; inspect report before retrying.');
@@ -244,6 +266,14 @@ final class FifoLab
             do { $after=self::report($m);if(($after['test']['paused']??false)||(($after['metrics']['count']??0)===0 && ($after['metrics']['processed']??0)-($before['metrics']['processed']??0)>=$changes && ($scenario!=='rule_verification' || ($after['verification']['covers_processed_snapshot']??false))))break;self::waitMs(25); }while(hrtime(true)<$deadline);
             $processed=($after['metrics']['processed']??0)-($before['metrics']['processed']??0);
             $report=['schema'=>1,'session'=>$session,'scenario'=>$scenario,'module_id'=>$m['module'],'profile'=>$m['profile']??'small','graph_counts'=>self::graphCounts($m),'mode'=>'isolated native Module 1 FIFO; no dispatch targets','elapsed_ms'=>(hrtime(true)-$started)/1000000,'producers'=>$producers,'expected_changed_writes'=>$changes,'processed_delta'=>$processed,'cancelled'=>GetValue($m['active'])!==$session,'comparison_incomplete'=>GetValue($m['active'])!==$session||$processed!==$changes||count($producers)!==3||in_array(false,array_column($producers,'completed'),true)||($after['test']['paused']??false)||($after['metrics']['recoveries']??0)!==($before['metrics']['recoveries']??0),'changed_write_count_matches_processed'=>count($producers)===3 && !in_array(false,array_column($producers,'completed'),true) && $changes===$processed && !($after['test']['paused']??false) && ($after['metrics']['recoveries']??0)===($before['metrics']['recoveries']??0),'fifo_before'=>$before,'fifo_after'=>$after];
+            if(in_array($scenario,self::TEMPERATURE_SCENARIOS,true)) {
+                $trace=$after['continuity_diagnostic']??null;
+                $samples=$trace['samples']??[];
+                $passed=is_array($trace) && !empty($trace['complete']) && !empty($trace['is_current_baseline']) && count($samples)===($scenario==='temperature_simple'?1:13) && GetValue($m['inputs']['Temperature'])===53.0;
+                foreach($samples as$sample)$passed=$passed && $sample['prior_matches'] && $sample['stored']['type']==='float' && $sample['previous']['type']==='float' && $sample['current']['type']==='float';
+                $report['temperature_check']=['passed'=>$passed,'expected_final_value'=>53.0,'actual_final_value'=>GetValue($m['inputs']['Temperature']),'scope'=>'Native Float input and refresh/parallel admission evidence; not a reconstruction of production callbacks.'];
+                if(!$passed)$report['comparison_incomplete']=true;
+            }
             if($scenario==='heartbeat_overlap') {
                 $report['mode']='Isolated native Module 1 FIFO plus one ordinary production watchdog cycle';
                 $report['heartbeat_overlap']=FifoHeartbeatLab::finish($heartbeat,$report);
@@ -263,12 +293,12 @@ final class FifoLab
                     if(GetValue($m['active'])===$session)SetValue($m['active'],'');
                     try { self::disabled($m);$report['after_disable']=self::report($m); }catch(Throwable $e){$report['disable_error']=substr($e->getMessage(),0,512);}
                 }
-                $serialized=json_encode($report,JSON_PRETTY_PRINT|JSON_THROW_ON_ERROR);
+                $serialized=json_encode($report,JSON_PRETTY_PRINT|JSON_PRESERVE_ZERO_FRACTION|JSON_THROW_ON_ERROR);
                 if(strlen($serialized)>65536)throw new RuntimeException('Lab report exceeded 64 KB; report not persisted.');
                 SetValue($m['result'],$serialized);
             } finally { IPS_SemaphoreLeave($lock); }
         }
-        echo json_encode($report,JSON_PRETTY_PRINT|JSON_UNESCAPED_SLASHES|JSON_THROW_ON_ERROR);
+        echo json_encode($report,JSON_PRETTY_PRINT|JSON_UNESCAPED_SLASHES|JSON_PRESERVE_ZERO_FRACTION|JSON_THROW_ON_ERROR);
     }
 
     /** Independent expectations for the fixed nine-write lab plan, not another FIFO engine. */

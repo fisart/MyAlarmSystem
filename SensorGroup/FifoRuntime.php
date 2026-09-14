@@ -142,7 +142,7 @@ trait SensorGroupFifoRuntime
         try {
             $error = $this->FifoNativeInputError($counter, $id, $data);
             if ($error !== '') throw new RuntimeException($error);
-            $this->FifoAdmit(['kind' => 'input', 'variable_id' => $id, 'value' => $data[0], 'previous' => $data[2], 'native_counter' => $counter], $fence, $entered, $stage, $seq);
+            $this->FifoAdmit(['kind' => 'input', 'variable_id' => $id, 'value' => $data[0], 'previous' => $data[2], 'native_counter' => $counter], $fence, $entered, $stage, $seq, $data[1]);
         } catch (Throwable $e) { $this->FifoFault($e->getMessage(), $fence, ['stage' => $stage, 'variable_id' => $id, 'seq' => $seq, 'native_counter' => $counter, 'native_counter_type' => gettype($counter)]); }
     }
 
@@ -165,7 +165,7 @@ trait SensorGroupFifoRuntime
         catch (Throwable $e) { $this->FifoFault($e->getMessage(), $fence, ['stage' => $stage, 'seq' => $seq]); }
     }
 
-    private function FifoAdmit(array $record, string $fence, int $entered, string &$stage, ?int &$seq): void
+    private function FifoAdmit(array $record, string $fence, int $entered, string &$stage, ?int &$seq, ?bool $nativeChanged = null): void
     {
         $stage = 'admission_lock';
         if (!IPS_SemaphoreEnter($this->FifoQueueLock(), self::FIFO_QUEUE_WAIT_MS)) throw new RuntimeException('Input admission mutex contention; observation omitted.');
@@ -191,6 +191,7 @@ trait SensorGroupFifoRuntime
                 $bucket = json_decode($old, true) ?: [];
                 $entry = $bucket['values'][$record['variable_id']] ?? null;
                 if (($bucket['fence'] ?? '') !== $fence || !is_array($entry)) return; // unsubscribed source
+                if ($this->ReadAttributeBoolean('FifoTestActive')) $this->CaptureFifoContinuity($record, $entry, $meta, $entered, $nativeChanged);
                 ++$meta['observed'];
                 if (empty($entry['known'])) throw new RuntimeException('Previously unknown input changed at variable ' . $record['variable_id'] . '; rebaseline required.');
                 if ($entry['value'] !== $record['previous']) throw new RuntimeException('Prior-value continuity gap at variable ' . $record['variable_id'] . '.');
@@ -570,7 +571,7 @@ trait SensorGroupFifoRuntime
         if ($this->ReadAttributeBoolean('FifoOwned')) $this->PublishInputFifo();
         $meta = $this->FifoMeta();
         $trial = $this->FifoTrialReport();
-        return $this->FifoEncode(['configured_enabled' => $this->ReadPropertyBoolean('EnableInputFifo'), 'enabled' => $this->ReadAttributeBoolean('FifoOwned'), 'activation_blocked' => ($this->ReadAttributeBoolean('FifoLegacyOverlap') || ($this->ReadPropertyBoolean('EnableInputFifo') && $trial['conflicting_modes'])) && !$this->ReadAttributeBoolean('FifoOwned'), 'health' => $this->GetValue('InputFifoHealth'), 'ready' => $this->ReadAttributeBoolean('FifoReady'), 'incident' => $this->ReadAttributeString('FifoIncident'), 'last_fault' => json_decode($this->ReadAttributeString('FifoLastFault'), true), 'trial' => $trial, 'test' => $this->FifoTestReport(), 'input_diagnostic' => $this->InputFifoDiagnosticReport(), 'unknown_inputs' => json_decode($this->ReadAttributeString('FifoUnknownInputs'), true), 'metrics' => $meta, 'worker_interval_ms' => $this->GetTimerInterval('InputFifoWorker'), 'diagnostic_timing' => $this->FifoTimingReport($meta), 'verification' => $this->FifoVerificationReport($meta), 'previous_session' => json_decode($this->GetBuffer('InputFifoPreviousSession'), true), 'fault' => $this->FifoFaultReason($this->ReadAttributeString('FifoFence')), 'limits' => ['worker_idle_wake_ms' => self::FIFO_WORKER_IDLE_MS, 'worker_ordinary_continuation_ms' => self::FIFO_WORKER_IDLE_MS, 'worker_diagnostic_continuation_ms' => self::FIFO_WORKER_TEST_CONTINUATION_MS, 'worker_trial_continuation_ms' => self::FIFO_WORKER_TEST_CONTINUATION_MS, 'worker_batch_target_ms' => 20, 'worker_batch_max_records' => 32, 'slots' => self::FIFO_SLOTS, 'queue_bytes' => self::FIFO_BYTES, 'evaluation_state_bytes' => self::FIFO_STATE_BYTES, 'admission_wait_ms' => self::FIFO_QUEUE_WAIT_MS, 'worker_commit_wait_ms' => self::FIFO_QUEUE_WAIT_MS, 'worker_dequeue_wait_ms' => 1], 'performance' => 'CPU and resident RAM unmeasured; synchronous receiver calls can exceed batch budget.']);
+        return $this->FifoEncode(['configured_enabled' => $this->ReadPropertyBoolean('EnableInputFifo'), 'enabled' => $this->ReadAttributeBoolean('FifoOwned'), 'activation_blocked' => ($this->ReadAttributeBoolean('FifoLegacyOverlap') || ($this->ReadPropertyBoolean('EnableInputFifo') && $trial['conflicting_modes'])) && !$this->ReadAttributeBoolean('FifoOwned'), 'health' => $this->GetValue('InputFifoHealth'), 'ready' => $this->ReadAttributeBoolean('FifoReady'), 'incident' => $this->ReadAttributeString('FifoIncident'), 'last_fault' => json_decode($this->ReadAttributeString('FifoLastFault'), true), 'trial' => $trial, 'test' => $this->FifoTestReport(), 'input_diagnostic' => $this->InputFifoDiagnosticReport(), 'unknown_inputs' => json_decode($this->ReadAttributeString('FifoUnknownInputs'), true), 'metrics' => $meta, 'worker_interval_ms' => $this->GetTimerInterval('InputFifoWorker'), 'diagnostic_timing' => $this->FifoTimingReport($meta), 'verification' => $this->FifoVerificationReport($meta), 'continuity_diagnostic' => $this->FifoContinuityReport($meta), 'previous_session' => json_decode($this->GetBuffer('InputFifoPreviousSession'), true), 'fault' => $this->FifoFaultReason($this->ReadAttributeString('FifoFence')), 'limits' => ['worker_idle_wake_ms' => self::FIFO_WORKER_IDLE_MS, 'worker_ordinary_continuation_ms' => self::FIFO_WORKER_IDLE_MS, 'worker_diagnostic_continuation_ms' => self::FIFO_WORKER_TEST_CONTINUATION_MS, 'worker_trial_continuation_ms' => self::FIFO_WORKER_TEST_CONTINUATION_MS, 'worker_batch_target_ms' => 20, 'worker_batch_max_records' => 32, 'slots' => self::FIFO_SLOTS, 'queue_bytes' => self::FIFO_BYTES, 'evaluation_state_bytes' => self::FIFO_STATE_BYTES, 'admission_wait_ms' => self::FIFO_QUEUE_WAIT_MS, 'worker_commit_wait_ms' => self::FIFO_QUEUE_WAIT_MS, 'worker_dequeue_wait_ms' => 1], 'performance' => 'CPU and resident RAM unmeasured; synchronous receiver calls can exceed batch budget.']);
     }
     private function PublishInputFifo(): void
     {

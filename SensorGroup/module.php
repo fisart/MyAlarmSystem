@@ -1,5 +1,5 @@
 <?php
-// Version2.14.0
+// Version2.14.1-lab.1
 declare(strict_types=1);
 
 require_once __DIR__ . '/StateIntegrity.php';
@@ -9,6 +9,7 @@ require_once __DIR__ . '/FifoInputDiagnostic.php';
 require_once __DIR__ . '/FifoFailureCapture.php';
 require_once __DIR__ . '/FifoTiming.php';
 require_once __DIR__ . '/FifoVerification.php';
+require_once __DIR__ . '/FifoContinuity.php';
 
 class SensorGroup extends IPSModule
 {
@@ -19,6 +20,7 @@ class SensorGroup extends IPSModule
     use SensorGroupFifoFailureCapture;
     use SensorGroupFifoTiming;
     use SensorGroupFifoVerification;
+    use SensorGroupFifoContinuity;
     public function Create()
     {
         parent::Create();
