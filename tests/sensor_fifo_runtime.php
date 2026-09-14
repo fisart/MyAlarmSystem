@@ -15,9 +15,11 @@ function fifoFixture(int $instance = 7200): SensorGroup {
         $c['GroupDispatch'][] = ['GroupName'=>$cid,'InstanceID'=>7000];
     }
     $c['SensorList'][1]['ComparisonSource']=1; $c['SensorList'][1]['ComparisonVariableID']=105;
+    // Declared Float fixture: an inactive additional OR member does not change existing projections.
+    $c['SensorList'][]=['ClassID'=>'door','VariableID'=>107,'Operator'=>0,'ComparisonValue'=>'999','TriggerMode'=>0,'PulseSeconds'=>1];
     $c['BedroomList']=[['GroupName'=>'door','BedroomDoorClassID'=>'door','ActiveVariableID'=>106]];
     $c['DispatchTargets']=[['InstanceID'=>7000]]; $c['BedroomTarget']=7000; $c['MaintenanceMode']=false; $c['TargetThrottleList']=[];
-    $GLOBALS['variables'] = array_replace($GLOBALS['variables'], [101=>false,102=>false,103=>0,104=>false,105=>true,106=>0]);
+    $GLOBALS['variables'] = array_replace($GLOBALS['variables'], [101=>false,102=>false,103=>0,104=>false,105=>true,106=>0,107=>54.0]);
     $GLOBALS['objects'][7000] = new IPSModule(7000);
     foreach ($c as $k=>$v) $m->pending[$k] = is_array($v) ? json_encode($v) : $v;
     $m->pending['EnableInputFifo']=true; IPS_ApplyChanges($instance);
@@ -28,6 +30,28 @@ function fifoSend(SensorGroup $m, int $id, $value, int $counter = 1): void { $pr
 function fifoDrain(SensorGroup $m): void { for($i=0;$i<100 && $m->attributes['FifoHasPending'];++$i) $m->RunInputFifo(); }
 function fifoReport(SensorGroup $m): array { return json_decode($m->GetInputFifoReport(),true); }
 function fifoPayloads(): array { return array_map(static fn($c)=>json_decode($c[2],true), array_values(array_filter($GLOBALS['calls'],static fn($c)=>$c[1]==='ReceivePayload'))); }
+// Integral representations of a Float callback are semantically equal to its Float baseline.
+$m=fifoFixture(7199); $GLOBALS['calls']=[];
+$before=fifoReport($m)['metrics']; $GLOBALS['variables'][107]=53.0;
+$m->MessageSink(1,107,VM_UPDATE,[53,true,54]);
+$r=fifoReport($m); fifoCheck($r['fault']==='' && $r['metrics']['admitted']===$before['admitted']+1,'Float baseline accepts integral current/previous callback representation');
+fifoCheck($r['metrics']['float_representation_normalized']===1 && $r['metrics']['float_previous_normalized']===1 && $r['metrics']['float_current_normalized']===1 && $r['metrics']['last_float_normalized_variable']===107,'Report proves which Float representation was normalized without extra logging');
+$slot='InputFifoSlot'.$r['metrics']['head']; $record=json_decode($m->buffers[$slot],true);
+fifoCheck(is_float($record['value']) && $record['value']===53.0 && is_float($record['previous']) && $record['previous']===54.0,'Queued Float record is normalized before serialization');
+fifoDrain($m); $state=json_decode($m->buffers['InputFifoState'],true);
+fifoCheck(is_float($state['values'][107]) && $state['values'][107]===53.0,'Worker mirror retains normalized Float value');
+$before=fifoReport($m)['metrics'];
+$m->MessageSink(2,107,VM_UPDATE,[53,false,53]); $r=fifoReport($m);
+fifoCheck($r['fault']==='' && $r['metrics']['suppressed']===$before['suppressed']+1 && $r['metrics']['admitted']===$before['admitted'],'Integral unchanged Float refresh is suppressed without a false fault');
+fifoCheck($r['metrics']['float_representation_normalized']===2,'Suppressed integral Float refresh remains visible in existing metrics');
+$m->MessageSink(3,107,VM_UPDATE,[52,true,51]);
+fifoCheck(str_contains(fifoReport($m)['fault'],'continuity'),'Unequal normalized Float values still produce a continuity fault');
+$m=fifoFixture(7198); $GLOBALS['variables'][107]=53.0;
+$m->MessageSink(1,107,VM_UPDATE,[53,true,'54']);
+fifoCheck(str_contains(fifoReport($m)['fault'],'continuity'),'Numeric strings are not coerced for Float continuity');
+$m=fifoFixture(7197); $GLOBALS['variables'][103]=1;
+$m->MessageSink(1,103,VM_UPDATE,[1,true,0.0]);
+fifoCheck(str_contains(fifoReport($m)['fault'],'continuity'),'Integer baseline retains exact type comparison');
 $m=fifoFixture(); $GLOBALS['calls']=[];
 fifoSend($m,101,true); fifoSend($m,101,false,2);
 fifoCheck(count($GLOBALS['calls'])===0, 'Ingress does not dispatch inline');

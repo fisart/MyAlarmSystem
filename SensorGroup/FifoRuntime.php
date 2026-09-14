@@ -165,6 +165,14 @@ trait SensorGroupFifoRuntime
         catch (Throwable $e) { $this->FifoFault($e->getMessage(), $fence, ['stage' => $stage, 'seq' => $seq]); }
     }
 
+    /** Preserve strict continuity while accepting an integral representation of a Float input. */
+    private function FifoNormalizeFloatRepresentation($value, $baseline)
+    {
+        if (!is_float($baseline) || (!is_int($value) && !is_float($value))) return $value;
+        $normalized = (float)$value;
+        return is_finite($normalized) ? $normalized : $value;
+    }
+
     private function FifoAdmit(array $record, string $fence, int $entered, string &$stage, ?int &$seq): void
     {
         $stage = 'admission_lock';
@@ -193,6 +201,19 @@ trait SensorGroupFifoRuntime
                 if (($bucket['fence'] ?? '') !== $fence || !is_array($entry)) return; // unsubscribed source
                 ++$meta['observed'];
                 if (empty($entry['known'])) throw new RuntimeException('Previously unknown input changed at variable ' . $record['variable_id'] . '; rebaseline required.');
+                // The baseline came from GetValue(). Normalize only integral numeric
+                // representations when that baseline is Float. Other types retain
+                // exact comparison, so malformed strings/booleans are never hidden.
+                $previousWasIntegralFloat = is_float($entry['value']) && is_int($record['previous']);
+                $currentWasIntegralFloat = is_float($entry['value']) && is_int($record['value']);
+                $record['previous'] = $this->FifoNormalizeFloatRepresentation($record['previous'], $entry['value']);
+                $record['value'] = $this->FifoNormalizeFloatRepresentation($record['value'], $entry['value']);
+                if ($previousWasIntegralFloat || $currentWasIntegralFloat) {
+                    $meta['float_representation_normalized'] = (int)($meta['float_representation_normalized'] ?? 0) + 1;
+                    if ($previousWasIntegralFloat) $meta['float_previous_normalized'] = (int)($meta['float_previous_normalized'] ?? 0) + 1;
+                    if ($currentWasIntegralFloat) $meta['float_current_normalized'] = (int)($meta['float_current_normalized'] ?? 0) + 1;
+                    $meta['last_float_normalized_variable'] = $record['variable_id'];
+                }
                 if ($entry['value'] !== $record['previous']) throw new RuntimeException('Prior-value continuity gap at variable ' . $record['variable_id'] . '.');
                 if ($entry['value'] === $record['value']) {
                     ++$meta['suppressed']; $this->FifoSaveMeta($meta); return;
@@ -371,7 +392,7 @@ trait SensorGroupFifoRuntime
                         }
                         $this->SetBuffer('InputFifoPreviousSession', $this->FifoEncode($old));
                     }
-                    $meta = ['schema' => 1, 'fence' => $fence, 'revision' => $this->ReadAttributeString('ActiveRevision'), 'start_ns' => $samplingStart, 'started_at' => date(DATE_ATOM), 'head' => 0, 'tail' => 0, 'count' => 0, 'bytes' => 0, 'next_seq' => 1, 'admitted' => 0, 'processed' => 0, 'observed' => 0, 'suppressed' => 0, 'queue_peak' => 0, 'queue_bytes_peak' => 0, 'lag_max_ms' => 0, 'batch_max_ms' => 0, 'batches' => 0, 'recoveries' => ($old['recoveries'] ?? 0) + 1, 'ingress_bytes' => $ingressBytes];
+                    $meta = ['schema' => 1, 'fence' => $fence, 'revision' => $this->ReadAttributeString('ActiveRevision'), 'start_ns' => $samplingStart, 'started_at' => date(DATE_ATOM), 'head' => 0, 'tail' => 0, 'count' => 0, 'bytes' => 0, 'next_seq' => 1, 'admitted' => 0, 'processed' => 0, 'observed' => 0, 'suppressed' => 0, 'float_representation_normalized' => 0, 'float_previous_normalized' => 0, 'float_current_normalized' => 0, 'last_float_normalized_variable' => 0, 'queue_peak' => 0, 'queue_bytes_peak' => 0, 'lag_max_ms' => 0, 'batch_max_ms' => 0, 'batches' => 0, 'recoveries' => ($old['recoveries'] ?? 0) + 1, 'ingress_bytes' => $ingressBytes];
                     foreach ($rawBuckets as $i => $raw) $this->SetBuffer('InputFifoIngress' . $i, $raw);
                     for ($i = 0; $i < self::FIFO_SLOTS; ++$i) $this->SetBuffer('InputFifoSlot' . $i, '');
                     $this->SetBuffer('InputFifoState', $this->FifoEncode(['values' => $values]));
