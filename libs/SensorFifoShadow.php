@@ -1,10 +1,12 @@
 <?php
 declare(strict_types=1);
+require_once __DIR__ . '/SensorRuleIdentity.php';
 
 /** Pure diagnostic evaluator. No Symcon calls, outputs, logging or timers. */
 final class SensorFifoShadow
 {
     private array $config;
+    private array $ruleCounts;
     private array $state;
     private array $classes = [];
     private array $groups = [];
@@ -12,6 +14,7 @@ final class SensorFifoShadow
     public function __construct(array $config, array $state)
     {
         $this->config = $config;
+        $this->ruleCounts = SensorRuleIdentity::counts($config);
         $this->state = $state + ['values' => [], 'ingress' => [], 'last' => [],
             'pulses' => [], 'conditions' => [], 'classes' => [], 'projection' => []];
         $byClass = [];
@@ -73,7 +76,7 @@ final class SensorFifoShadow
         $now = (int)$record['wall_s'];
         $stateOnly = ($record['kind'] === 'state_sync');
         $sabotage = false;
-        // Match legacy order and short circuit, including its shared variable maps.
+        // Match runtime tamper order and short circuit; temporal state belongs to each rule.
         foreach ($this->config['TamperList'] ?? [] as $row) {
             if ($this->rule($row, $now, $stateOnly)) { $sabotage = true; break; }
         }
@@ -127,12 +130,13 @@ final class SensorFifoShadow
 
     private function rule(array $row, int $now, bool $stateOnly): bool
     {
-        $key = (string)(int)($row['VariableID'] ?? 0);
-        if (!array_key_exists($key, $this->state['values'])) return false;
+        $id = (int)($row['VariableID'] ?? 0);
+        $key = SensorRuleIdentity::key($row, $this->ruleCounts);
+        if (!array_key_exists($id, $this->state['values'])) return false;
         $mode = (int)($row['TriggerMode'] ?? 0);
         $duration = max(1, (int)($row['PulseSeconds'] ?? 1));
         if ($stateOnly && $mode !== 0) return (int)($this->state['pulses'][$key] ?? 0) > $now;
-        $value = $this->state['values'][$key];
+        $value = $this->state['values'][$id];
         if ($mode === 0) return $this->condition($row, $value);
         if ($mode === 2) {
             // Invalid dynamic comparison returns false without mutating legacy caches.

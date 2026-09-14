@@ -1,8 +1,9 @@
 <?php
-// Version2.14.0
+// Version2.14.1
 declare(strict_types=1);
 
 require_once __DIR__ . '/StateIntegrity.php';
+require_once __DIR__ . '/SensorRuleState.php';
 require_once __DIR__ . '/FifoShadow.php';
 require_once __DIR__ . '/FifoRuntime.php';
 require_once __DIR__ . '/FifoInputDiagnostic.php';
@@ -13,6 +14,7 @@ require_once __DIR__ . '/FifoVerification.php';
 class SensorGroup extends IPSModule
 {
     use SensorGroupStateIntegrity;
+    use SensorGroupRuleState;
     use SensorGroupFifoShadow;
     use SensorGroupFifoRuntime;
     use SensorGroupFifoInputDiagnostic;
@@ -59,6 +61,8 @@ class SensorGroup extends IPSModule
         // NEW: Export Buffers for the Dashboard
         $this->RegisterAttributeString('ActiveClassesBuffer', '[]');
         $this->RegisterAttributeString('ActiveSensorsBuffer', '[]');
+        $this->RegisterAttributeString('ActiveSensorRulesBuffer', '[]');
+        $this->RegisterAttributeString('SensorRuleManifest', '{}');
 
         $this->RegisterAttributeString('ClassStateAttribute', '{}');
         $this->RegisterAttributeString('ScanCache', '[]');
@@ -2742,6 +2746,8 @@ class SensorGroup extends IPSModule
         ?bool $DiagnosticValueChanged = null,
         ?array $shadowTicket = null
     ) {
+        $this->PrepareSensorRuleState($this->ActiveConfig());
+        $engineActiveRules = [];
         $diagnosticDispatchedTargetIDs = [];
         if ($shadowTicket === null && (int)$TriggeringID === 0) {
             $shadowTicket = $this->FifoShadowControl($DiagnosticSource);
@@ -2919,7 +2925,8 @@ class SensorGroup extends IPSModule
                     }
                     if ($match) {
                         $vid = (int)($s['VariableID'] ?? 0);
-                        $engineActiveSensors[] = $vid; // Capture the sensor ID for the dashboard
+                        $engineActiveSensors[] = $vid; // Preserve existing variable-ID payloads.
+                        $engineActiveRules[$this->SensorRuleKey($s)] = true;
 
                         $activeCount++;
 
@@ -3000,6 +3007,7 @@ class SensorGroup extends IPSModule
         // EXPORT THE PATH TO THE DASHBOARD
         $this->WriteAttributeString('ActiveClassesBuffer', json_encode(array_keys($activeClasses)));
         $this->WriteAttributeString('ActiveSensorsBuffer', json_encode(array_values(array_unique($engineActiveSensors))));
+        $this->WriteAttributeString('ActiveSensorRulesBuffer', json_encode($engineActiveRules));
 
         $primaryPayload = null;
         $mainStatus = false;
@@ -3682,7 +3690,7 @@ class SensorGroup extends IPSModule
 
         if ($stateOnly && $triggerMode !== 0) {
             $pulses = $this->ReadSensorPulseUntilMap();
-            return (int)($pulses[(string)$id] ?? 0) > $this->EvaluationTime();
+            return (int)($pulses[$this->SensorRuleKey($row)] ?? 0) > $this->EvaluationTime();
         }
 
         $val = $this->EvaluationValue($id);
@@ -3718,7 +3726,7 @@ class SensorGroup extends IPSModule
             $conditionStateMap = $this->ReadSensorConditionStateMap();
             $pulseUntilMap = $this->ReadSensorPulseUntilMap();
             $now = $this->EvaluationTime();
-            $key = (string)$id;
+            $key = $this->SensorRuleKey($row);
             $hadPreviousState = array_key_exists($key, $conditionStateMap);
             $wasActive = $hadPreviousState ? (bool)$conditionStateMap[$key] : false;
 
@@ -3786,7 +3794,7 @@ class SensorGroup extends IPSModule
         $pulseUntilMap = $this->ReadSensorPulseUntilMap();
         $now = $this->EvaluationTime();
 
-        $key = (string)$id;
+        $key = $this->SensorRuleKey($row);
         $lastEntry = $lastValueMap[$key] ?? null;
 
         // First observation: initialize cache only, no trigger
@@ -4208,27 +4216,13 @@ class SensorGroup extends IPSModule
             }
         }
 
-        $disabledSensorMap = [];
-        foreach ($sensorList as $s) {
-            if (!is_array($s)) {
-                continue;
-            }
-
-            $vid = (int)($s['VariableID'] ?? 0);
-            if ($vid > 0 && !$this->IsConfigRowActive($s)) {
-                $disabledSensorMap[$vid] = true;
-            }
-        }
+        $viewRuleCounts = SensorRuleIdentity::counts($this->ActiveConfig());
+        $engineActiveRules = json_decode($this->ReadAttributeString('ActiveSensorRulesBuffer'), true) ?: [];
 
         // Live state
         $engineActiveClasses = json_decode($this->ReadAttributeString('ActiveClassesBuffer'), true);
         if (!is_array($engineActiveClasses)) {
             $engineActiveClasses = [];
-        }
-
-        $engineActiveSensors = json_decode($this->ReadAttributeString('ActiveSensorsBuffer'), true);
-        if (!is_array($engineActiveSensors)) {
-            $engineActiveSensors = [];
         }
 
         // Determine visible groups
@@ -4307,8 +4301,9 @@ class SensorGroup extends IPSModule
                     continue;
                 }
 
-                $isSensorDisabled = isset($disabledSensorMap[$vid]);
-                $isSensorActive = (!$isSensorDisabled && in_array($vid, $engineActiveSensors, true));
+                $ruleKey = SensorRuleIdentity::key($s, $viewRuleCounts);
+                $isSensorDisabled = !$this->IsConfigRowActive($s);
+                $isSensorActive = (!$isSensorDisabled && isset($engineActiveRules[$ruleKey]));
 
                 if ($stateFilter === 'active' && !$isSensorActive) {
                     continue;
@@ -4317,7 +4312,7 @@ class SensorGroup extends IPSModule
                     continue;
                 }
 
-                $visibleSensors[$vid] = $isSensorActive;
+                $visibleSensors[$ruleKey] = $isSensorActive;
             }
         }
 
@@ -4549,15 +4544,16 @@ class SensorGroup extends IPSModule
                 if (!isset($visibleClasses[$cID])) {
                     continue;
                 }
-                if (!isset($visibleSensors[$vid])) {
+                $ruleKey = SensorRuleIdentity::key($s, $viewRuleCounts);
+                if (!isset($visibleSensors[$ruleKey])) {
                     continue;
                 }
 
                 $cidNode = "C_" . substr(md5($cID), 0, 8);
-                $sid = "S_" . $vid;
+                $sid = "S_" . $ruleKey;
 
-                $isActive = $visibleSensors[$vid];
-                $isSensorDisabled = isset($disabledSensorMap[$vid]);
+                $isActive = $visibleSensors[$ruleKey];
+                $isSensorDisabled = !$this->IsConfigRowActive($s);
                 $style = $isSensorDisabled ? "disabled" : ($isActive ? "red" : "green");
 
                 $opMap = ['=', '!=', '>', '<', '>=', '<='];

@@ -414,7 +414,7 @@ trait SensorGroupFifoShadow
                 'metrics' => $meta, 'fault' => $this->ShadowFaultReason(), 'fault_details' => $this->ShadowCurrentFault(),
                 'lifecycle_interruption' => isset($meta['fence']) && $meta['fence'] !== $this->ReadAttributeString('FifoShadowFence'),
                 'limits' => ['slots' => self::SHADOW_SLOTS, 'queue_bytes' => self::SHADOW_QUEUE_BYTES, 'state_bytes' => self::SHADOW_STATE_BYTES],
-                'comparison_limits' => 'Decision projections only, not formatted payloads/delivery. Legacy shared variable pulse maps and integer wall-second semantics preserved. Mirror/live races can differ. Serialized bytes are not PHP resident memory. Worker elapsed time is not CPU utilization.']);
+                'comparison_limits' => 'Decision projections only, not formatted payloads/delivery. Independent rule pulse maps; integer wall-second semantics preserved. Mirror/live races can differ. Serialized bytes are not PHP resident memory. Worker elapsed time is not CPU utilization.']);
         } finally { IPS_SemaphoreLeave($this->ShadowQueueLock()); }
     }
 
