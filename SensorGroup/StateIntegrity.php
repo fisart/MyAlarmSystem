@@ -26,13 +26,12 @@ trait SensorGroupStateIntegrity
         $config = $this->ActiveConfig();
         if (!$config || AlarmSafety::validate($config)) return;
         $ids = [];
-        foreach ($config['SensorList'] as $row) {
+        foreach (array_merge($config['SensorList'], $config['TamperList']) as $row) {
             $ids[(int)$row['VariableID']] = true;
             if ((int)($row['TriggerMode'] ?? 0) !== 1 && (int)($row['ComparisonSource'] ?? 0) === 1) {
                 $ids[(int)($row['ComparisonVariableID'] ?? 0)] = true;
             }
         }
-        foreach ($config['TamperList'] as $row) $ids[(int)$row['VariableID']] = true;
         foreach ($config['BedroomList'] as $row) $ids[(int)$row['ActiveVariableID']] = true;
         unset($ids[0]);
         $messages = $this->GetMessageList();

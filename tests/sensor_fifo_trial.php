@@ -23,7 +23,7 @@ IPS_ApplyChanges(7900);$r=fifoReport($m);
 fifoCheck($r['enabled']&&$r['ready']&&$r['trial']['active']&&!$r['activation_blocked'],'Explicit applied trial starts with retained guard without restart');
 fifoCheck($r['trial']['legacy_overlap_retained']&&$m->attributes['FifoLegacyOverlap'],'Trial never resets historical concurrency guard');
 fifoCheck($r['trial']['automatic_recovery']&&!$r['trial']['automatic_expiry']&&!$r['test']['active'],'Trial has normal recovery and no diagnostic pause or implicit expiry');
-fifoCheck(str_contains($r['health'],'Supervised FIFO trial active')&&str_contains($r['health'],'Legacy overlap warning retained')&&str_contains($r['health'],'Disable FIFO after testing'),'Health exposes active trial and required operator action');
+fifoCheck(str_contains($r['health'],'FIFO activation compatibility enabled')&&str_contains($r['health'],'Legacy overlap warning retained')&&!str_contains($r['health'],'Disable FIFO after testing'),'Release health exposes compatibility and retained warning without obsolete manual-stop instruction');
 fifoCheck(str_contains($r['incident'],'accepts uncertain legacy overlap'),'Accepted switching uncertainty is latched visibly');
 $GLOBALS['calls']=[];fifoSend($m,103,71001,1);fifoSend($m,103,0,2);
 fifoCheck(fifoReport($m)['metrics']['count']===2&&count($GLOBALS['calls'])===0,'Token and reset use ordinary admission with no inline receiver dispatch');
@@ -79,7 +79,7 @@ $m->RunPostApply();$m->RunPostApply();fifoCheck(fifoReport($m)['enabled']&&fifoR
 $m->pending['AllowFifoTrialCutover']=false;IPS_ApplyChanges(7905);$r=fifoReport($m);
 fifoCheck(!$r['enabled']&&$r['activation_blocked']&&!$r['trial']['active'],'Removing permission restores guard-controlled activation');
 $form=$m->GetConfigurationForm();
-fifoCheck(str_contains($form,'AllowFifoTrialCutover')&&str_contains($form,'No automatic expiry'),'Form exposes separate permission and manual stopping obligation');
+fifoCheck(str_contains($form,'AllowFifoTrialCutover')&&str_contains($form,'Advanced activation and diagnostics')&&str_contains($form,'no automatic expiry'),'Release form retains compatibility and places no-expiry pause mode in advanced diagnostics');
 $limits=$r['limits'];fifoCheck($limits['worker_trial_continuation_ms']===10&&$limits['slots']===128&&$limits['admission_wait_ms']===10,'Trial report retains bounded queue/waits and exposes tested continuation');
 $m=fifoFixture(7906);$m->pending['AllowFifoTrialCutover']=true;$m->pending['EnableFifoFailureCapture']=true;IPS_ApplyChanges(7906);$r=fifoReport($m);
 fifoCheck(!$r['trial']['legacy_overlap_retained']&&!$r['enabled']&&$r['trial']['conflicting_modes']&&$r['activation_blocked'],'Mode conflict is reported as blocked even without historical legacy guard');

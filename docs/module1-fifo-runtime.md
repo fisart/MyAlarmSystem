@@ -1,12 +1,8 @@
-# Module 1 live input FIFO — supervised opt-in build
+# Module 1 live input FIFO
 
+Current release: **v2.14.0**. Artur accepted the native production tests and authorized merge into main on14September2026. See [release settings and rollback](module1-fifo-release.md) and [current AI handoff](module1-fifo-handoff.md). The FIFO remains opt-in; production23172 retains its tested liveFIFO+activation-compatibility settings, with shadow/failurecaptureOFF. Normal fault recovery is enabled and heartbeat is an ordinary input.
 
-Current build: **fifo.7**, genuine-idle-only worker wake and bounded 10 ms admission/essential commit waits. Native fifo.6 concurrency reproduced admission-lock contention; all admitted records drained and disablement completed. Follow the [native lab retest](module1-fifo-native-lab.md#current-native-evidence-and-fifo7-retest); keep production FIFO/capture/shadow off. [Current handoff](module1-fifo-handoff.md).
-**Current next step:** the [isolated native input/timing lab](module1-fifo-native-lab.md), using a separate Module 1 instance and no downstream outputs. Production live FIFO/diagnostic/shadow remain disabled. The earlier production first-failure procedure remains available for a separately supervised test if later needed.
-
-Build marker: `Version2.14.0-fifo.6`. Default: **disabled**. Current next step: the [supervised first-failure test](module1-fifo-first-failure-test.md). Artur accepts missed messages/overlapping old evaluations during test switching; the explicit diagnostic checkbox permits activation without clearing the retained guard. On a fault, admission and automatic recovery pause; disable live FIFO and Apply to restore existing processing. Do not leave the test unattended. No service restart, vendor guarantee or debounce is required for this authorized diagnostic test. Normal activation/recovery policy remains when diagnostic mode is off. Module 2, Module 3 and watchdog runtime do not change.
-
-The prior [native execution boundary investigation](module1-fifo-restart-free-boundary.md) is historical and shelved. Its 84-update passive capture checked sample payload compatibility only. The recovery cause and production FIFO acceptance remain unresolved; CPU/resident RAM are unmeasured.
+The older trial/inventory/vendor-boundary material below records development evidence. It does not override current release instructions; main merge/CI/native checkpoints are in PR#3. CPU/residentRAM and sustained overload remain unmeasured. No Module2/3/watchdog change.
 
 ## Evidence and limits
 

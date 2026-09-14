@@ -49,3 +49,5 @@ jobs:
           php tests/sensor_fifo_shadow.php
           php tests/state_integrity.php
           php tests/sensor_event_probe.php
+          php -l tests/sensor_subscription_recovery.php
+          php tests/sensor_subscription_recovery.php

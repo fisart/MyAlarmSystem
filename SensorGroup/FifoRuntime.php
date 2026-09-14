@@ -83,7 +83,7 @@ trait SensorGroupFifoRuntime
         $this->SetTimerInterval('InputFifoWorker', 0);
         $this->SetTimerInterval('InputFifoRecovery', 0);
         $this->SetValue('InputFifoIncident', $this->ReadAttributeString('FifoIncident'));
-        $this->SetValue('InputFifoHealth', $enable ? 'Starting FIFO; acquiring current input baseline.' : ($this->ReadPropertyBoolean('EnableInputFifo') ? ($conflict ? 'FIFO activation blocked: supervised trial and failure capture cannot be enabled together. Existing evaluator active.' : 'FIFO activation blocked by retained legacy concurrency guard; keep live FIFO disabled and run the passive input check.') : 'FIFO disabled; existing evaluator active.'));
+        $this->SetValue('InputFifoHealth', $enable ? 'Starting FIFO; acquiring current input baseline.' : ($this->ReadPropertyBoolean('EnableInputFifo') ? ($conflict ? 'FIFO activation blocked: activation compatibility and failure capture cannot be enabled together. Existing evaluator active.' : 'FIFO activation blocked by retained legacy concurrency guard; keep live FIFO disabled and run the passive input check.') : 'FIFO disabled; existing evaluator active.'));
         return true;
     }
 
@@ -587,7 +587,7 @@ trait SensorGroupFifoRuntime
         else $health = 'FIFO running.';
         if ($this->ReadAttributeBoolean('FifoTestActive') && !$this->FifoTestPaused()) $health .= ' Diagnostic test active; uncertain legacy overlap permitted.';
         if ($this->ReadAttributeBoolean('FifoTrialActive')) {
-            $health .= ' Supervised FIFO trial active; normal recovery enabled. Disable FIFO after testing.';
+            $health .= ' FIFO activation compatibility enabled; normal recovery enabled.';
             if ($this->ReadAttributeBoolean('FifoLegacyOverlap')) $health .= ' Legacy overlap warning retained.';
         }
         if ($this->GetValue('InputFifoHealth') !== $health) $this->SetValue('InputFifoHealth', $health);

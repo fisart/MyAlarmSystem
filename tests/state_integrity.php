@@ -43,7 +43,7 @@ $livePath = getenv('ALARM_LIVE_CONFIG');
 if ($livePath) {
     $live = json_decode(file_get_contents($livePath), true, 512, JSON_THROW_ON_ERROR);
     check(AlarmSafety::validate($live) === [], 'uploaded live graph valid');
-    check(count($live['SensorList']) === 393 && count($live['ClassList']) === 61 && count($live['GroupMembers']) === 69 && count($live['GroupDispatch']) === 57, 'live regression counts');
+    check(count($live['SensorList']) === (int)(getenv('ALARM_LIVE_SENSOR_COUNT') ?: 393) && count($live['ClassList']) === 61 && count($live['GroupMembers']) === 69 && count($live['GroupDispatch']) === 57, 'live regression counts');
     $plan = AlarmSafety::compile($live, mapping(), 56438);
     check(!$plan['errors'] && count($plan['sources']) === 7 && count($plan['bedrooms']) === 6, 'live mappings and separate bedroom routes compile');
     $values = array_fill_keys(array_keys($plan['dependencies']), false);

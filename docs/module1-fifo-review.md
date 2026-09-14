@@ -1,5 +1,12 @@
 # Independent review of the FIFO/event-integrity design
 
+## v2.14.0 release reconciliation and acceptance
+
+On14September2026 Artur reports native production FIFO/ordinaryheartbeat/functional tests OK and explicitly authorizes cleanup and main merge. Release reconciles current maina4c63a8 subscription/tamper/bedroom fixes with fifoe83c3df; preserves tested FIFO runtime settings and default-off opt-in. Compatibility setting/property/API retained, UI/status updated for accepted production; pause/passive tests in collapsed advanced controls. Hidden ClassIDsave=true prevents observed form-stripped61IDs, with roundtrip assertions. All main default-off subscription/rejectedApply/temporal checks remain, with obsolete no-FIFO-API expectations adapted to release.
+
+Native evidence:stable158/158processed/empty/peak2/no newfault/rebaseline;9ordinarypost-startheartbeatcyclesall4targetsOK,median190/max996ms. User overall testing acceptance supplements those supplied snapshots. No quantified sustained-overload/CPU-RAM/end-to-enddurability guarantee. No Module2/3/watchdog edit. Workflow701checks/14suites,28syntax/all42commands; independent final release review and CI/merge outcomes recorded onPR#3. Historical reviews below retain their narrower at-the-time approval scopes. [Release instructions](module1-fifo-release.md).
+
+
 ## fifo.12 independent review — supervised production trial
 
 User authorized a supervised trial on production SensorGroup23172, accepts uncertain old/new evaluation overlap and switching-edge loss, and deferred the separate heartbeat-overlap lab. The current changes add a default-off AllowFifoTrialCutover option; applied TrialActive overrides only the retained historical legacy blocker, preserves the guard and visible warning, retains existing worker ownership and admitted-prefix Apply deferral, uses tested10ms pending/50ms initial wake, and leaves normal automatic recovery enabled. No heartbeat source exception or Modules2/3/watchdog edit. Trial/capture mode conflicts refuse activation. No expiry/fallback; manual stop is required.

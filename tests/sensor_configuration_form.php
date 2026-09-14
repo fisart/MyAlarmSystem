@@ -38,6 +38,11 @@ formCheck(json_decode($m->GetInputFifoReport(),true)['unknown_inputs']===[40696,
 $static=bedroomField(json_decode(file_get_contents(__DIR__.'/../SensorGroup/form.json'),true));
 foreach($static['columns']as$column)formCheck(($column['save']??false)===true,'Backing column persists '.$column['name']);
 $form=json_decode($m->GetConfigurationForm(),true);$field=bedroomField($form);
+foreach($form['elements'] as $candidate)if(($candidate['name']??'')==='ClassList')$classField=$candidate;
+// SDK property-backed lists load rows even when generated JSON has no explicit values.
+if(isset($classField)&&($classField['loadValuesFromConfiguration']??true))$classField['values']=json_decode(IPS_GetProperty($m->InstanceID,'ClassList'),true);
+formCheck(isset($classField)&&array_column(serializeFormList($classField),'ClassID')===array_column($active['ClassList'],'ClassID'),'Hidden class IDs survive the SDK form saving contract');
+formCheck(count(serializeFormList($classField))===count($active['ClassList']),'Saving hidden class IDs retains all class rows');
 formCheck(($field['loadValuesFromConfiguration']??true)===false,'Working rows override stored form list during reload');
 formCheck(serializeFormList($field)===$active['BedroomList'],'Generated backing field round-trips typed bedroom rows');
 // Reproduce old non-editable defaults: unrelated form save strips all required bedroom fields.
@@ -69,7 +74,7 @@ IPS_SetProperty(7300,'BedroomList','[{"GroupName":0,"BedroomDoorClassID":false,"
 ob_start();$m->SaveConfiguration();$message=ob_get_clean();$saved=json_decode($m->GetConfiguration(),true);
 formCheck(str_contains($message,'successfully')&&$saved['BedroomList']===$active['BedroomList'],'COMMIT activates validated bedroom restoration rather than corrupt property');
 $ids=array_column($saved['SensorList'],'VariableID');sort($ids);
-formCheck($ids===[101,40697]&&json_decode($m->GetInputFifoReport(),true)['unknown_inputs']===[],'Commit removes only selected sensors and restores complete FIFO monitoring');
+formCheck($ids===[101,40697]&&json_decode($m->GetInputFifoReport(),true)['unknown_inputs']===[]&&isset($m->messages[101])&&isset($m->messages[40697]),'Commit removes only selected sensors and retains remaining subscriptions/FIFO monitoring');
 // Legitimate compact bedroom edits and intentional empty list remain authoritative.
 $m=formFixture(7301);$active=json_decode($m->GetConfiguration(),true);$edit=$active['BedroomList'];$edit[0]['ActiveVariableID']=10823;
 $m->RequestAction('UpdateBedroomListCompact',json_encode($edit));IPS_SetProperty(7301,'BedroomList','[{}]');

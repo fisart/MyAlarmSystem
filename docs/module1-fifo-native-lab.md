@@ -1,5 +1,7 @@
 # Native FIFO timing lab
 
+Release2.14.0 is accepted for main after native production testing. [Release guide](module1-fifo-release.md) is authoritative for production; the lab remains an optional diagnostic/regression tool and is not a main-installation step. Earlier next-action sections below are development history.
+
 ## fifo.12: current strategy — supervised production trial
 
 Artur deferred the separate heartbeat-overlap lab. Follow [production trial instructions](module1-fifo-production-trial.md) for **23172**, using the separate default-off supervised-trial option with ordinary recovery. The existing isolated labs remain available. Their failure-capture mode must not be used casually as a production activation override. The fifo.11 instructions below are historical/optional and no longer the immediate next action. Heartbeat has no special queue policy.

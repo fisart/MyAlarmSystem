@@ -1,5 +1,5 @@
 <?php
-// Version2.14.0-fifo.12
+// Version2.14.0
 declare(strict_types=1);
 
 require_once __DIR__ . '/StateIntegrity.php';
@@ -405,6 +405,8 @@ class SensorGroup extends IPSModule
                 $this->RegisterMessage($vid, VM_UPDATE);
             }
         }
+
+        $this->RestoreLastActiveInputRuntime(); // Also register dynamic tamper comparison dependencies.
 
         // 4. VARIABLES (Status)
         $keepIdents = ['Status', 'Sabotage', 'TrafficDiagnostics', 'EventData', 'ConfigurationHealth', 'FifoShadowHealth', 'FifoShadowReport', 'InputFifoHealth', 'InputFifoIncident'];
@@ -5679,19 +5681,21 @@ class SensorGroup extends IPSModule
             }
         }
 
-        $form['elements'][] = ['type' => 'ExpansionPanel', 'caption' => 'Ordered input FIFO (supervised testing)', 'items' => [
-            ['type' => 'CheckBox', 'name' => 'EnableInputFifo', 'caption' => 'Use FIFO for live Module 1 alarm processing'],
-            ['type' => 'CheckBox', 'name' => 'AllowFifoTrialCutover', 'caption' => 'Supervised FIFO trial: allow switching overlap with normal recovery'],
-            ['type' => 'Label', 'caption' => 'Trial: permits uncertain overlap and missed edges during switching without clearing the legacy guard. Pending work uses the tested 10 ms continuation. No automatic expiry: disable live FIFO and this option after testing. Leave failure capture and shadow off.'],
-            ['type' => 'CheckBox', 'name' => 'EnableFifoFailureCapture', 'caption' => 'FIFO diagnostic test: override activation guard and pause recovery at first fault'],
-            ['type' => 'Label', 'caption' => 'Failure capture only: after a fault, new FIFO input is frozen; disable live FIFO and Apply to restore existing alarm processing. Cannot be combined with supervised trial.'],
+        $form['elements'][] = ['type' => 'ExpansionPanel', 'caption' => 'Ordered input FIFO', 'items' => [
+            ['type' => 'CheckBox', 'name' => 'EnableInputFifo', 'caption' => 'Use FIFO for Module 1 alarm processing'],
             ['type' => 'Label', 'caption' => (string)$this->GetValue('InputFifoHealth')],
-            ['type' => 'Label', 'caption' => 'Heartbeat uses the same input queue and evaluator. CPU/resident RAM impact is unmeasured.'],
+            ['type' => 'Label', 'caption' => 'All sensor inputs, including heartbeat, use the same queue and evaluator.'],
+            ['type' => 'ExpansionPanel', 'caption' => 'Advanced activation and diagnostics', 'expanded' => false, 'items' => [
+                ['type' => 'CheckBox', 'name' => 'AllowFifoTrialCutover', 'caption' => 'Allow FIFO activation after legacy processing (compatibility option)'],
+                ['type' => 'Label', 'caption' => 'Retains existing FIFO settings and normal recovery without clearing the legacy overlap warning. Switching can miss edges or overlap old evaluations. Leave failure capture and shadow off for normal operation.'],
+                ['type' => 'CheckBox', 'name' => 'EnableFifoFailureCapture', 'caption' => 'Diagnostic only: pause FIFO after the first fault'],
+                ['type' => 'Label', 'caption' => 'Failure capture freezes new FIFO input after a fault and has no automatic expiry. Disable FIFO and Apply to restore existing processing. Cannot be combined with activation compatibility.'],
+                ['type' => 'Button', 'caption' => 'Start passive FIFO input check (15 seconds)', 'onClick' => 'echo MYALARM_StartInputFifoDiagnostic($id, 15);'],
+                ['type' => 'Button', 'caption' => 'Stop passive FIFO input check', 'onClick' => 'MYALARM_StopInputFifoDiagnostic($id);'],
+            ]],
         ]];
         $form['actions'][] = ['type' => 'Button', 'caption' => 'Retry input FIFO baseline', 'onClick' => 'MYALARM_RecoverInputFifo($id);'];
         $form['actions'][] = ['type' => 'Button', 'caption' => 'Print input FIFO report', 'onClick' => 'echo MYALARM_GetInputFifoReport($id);'];
-        $form['actions'][] = ['type' => 'Button', 'caption' => 'Start passive FIFO input check (15 seconds)', 'onClick' => 'echo MYALARM_StartInputFifoDiagnostic($id, 15);'];
-        $form['actions'][] = ['type' => 'Button', 'caption' => 'Stop passive FIFO input check', 'onClick' => 'MYALARM_StopInputFifoDiagnostic($id);'];
         $form['actions'][] = ['type' => 'Button', 'caption' => 'Clear recovered FIFO incident', 'onClick' => 'MYALARM_ClearInputFifoIncident($id);'];
 
         // === DEBUG: exit GetConfigurationForm ===

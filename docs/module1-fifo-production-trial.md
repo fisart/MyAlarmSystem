@@ -1,4 +1,6 @@
-# Supervised production Module 1 FIFO trial
+# Supervised production Module 1 FIFO trial (historical)
+
+Artur accepted this trial and authorized release2.14.0/main merge on14September2026. Use the [release guide](module1-fifo-release.md) for current production settings. Manual-stop instructions below apply to the earlier fifo.12 trial; the accepted production deployment no longer carries that trial-status instruction.
 
 Current diagnostic release: **Version2.14.0-fifo.12**, branch **design/module1-fifo**, draft PR #3. This is a supervised trial, not permanent production approval or a main merge. Modules 2/3 and the watchdog are unchanged.
 
