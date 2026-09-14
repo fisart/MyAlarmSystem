@@ -309,25 +309,29 @@ trait SensorGroupFifoRuntime
             }
             $stage = 'baseline_seed'; $failureVariable = 0;
             $this->fifoValues = $values; $this->fifoMaps = $this->FifoLoadMaps();
+            $this->PrepareSensorRuleState($config);
             $now = time();
             $this->fifoFrame = ['wall_s' => $now, 'fence' => $fence];
-            // Seed temporal caches without generating an event. Preserve shared-variable legacy row order.
+            // Seed each rule independently without generating an event.
+            $availableRuleKeys = [];
             foreach ($this->FifoRuntimeRows($config) as $row) {
                 $id = (int)$row['VariableID'];
+                $key = $this->SensorRuleKey($row);
                 if (!array_key_exists($id, $values)) continue;
+                $availableRuleKeys[$key] = true;
                 $v = $values[$id]; $mode = (int)($row['TriggerMode'] ?? 0);
-                if ($mode === 1) $this->fifoMaps['last'][$id] = ['type' => $this->GetVariableTypeName($v), 'value' => $v];
+                if ($mode === 1) $this->fifoMaps['last'][$key] = ['type' => $this->GetVariableTypeName($v), 'value' => $v];
                 elseif ($mode === 2) {
                     $target = null;
                     $valid = isset($row['Invert']) || $this->ResolveSensorComparisonTarget($row, $v, $target);
                     if ($valid) {
                         $condition = isset($row['Invert']) ? (bool)($row['Invert'] ? !$v : $v) : (bool)$this->EvaluateRule($v, $row['Operator'], $target);
-                        $this->fifoMaps['conditions'][$id] = $condition;
-                        if (!$condition) unset($this->fifoMaps['pulses'][$id]);
+                        $this->fifoMaps['conditions'][$key] = $condition;
+                        if (!$condition) unset($this->fifoMaps['pulses'][$key]);
                     }
                 }
             }
-            foreach ($this->fifoMaps['pulses'] as $id => $until) if ((int)$until <= $now || !isset($values[$id])) unset($this->fifoMaps['pulses'][$id]);
+            foreach ($this->fifoMaps['pulses'] as $key => $until) if ((int)$until <= $now || !isset($availableRuleKeys[$key])) unset($this->fifoMaps['pulses'][$key]);
             $stage = 'baseline_encoding';
             $this->FifoCheckStateSize();
             $buckets = array_fill(0, 128, []);
@@ -452,7 +456,7 @@ trait SensorGroupFifoRuntime
                         ? (string)$this->ClassifyTrafficDiagnosticVariableUpdate((int)$record['variable_id'], $record['value'], true)['source']
                         : (string)$record['source'];
                     if ($source === 'pulse_expiry') {
-                        foreach ($this->fifoMaps['pulses'] as $id => $until) if ((int)$until <= $record['wall_s']) unset($this->fifoMaps['pulses'][$id]);
+                        foreach ($this->fifoMaps['pulses'] as $key => $until) if ((int)$until <= $record['wall_s']) unset($this->fifoMaps['pulses'][$key]);
                     }
                     $stage = 'worker_evaluation';
                     if ($timing !== null) $evaluationStart = hrtime(true);

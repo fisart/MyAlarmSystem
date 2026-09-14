@@ -72,7 +72,7 @@ The additional evaluator necessarily adds work. The production observations will
 
 The shadow baseline is sampled twice and legacy evaluation state checked for observed motion. This is not atomic physical sampling. A subsequent prior-value mismatch stops capture rather than substituting a later live value. Each Apply establishes a fresh lifecycle fence, and old completions/faults cannot alter a new capture.
 
-For compatibility comparisons, the pure evaluator preserves existing shared variable pulse/condition caches, integer wall-second pulse deadlines, tamper ordering, COUNT and unchanged-value suppression. Captured admission wall seconds are used for queued evaluations. Future production FIFO timing/recovery must be finalized separately; shadow approval is not production FIFO approval. Buffers remain volatile, and interrupted worker batches are reported as incomplete rather than replayed.
+For compatibility comparisons, the pure evaluator uses independent sensor-rule pulse/condition caches (since v2.14.1), preserving integer wall-second pulse deadlines, tamper ordering, COUNT and unchanged-value suppression. Captured admission wall seconds are used for queued evaluations. Future production FIFO timing/recovery must be finalized separately; shadow approval is not production FIFO approval. Buffers remain volatile, and interrupted worker batches are reported as incomplete rather than replayed.
 
 ## Verification before publishing
 
