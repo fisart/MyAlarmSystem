@@ -28,7 +28,15 @@ final class SensorRuleIdentity
     public static function key(array $row, array $counts): string
     {
         $id = (int)($row['VariableID'] ?? 0);
-        // Preserve unambiguous existing caches and diagnostic APIs for single-rule inputs.
+        // Stateful rules must never depend on the process-local count cache. Native
+        // module lifecycles can retain the active revision while rebuilding that
+        // cache, and falling back to VariableID would make different predicates
+        // overwrite one another until the next ApplyChanges().
+        if ((int)($row['TriggerMode'] ?? 0) !== 0) {
+            return 'r_' . self::signature($row);
+        }
+
+        // Keep the lightweight numeric identity for ordinary, unique LEVEL inputs.
         return ($counts[$id] ?? 1) <= 1 ? (string)$id : 'r_' . self::signature($row);
     }
 }

@@ -39,10 +39,27 @@ trait SensorGroupFifoVerification
                     $buffers[$id] = $maps['classes'][$id]['Buffer'] ?? [];
                     if (count($buffers[$id]) > 16) throw new RuntimeException('Retained lab COUNT history exceeds verification bound; wait for expiry.');
                 }
+                $ruleCounts = SensorRuleIdentity::counts($config); $ruleKeys = [];
+                foreach ($sources as $name => $id) {
+                    $ruleKeys[$name] = (string)$id;
+                    foreach ($this->FifoRuntimeRows($config) as $row) {
+                        if ((int)($row['VariableID'] ?? 0) === $id && in_array((string)($row['ClassID'] ?? ''), $classes, true)) {
+                            $ruleKeys[$name] = SensorRuleIdentity::key($row, $ruleCounts);
+                            break;
+                        }
+                    }
+                }
+                // Preserve the external lab report shape: initial pulses remain keyed
+                // by selected VariableID even though runtime state uses semantic keys.
+                $initialPulses = [];
+                foreach ($sources as $name => $id) {
+                    $key = $ruleKeys[$name];
+                    if (array_key_exists($key, $maps['pulses'])) $initialPulses[$id] = $maps['pulses'][$key];
+                }
                 $audit = ['schema' => 1, 'fence' => $meta['fence'], 'baseline_start_ns' => $meta['start_ns'],
                     'start_seq' => $meta['next_seq'], 'start_processed' => $meta['processed'], 'deadline_ns' => hrtime(true) + 30000000000,
                     'sources' => $sources, 'classes' => array_values($classes), 'initial_values' => $initial, 'initial_buffers' => $buffers,
-                    'initial_pulses' => array_intersect_key($maps['pulses'], array_flip(array_values($sources))),
+                    'initial_pulses' => $initialPulses, 'rule_keys' => $ruleKeys,
                     'complete' => true, 'records' => [], 'processed_at_last_batch' => $meta['processed'],
                     'limits' => ['frames' => 16, 'bytes' => self::FIFO_VERIFICATION_BYTES, 'duration_seconds' => 30],
                     'scope' => 'Evaluated mirror and class/pulse decisions only; no downstream delivery proof.'];
@@ -75,8 +92,9 @@ trait SensorGroupFifoVerification
             $values = []; $counts = []; $pulses = []; $conditions = [];
             foreach ($audit['sources'] as $name => $id) {
                 $values[$name] = $this->fifoValues[$id] ?? null;
-                $pulses[$name] = (int)($this->fifoMaps['pulses'][$id] ?? 0);
-                $conditions[$name] = $this->fifoMaps['conditions'][$id] ?? null;
+                $key = (string)($audit['rule_keys'][$name] ?? $id);
+                $pulses[$name] = (int)($this->fifoMaps['pulses'][$key] ?? 0);
+                $conditions[$name] = $this->fifoMaps['conditions'][$key] ?? null;
             }
             foreach ($audit['classes'] as $id) $counts[$id] = count($this->fifoMaps['classes'][$id]['Buffer'] ?? []);
             $active = json_decode($this->ReadAttributeString('ActiveClassesBuffer'), true, 32, JSON_THROW_ON_ERROR);
