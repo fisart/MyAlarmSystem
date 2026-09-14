@@ -1,5 +1,5 @@
 <?php
-// Version2.14.2
+// Version2.14.3
 declare(strict_types=1);
 
 require_once __DIR__ . '/StateIntegrity.php';
@@ -3942,6 +3942,9 @@ class SensorGroup extends IPSModule
 
         if (($_GET['api'] ?? '') === 'fifo_status') {
             header('Content-Type: application/json; charset=utf-8');
+            header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+            header('Pragma: no-cache');
+            header('Expires: Thu, 01 Jan 1970 00:00:00 GMT');
             if ($this->ReadAttributeBoolean('FifoOwned')) $this->PublishInputFifo();
             echo json_encode(['health' => $this->GetValue('InputFifoHealth'), 'incident' => $this->ReadAttributeString('FifoIncident'), 'last_fault' => json_decode($this->ReadAttributeString('FifoLastFault'), true), 'trial' => $this->FifoTrialReport(), 'test' => $this->FifoTestReport(), 'input_diagnostic' => $this->InputFifoDiagnosticReport()]);
             return;
@@ -5037,7 +5040,7 @@ class SensorGroup extends IPSModule
                 <script>
                 async function refreshFifoStatus() {
                     try {
-                        const response = await fetch(window.location.pathname + "?api=fifo_status");
+                        const response = await fetch(window.location.pathname + "?api=fifo_status&t=" + Date.now(), { cache: "no-store" });
                         if (!response.ok) return;
                         const data = await response.json();
                         const panel = document.getElementById("fifo-status");
@@ -5692,7 +5695,7 @@ class SensorGroup extends IPSModule
         ]];
         $form['actions'][] = ['type' => 'Button', 'caption' => 'Retry input FIFO baseline', 'onClick' => 'MYALARM_RecoverInputFifo($id);'];
         $form['actions'][] = ['type' => 'Button', 'caption' => 'Print input FIFO report', 'onClick' => 'echo MYALARM_GetInputFifoReport($id);'];
-        $form['actions'][] = ['type' => 'Button', 'caption' => 'Clear recovered FIFO incident', 'onClick' => 'MYALARM_ClearInputFifoIncident($id);'];
+        $form['actions'][] = ['type' => 'Button', 'caption' => 'Acknowledge and clear recovered FIFO history', 'onClick' => 'MYALARM_ClearInputFifoIncident($id);'];
 
         // === DEBUG: exit GetConfigurationForm ===
         if ($this->ReadPropertyBoolean('DebugMode')) IPS_LogMessage('SensorGroup', 'DEBUG: GetConfigurationForm EXIT returning json');

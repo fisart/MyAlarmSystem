@@ -1,4 +1,4 @@
-# Module 1 v2.14.2: independent sensor-rule pulses
+# Module 1 v2.14.3: independent sensor-rule pulses
 
 ## Problem and evidence
 
@@ -22,7 +22,7 @@ Existing integer wall-second timing and scheduling semantics remain; this is not
 
 No extra polling, threads, semaphores, network calls, archive writes or per-event logging. Rule counts and migration are cached by active revision. Repeated-variable rules require a small deterministic hash; existing single-rule inputs retain constant-time numeric keys. State is limited by configured rules, pruned on revision changes, and remains subject to existing FIFO state byte limits. Additional manifest and dashboard state scale with configured rules. Production CPU and resident memory have not been measured.
 
-Modules 2, 3 and the watchdog are unchanged. Heartbeat uses the ordinary sensor path. This branch starts from main aa1d91344712f2d6dfb4dde942a064f175865162 and is independent of the temperature diagnostic PR #5.
+Modules 2, 3 and the watchdog are unchanged. Heartbeat uses the ordinary sensor path. The pulse fix was merged through PR #6 before the Float continuity fix in PR #7. Diagnostic PR #5 was closed without merge.
 
 ## Validation and installation check
 
@@ -30,4 +30,4 @@ The new executable regression covers both class orders with FIFO enabled and dis
 
 Local validation: all 785 assertions in 15 suites and all 31 PHP syntax checks passed (46 workflow commands). GitHub CI results are recorded in the PR.
 
-After installing the branch in Symcon, generate a new camera clip normally. Expected sequence: running -> done activates the ready rule once, then it becomes inactive while the text stays done. Failed remains inactive. Generate another clip to verify rearming and check the usual heartbeat. No production input values need to be overwritten for this check. Native timer scheduling and actual delivery remain installation checks, not claims made by the local tests.
+Production verification confirmed that running -> done activates the ready rule once, then it becomes inactive while the text stays done. Failed remains inactive, and a later clip rearms the rule. No production input values were overwritten for this check.

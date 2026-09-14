@@ -629,6 +629,12 @@ trait SensorGroupFifoRuntime
                 try {
                     if (!$this->ReadAttributeBoolean('FifoReady') || $this->FifoFaultReason($this->ReadAttributeString('FifoFence')) !== '') throw new RuntimeException('Monitoring degraded; incident cannot be cleared.');
                     $this->WriteAttributeString('FifoIncident', '');
+                    $this->WriteAttributeString('FifoLastFault', '');
+                    $this->WriteAttributeString('FifoFirstTestFault', '');
+                    $this->WriteAttributeString('FifoTestPauseFence', '');
+                    $this->WriteAttributeString('FifoTestOmittedFence', '');
+                    $this->WriteAttributeBoolean('FifoFaultPending', false);
+                    $this->SetBuffer('InputFifoFault', '');
                     $this->SetValue('InputFifoIncident', '');
                 } finally { IPS_SemaphoreLeave($this->FifoFaultLock()); }
             } finally { IPS_SemaphoreLeave($this->FifoQueueLock()); }
