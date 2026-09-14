@@ -14,8 +14,40 @@ jobs:
           php -l PropertyStateManager/module.php
           php -l PropertyStateManager/StateIntegrity.php
           php -l libs/AlarmSafety.php
-          php tests/state_integrity.php
+          php -l SensorEventProbe/module.php
+          php -l SensorGroup/FifoRuntime.php
+          php tests/sensor_fifo_runtime.php
+          php -l tests/sensor_fifo_scheduling.php
+          php tests/sensor_fifo_scheduling.php
+          php -l tests/sensor_fifo_trial.php
+          php tests/sensor_fifo_trial.php
+          php -l SensorGroup/FifoTiming.php
+          php -l tests/sensor_fifo_timing.php
+          php tests/sensor_fifo_timing.php
+          php -l SensorGroup/FifoFailureCapture.php
+          php -l tests/sensor_fifo_failure_capture.php
+          php tests/sensor_fifo_failure_capture.php
+          php -l libs/tools/FifoLab.php
+          php -l libs/tools/symcon_fifo_lab_install.php
+          php -l libs/tools/symcon_fifo_load_lab_install.php
+          php -l tests/sensor_fifo_lab.php
+          php tests/sensor_fifo_lab.php
+          php -l SensorGroup/FifoVerification.php
+          php -l tests/sensor_fifo_verification.php
+          php tests/sensor_fifo_verification.php
+          php -l libs/tools/FifoHeartbeatLab.php
+          php -l tests/sensor_fifo_heartbeat_lab.php
+          php tests/sensor_fifo_heartbeat_lab.php
+          php -l SensorGroup/FifoInputDiagnostic.php
+          php -l tests/sensor_fifo_input_diagnostic.php
+          php -l libs/tools/symcon_fifo_execution_inventory.php
+          php tests/sensor_fifo_input_diagnostic.php
           php -l tests/sensor_configuration_form.php
           php tests/sensor_configuration_form.php
+          php -l SensorGroup/FifoShadow.php
+          php -l libs/SensorFifoShadow.php
+          php tests/sensor_fifo_shadow.php
+          php tests/state_integrity.php
+          php tests/sensor_event_probe.php
           php -l tests/sensor_subscription_recovery.php
           php tests/sensor_subscription_recovery.php

@@ -1,0 +1,11 @@
+{
+  "id": "{563880C4-7A2F-4F18-8A76-74B1657719E8}",
+  "name": "SensorEventProbe",
+  "type": 3,
+  "vendor": "MyAlarm",
+  "aliases": ["Alarm FIFO Read-only Probe"],
+  "parentRequirements": [],
+  "childRequirements": [],
+  "implemented": [],
+  "prefix": "FIFOPROBE"
+}

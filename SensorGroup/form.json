@@ -21,7 +21,8 @@
           "name": "ClassID",
           "width": "0px",
           "add": "",
-          "visible": false
+          "visible": false,
+          "save": true
         },
         {
           "caption": "Active",

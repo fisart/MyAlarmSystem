@@ -1,0 +1,13 @@
+{
+  "elements": [
+    {"type": "Label", "caption": "Optional observer. Start manually; no sensor writes or alarm actions. Stops on Apply/restart, duration or sample limit."},
+    {"type": "ValidationTextBox", "name": "VariableIDs", "caption": "Variable IDs as JSON (maximum 16), e.g. [52174]"},
+    {"type": "NumberSpinner", "name": "DurationSeconds", "caption": "Capture duration in seconds", "minimum": 10, "maximum": 300},
+    {"type": "NumberSpinner", "name": "MaxSamples", "caption": "Maximum samples", "minimum": 1, "maximum": 256}
+  ],
+  "actions": [
+    {"type": "Button", "caption": "Start capture", "onClick": "FIFOPROBE_Start($id);"},
+    {"type": "Button", "caption": "Stop capture", "onClick": "FIFOPROBE_Stop($id);"},
+    {"type": "Button", "caption": "Print stopped capture", "onClick": "echo FIFOPROBE_GetReport($id);"}
+  ]
+}

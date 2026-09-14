@@ -1,0 +1,197 @@
+# Native FIFO timing lab
+
+Release2.14.0 is accepted for main after native production testing. [Release guide](module1-fifo-release.md) is authoritative for production; the lab remains an optional diagnostic/regression tool and is not a main-installation step. Earlier next-action sections below are development history.
+
+## fifo.12: current strategy — supervised production trial
+
+Artur deferred the separate heartbeat-overlap lab. Follow [production trial instructions](module1-fifo-production-trial.md) for **23172**, using the separate default-off supervised-trial option with ordinary recovery. The existing isolated labs remain available. Their failure-capture mode must not be used casually as a production activation override. The fifo.11 instructions below are historical/optional and no longer the immediate next action. Heartbeat has no special queue policy.
+
+## fifo.11: current next native action — real heartbeat overlap
+
+Update **design/module1-fifo** to **Version2.14.0-fifo.11**. Keep production FIFO/shadow/failure capture OFF, including actual FIFO/test ownership. In existing **MyAlarmFifoLoadLab / Module1Test 54312**, set **Scenario** to `heartbeat_overlap`, run **RunScenario once**, and provide **Result**. No reinstall, new variables, Symcon restart or guard reset.
+
+This scenario launches the ordinary isolated 70-change concurrent workload. After a requested 25 ms coordinator wait, it requests **one extra normal production heartbeat** using `AHW_RunCycle(35750)`. The watchdog uses its existing cycle semaphore, input token/reset and existing routes. The production timer remains unchanged. It may also run a natural cycle; the report does not attribute a new token to a particular caller. The lab has no alarm outputs. Production Module 1 23172 continues its existing evaluator; this test does not place real heartbeat into production FIFO.
+
+Read-only preflight checks known module GUIDs, production flags and actual FIFO/test OFF, absence of unapplied production/watchdog changes, effectively active heartbeat, idle integer input outside the lab, existing pulse duration at most 3 seconds, and bounded configured integer watch targets. It reads no secrets or notification settings. A missing/busy/pulsing configuration prevents this test before producer launch; inspect Result before retrying.
+
+Each producer records start/end monotonic timestamps in its existing completion status, not per-event logs. Newly observed real heartbeat sends are mapped from the watchdog's local milliseconds-since-midnight token into that clock reference, with midnight wrap, mapping uncertainty and drift checks. A send must fall fully inside at least one measured producer execution interval, accounting for timestamp uncertainty. All configured targets, including Module 1 callback, must report exact matching token and valid correlated update/runtime with OK status. Producer intervals include their planned waits; they do not prove continuous CPU execution. Callback completion can occur after the burst.
+
+Require `heartbeat_overlap.passed=true`, status passed, complete lab accounting (70 changed writes/admissions/processed, no new fault/pause, stable baseline, empty queue), and actual `after_disable.enabled=false`. If send misses the burst, the normal cycle skips its busy semaphore, confirmations are pending/WAITING, clocks cannot be trusted or callback timestamps are inferred rather than recorded, the result cannot pass. Known terminal failures remain failed even if another target is pending. No repeated heartbeat requests or auto-retries; provide an inconclusive/failed Result before another run. At most three new heartbeat entries are included; existing Result is capped at 64 KB.
+
+**Duration/cancellation:** lab startup/producer/drain polling retains existing 2/4/2-second limits. These are not hard deadlines around the synchronous normal watchdog call: it has its existing cycle wait up to 1 second, history semaphore waits up to 5 seconds, configured pulse sleep (preflight permits at most 3 seconds), and normal report/notification I/O. The lab does not cancel or modify an invoked production heartbeat. StopScenario before invocation prevents the extra request; afterward let its ordinary cycle/token reset finish. API exceptions are recorded and cannot pass; lab cleanup still requests actual Disable. Shared native services and CPU/resident RAM remain unmeasured.
+
+Local workflow: **650 checks / twelve suites**,26 syntax files,all38 commands. New heartbeat suite35 checks; independent review covers clock/schema/pending/terminal failures, ordinary API use, diagnostic isolation, cancellation and cleanup. Native overlap is still pending.
+
+## Completed fifo.10 native semantic evidence
+
+Session `94c9625cbbb37b92`, baseline 23:07:02+02:00: producer completed nine changed writes in9.257ms, all9observed/admitted/processed, peak9/128 (1614bytes), empty, no current fault/pause, stable baseline, actual OFF. All ten fixed-plan assertions true; audit complete/current/covered with seq1..9 and all eight mirror values.
+
+Rows confirm Door active/clear; COUNT buffers1/1/2 and active only at second direct activation; ONCE condition/pulse created then cleared; token71001 and reset0 distinct with existing CHANGE pulse behavior. Maxlag153.437ms,4batches,evaluation79.564ms,workerelapsed99.075ms (excludes final optional audit persistence). Incident22:56:06 is retained prior deliberately forced fault; not current. Scope is evaluated decisions, not downstream delivery or cross-producer physical order.
+
+## fifo.10 semantic test (completed instructions)
+
+Update **design/module1-fifo** to **Version2.14.0-fifo.10**, keep production FIFO/shadow/failure capture OFF, and use the existing **MyAlarmFifoLoadLab / Module1Test 54312**. No reinstall, new inputs, Symcon restart or guard reset is needed. Set **Scenario** to `rule_verification`, run **RunScenario once**, and provide **Result**.
+
+This is nine changed writes from one producer at requested 1 ms gaps: Door open/close; Count true/false/true; Once true/false; Token 71001/reset 0. It exercises the real MessageSink and FIFO worker, with no dispatch targets. Requested timing is not a native real-time guarantee. The lab records evaluated values and selected class decisions; fixed-plan assertions check all eight selected mirror values after each frame, source/sequence/prior values, two direct COUNT increments and threshold decisions, ONCE pulse creation/clearing, and token/reset CHANGE pulses. COUNT expectations retain the captured initial timestamps and use the existing integer-second 10-second window. They do not demand resetting valid retained history.
+
+Require `rule_verification.passed=true`, all ten assertions true, `comparison_incomplete=false`, nine admitted/processed, empty queue, no current fault or pause, complete/current `fifo_after.verification.covers_processed_snapshot`, and actual `after_disable.enabled=false`. A count-only pass is insufficient. Capture/read/persistence gaps conservatively fail coverage. Inspect a failed Result before any retry, baseline reset or another update.
+
+Explicit capture start is limited to ready, applied diagnostic mode in an identified lab category, local configured dependencies, empty queue/worker ownership and zero dispatch/bedroom/tamper/vault outputs. Maximum eight sources/classes, sixteen frames, 24 KB volatile serialized buffer, thirty seconds. Frames accumulate locally; one optional buffer write per worker batch outside the queue lock. No archive, log, per-input script or new timer. Capture failures do not fault/replay FIFO evaluation. Historical snapshots summarize capture without repeating values; Result remains capped at 64 KB. Ordinary FIFO modes do not record/write this capture. Final capture encoding/persistence happens after the existing timing summary and is excluded from its worker elapsed metric; this semantic run is not a pure fifo.9 scheduling benchmark. System load and resident RAM remain unmeasured.
+
+Scope: single-producer evaluated decisions, not cross-producer physical order, downstream payload/receiver acceptance, pulse-expiry timer or the real watchdog. Production routing and Modules 2/3/watchdog are unchanged. A true workload/real-heartbeat overlap observation remains outstanding; the ten supplied real heartbeat cycles were OK before/after, but none overlapped the approximately one-second fifo.9 burst.
+
+Local workflow: **614 checks** across eleven suites; 24 PHP syntax checks, all 35 workflow commands pass. New verification suite has 33 checks, including corrupted evidence, missing/stale capture, diagnostic isolation, capacity and optional persistence failure. Independent review and published SHA/CI checkpoint are recorded in PR #3 and the handoff.
+
+## Completed fifo.9 native evidence
+
+- Larger concurrent `94ccaaa8a725b9d6`, 22:50:55+02:00: all 70 observed/admitted/processed, stable baseline, empty/no fault, current complete timing, actual OFF. Maximum lag 807.833 ms versus previous fifo.8 2527.698 ms; pending gap total 55.954 ms versus 1699.285 ms. Evaluation 796.280 ms, worker 864.071 ms, queue peak 62/128, 35 batches. About 68% less maximum lag / 97% less pending gap in these two observations; not a controlled CPU/RAM benchmark. Recent actual pending gaps mostly ~1 ms, final 10.922 ms: the requested periodic interval is not a guaranteed post-completion sleep.
+- Deliberate contention `90516ceea7318688`, 22:56:06+02:00: current admission_lock fault, variable 59385 / counter 400050338, diagnostic pause, zero admissions, actual OFF with fault evidence retained. This confirms forced-failure detection/pause/cleanup, not nonempty-prefix draining or the faster worker under failure. Zero observed is instrumentation after successful mutex acquisition, not absence of callbacks. Historical timing is from the prior successful run.
+- Ten real watchdog cycles, 22:41:54 through 22:51:14: all four targets OK; Module 1 callbacks 111–150 ms. None overlapped the 22:50:55–22:50:56 lab worker burst. Lab Token is synthetic; the real watchdog remains attached to production.
+
+## fifo.9 scheduling experiment (historical instructions)
+
+`Version2.14.0-fifo.9` retains the **50 ms initial idle wake** and ordinary FIFO continuation. During **applied diagnostic failure-capture mode only**, a batch that leaves queued work requests a **10 ms continuation interval**. The switch occurs once under the existing queue mutex; later busy batches query the interval and do not reset it. An empty queue stops the timer under the same lock as the next admission. Pending recovery retains an already-fast diagnostic timer. A false return/exception from the new continuation update follows the existing explicit fault/pause/no-replay path.
+
+Worker ownership, one-attempt semaphore waits (admission/essential commit10ms, dequeue/worker owner1ms), queue capacities,32-record maximum/soft20msbatch target, rule semantics and all-source/heartbeat treatment remain unchanged. A single slow frame or native call can exceed the target. No per-event asynchronous script, spin loop, larger batch or timer per sensor is introduced. Diagnostic mode includes any instance where failure capture is explicitly applied; **keep production FIFO/shadow/capture off** and run this experiment only on the zero-route lab.
+
+The SDK documents [GetTimerInterval](https://www.symcon.de/en/service/documentation/developer-area/sdk-tools/sdk-php/module/gettimerinterval/) (available since5.2) as an integer millisecond query and [SetTimerInterval](https://www.symcon.de/en/service/documentation/developer-area/sdk-tools/sdk-php/module/settimerinterval/) as a millisecond update returning success/failure. These establish API compatibility with Symcon9, not actual10ms precision, timer reentrancy or native thread fairness. Faster timer requests can consume additional shared threads/ownership attempts and concentrate evaluation work. There is no CPU/residentRAM claim.
+
+Next native actions:
+
+1. Confirm lab54312 has drained (`processed70`, `count0`, actual `enabledfalse`, already supplied for fifo.8). Update **design/module1-fifo**, retaining production FIFO/shadow/capture OFF. No Symcon restart.
+2. Existing **MyAlarmFifoLoadLab** / **Module1Test54312**: set **Scenario** to `concurrent_flicker`, run **RunScenario once**, send **Result**. No reinstall or full initial test sequence.
+3. Send fresh **real heartbeat history covering the run** (the synthetic Token input is not the actual watchdog). Obtain it from the watchdog UI or a separate script:
+
+```php
+<?php
+echo AHW_GetHeartbeatHistory(35750);
+```
+
+Keep that script separate from RunScenario. Heartbeat observations are shared-service health evidence, not measured CPU/RAM or proof of every alarm policy.
+
+Report `limits` now exposes50msidle/ordinary,10msdiagnostic continuation and20ms/32records batch targets. `worker_interval_ms` queries the currently requested native interval (not measured timer latency); it is normally0 in fifo_before and after_disable, and can also be0 in fifo_after after a completed drain. Use policy fields and `diagnostic_timing.pending_gap_*` / recent gap samples to assess the experiment. The original2/4/2second bounded startup/producer/drain deadlines remain; do not extend them to hide backlog. Require all70 admissions/processed, stable baseline, no new fault, empty queue and actual Disable. If unfinished, obtain a later lab-only `MYALARM_GetInputFifoReport(54312)` before another run/update.
+
+After this targeted result, review whether reduced lag costs real heartbeat/shared-service health. The deliberate40ms admission-contention check and native per-source/value/order/COUNT/ONCE verification remain later gates. Aggregate counts alone cannot validate exact rule/output behavior. A supervised production trial is later, after those gates; Modules2/3/watchdog remain unchanged.
+
+Local verification: **580 checks** across10suites (new scheduling31);22workflow PHP syntax files; clean whitespace. Independent review/native fifo.9 results recorded in current handoff/PR Conversation. Native fifo.9 results are summarized above.
+
+## Completed fifo.8 graph-size evidence
+
+- Small concurrent session03cbe197edbe3e4f:70/70,21batches, evaluation479.550ms, pending gaps1027.883ms, maxlag1421.263ms, empty and actualOFF.
+- Larger sequential09c15b83f2f95a06:9/9,5batches, evaluation73.428ms, queuepeak2, maxlag63.807ms, no backlog after each batch, complete/current coverage, actualOFF.
+- Larger interleaved1f54ffc92d418317:36/36,16batches, evaluation360.554ms, pending gaps769.601ms, queuepeak30, maxlag1011.725ms, complete/current coverage, actualOFF.
+- Larger concurrent2c3a65515455ee7b:70admitted,55processed at the2sdrain snapshot (14queued/1dequeued),57processed/13queued at deferred Disable snapshot. **Initial comparison remains incomplete/timely acceptance failed.** Later same-baseline report confirms processed70/count0/actualOFF/nofault/recoveries3unchanged. Final34batches, evaluation871.713ms, worker953.437ms, worker queue waits1.162ms/0misses, pending gaps1699.285ms, maxlag2527.698ms. This shows delayed completed admission accounting, not recorded loss. Historical timing becomes not-current after Disable/Apply; retained legacy guard remains.
+
+Generic larger graph61classes392rules55groups69members370unique rule inputs377totalinputs;0bedrooms/routes. Private production topology/types/activation/bedroom/receiver costs are not replicated. The recorded ~51ms pending gaps dominate measured walltime, but include diagnostic persistence/owner-release/native scheduling; they are not pure timer latency, admission-lock wait or CPU utilization. No claim that this lab establishes original production legacy event-loss causality.
+
+
+## Historical fifo.8 measurement instructions (completed)
+
+`Version2.14.0-fifo.8` adds worker timing **only while the applied failure-capture test mode is active**. Ordinary FIFO receives no timing history. Existing queue waits, timer interval, batch target, trigger semantics and routing remain unchanged. No production activation or Symcon restart is required.
+
+1. Update `design/module1-fifo` in module control. Keep production FIFO, shadow and failure capture disabled.
+2. In the existing **MyAlarmFifoLab**, set **Scenario** to `concurrent_flicker`, run **RunScenario** once, and provide **Result**. This repeats the small seven-class/seven-rule fixture with timing, before changing graph size.
+3. After that result is reviewed, install the separate larger fixture using a temporary script:
+
+```php
+<?php
+$labToolsDirectory = rtrim(IPS_GetKernelDir(), '/\\') . '/modules/MyAlarmSystem/libs/tools';
+require_once $labToolsDirectory . '/FifoLab.php';
+echo json_encode(FifoLab::install('production_size'), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+```
+
+The checked-in equivalent is `libs/tools/symcon_fifo_load_lab_install.php`. It creates **MyAlarmFifoLoadLab**, its own **Module1Test**, **Scenario**, **RunScenario**, **StopScenario** and **Result**. Existing small lab IDs/state are preserved. Initial Scenario is `sequential`: **nine changed writes**, not a 370-input burst. Start with this scenario and review Result before a larger burst. Existing startup/producer/drain limits remain 2/4/2 seconds; missed deadlines produce incomplete results rather than an unbounded retry.
+
+The generic fixture has **61 classes, 392 sensor-rule rows, 55 groups, 69 memberships, 370 distinct left-hand sensor variables and 377 total input variables**. The extra seven inputs are one Boolean reference and six integer comparison references. Boolean filler inputs and integer references start false/zero; six strict-greater comparisons keep filler rules inactive. Class modes are 58 OR, two COUNT and one AND. It approximates the exported graph counts, **not production rule types, activation patterns, topology or delivery**. It has zero dispatch routes and **zero bedroom rules**: the existing safety validator requires bedroom rules to have a configured dispatch target, so the fixture omits the export's six bedroom rules instead of weakening that gate. Bedroom-sync and receiver costs are not measured.
+
+Installation performs one bounded creation/configuration pass. There is no archive or recurring input generator. Scenario setup resets only its eight base inputs; it does not rewrite hundreds of fillers. Entry/cleanup validation checks every local input and the whole expected graph, which itself consumes native server calls. Keep the fixture configuration and filler inputs unchanged. Generated plans can write only the eight base inputs. Both lab instances share the production library, CPU and script threads even though their inputs/routes are separate.
+
+Read **fifo_after.diagnostic_timing** in Result:
+
+- `evaluation_total_ms` and recent `evaluation_max_ms`: full graph evaluation, including native status writes and any configured synchronous calls. Failed evaluation samples can include fault-handling time and are marked incomplete.
+- `queue_wait_total_ms`, attempts/misses: **worker** dequeue/progress/shutdown lock acquisition; these exclude producer admission waits.
+- `state_commit_total_ms`: completed batch map/state persistence and pulse-timer update.
+- `pending_gap_total_ms` / maximum and recent `gap_before_ms`: time between observed batches when the previous batch left queued work. It includes summary persistence, owner release and scheduling; it is not a pure timer-latency measurement. Idle time is excluded. Work arriving after an empty shutdown is not included in this gap metric.
+- `worker_elapsed_total_ms`: measured worker wall time through health publication, excluding the optional timing-summary write. Overlapping phase totals are not independent CPU measurements.
+- `is_current_baseline` and `covers_processed_snapshot`: only compare summaries for the current baseline and completed committed batches. Missing/failed summaries, an in-flight frame, replaced baseline or disabled Apply must not be treated as complete evidence. Coverage refers to processed progress, not queue ordering, admission coverage or downstream delivery.
+
+A separate volatile timing buffer is written **once per batch outside the queue lock**, capped at **8 KiB / eight recent samples**. It contains only numeric timing/counter fields, stage and baseline identity, not sensor values or event logs. Optional capture failure must not fault processing or replay a record. CPU and resident RAM remain unmeasured; fifo.7's 1.348-second delay is neither a CPU figure nor solely a mutex wait.
+
+
+Branch `design/module1-fifo`, actual Module 1 fifo.9 diagnostics. Main remains stable Module 1 v2.13.4. The lab exercises the actual runtime; fifo.8 adds test-mode-only timing and a generic larger profile. It does not implement a different FIFO.
+
+## Purpose and scope
+
+Artur proposed a standalone FIFO emulator plus synthetic inputs/timing scripts. A copied queue can reproduce its own defects while missing the actual message sink/worker behavior. The installer and scenario scripts therefore exercise the real SensorGroup instance through native `SetValue` callbacks and native asynchronous script execution. They create a separate test instance and eight input variables under the dedicated root category `MyAlarmFifoLab`.
+
+The test instance has no dispatch targets/routes, no bedroom target and no vault. It sends no input/payload to production Module 2/3 or the watchdog. The token input is an ordinary CHANGE sensor with token/reset pairs, with the same FIFO treatment as other sensors; it does not mark the actual watchdog healthy. End-to-end heartbeat and receiver delivery are outside this lab's scope.
+
+Lab and production share the installed module library and server. Switching the library branch changes the code loaded for production instances too. Keep **production live FIFO, diagnostic mode and shadow disabled** while using this branch; the lab alone enables FIFO. A separate instance isolates configuration and routing, not PHP-library code or CPU/memory/thread resources. No Symcon restart is requested. Native library updates use normal lifecycle and can briefly interrupt callbacks.
+
+## Install and run
+
+1. Update the library from `design/module1-fifo` while production testing is disabled. Confirm fresh actual heartbeat/monitoring health after the update.
+2. Paste [libs/tools/symcon_fifo_lab_install.php](../libs/tools/symcon_fifo_lab_install.php) into a temporary Symcon PHP script and run it. Its default folder is `IPS_GetKernelDir()/modules/MyAlarmSystem/libs/tools`; adjust that folder only if your actual library path differs. The helper [libs/tools/FifoLab.php](../libs/tools/FifoLab.php) is loaded from the installed branch.
+3. The installer prints IDs and creates `Module1Test`, eight inputs, `Scenario`, `RunScenario`, `StopScenario`, `Result`, `Manifest`, `ActiveSession` and three producer-status variables. It leaves lab FIFO disabled. Re-running installation reuses a validated existing lab without resetting it. It updates only our exact generated RunScenario/StopScenario scripts from the former tools path to libs/tools, after checking the lab is inactive; customized scripts are refused. An incomplete or modified existing lab is refused; inspect/remove only that dedicated category if you need a fresh installation.
+4. Set the string variable `Scenario` to `sequential`, then run `RunScenario`. Read/copy `Result` after the run; the script also prints the report. No need to stop before reading it. Each run requests that lab live FIFO and diagnostic capture be disabled afterward. Verify `after_disable.configured_enabled=false` and `after_disable.enabled=false`; if `enabled` remains true, wait for its retained prefix/Apply to finish and inspect the lab health. Never infer successful disabling from a requested property change alone.
+5. Repeat `interleaved`, `concurrent_flicker`, then `refresh_noise`, saving each Result. Use `StopScenario` to cancel a run. Do not edit the lab manifest/configuration or manually change its inputs during a scenario.
+6. After ordinary tests, run `baseline_race` and `admission_contention`. A deliberate fault/pause is acceptable here because the instance has no alarm outputs. Send the reports before changing the FIFO design. Finish with fresh real watchdog history to check shared-server effects.
+
+The module configuration is validated against the exact expected lab graph, pending settings and local object ownership. Adding routes, redirecting a manifest ID outside the lab, aliasing statuses with inputs, changing types or staging unrelated configuration changes makes the scripts refuse operation. Cancellation is established before startup; it is checked before activation/producer launch. Old producer sessions do not publish completion into a different active session. Run ownership is released even when cleanup/report persistence fails.
+
+## Scenarios
+
+| Scenario | Input pattern | What it can reveal |
+|---|---|---|
+| sequential | Door open/close, COUNT activations, ONCE transition and token/reset at requested 50 ms gaps | Basic native admission/worker consistency and existing rule execution |
+| interleaved | Two alternating sources mixed with token/reset pairs | Competing source processing in one writer |
+| concurrent_flicker | Two simultaneous noise writers and a third token/door writer | Native ordering/continuity or admission contention under parallel activity |
+| refresh_noise | 48 unchanged updates alongside token/reset pairs | Refresh suppression and progress of another source |
+| baseline_race | Concurrent inputs while current-state recovery is requested three times | Baseline sample/generation failure and first-fault stage |
+| admission_contention | Hold only the lab instance's admission semaphore for requested 40 ms while producers run | Intentional omitted-observation fault, diagnostic pause and retained-prefix behavior |
+
+Each plan has at most 128 writes in total, usually 70 or fewer. Requested gaps are 1–50 ms. Native scheduling can delay them; producer reports retain elapsed time and maximum schedule lateness. Asynchronous producers may start at different times, so this is not a precise physical-timing simulator. Forced admission contention demonstrates fault handling, not that contention caused the historical production failure. The initial lab's seven classes are smaller than the production graph.
+
+## Reports and comparison limits
+
+Result contains the scenario/session, three producer reports, actual changed-write count, worker processed delta, timing, `comparison_incomplete`, `changed_write_count_matches_processed`, FIFO snapshots and first-failure evidence. Paused state or another baseline publication makes comparison incomplete. Incomplete/missing producer reports or count mismatch also remain explicitly uncertain.
+
+After producers finish, the coordinator waits up to two seconds for the expected aggregate processed count **and** an empty queue, or a fault. Queue emptiness alone does not prove that delayed callbacks have arrived. A mismatch at the deadline is evidence to investigate, not definitive proof of event loss.
+
+Count agreement supports aggregate processing for this synthetic workload; it does not prove exact per-input delivery, downstream receiver acceptance, physical event order, COUNT/ONCE output policies or complete sensor history. Pulse expiry is set to 30 seconds, beyond the short scenarios, to avoid routine expiry controls contaminating the comparison. Other externally requested control frames could still change counts; leave the test instance untouched while running it. First-fault observation time is publication time, not physical sensor time.
+
+Result is one bounded report (maximum 64 KB), overwritten on the next run. Copy reports you want to keep. First-fault evidence remains in the test instance even after disabling. It is not a per-event archive. Standalone baseline/MessageSink observations and simulated thread behavior cannot establish safe production concurrency guarantees.
+
+## Performance and persistence
+
+A manual run uses one coordinator and up to three short-lived producer scripts, plus the actual Module 1 worker. There is no permanent scenario timer, external I/O, per-input logging or archive registration. Producer waits are bounded to 50 ms per operation; setup polls every 25 ms for at most two seconds, producer completion for at most four seconds, and aggregate drain for at most two seconds. These bounds cannot preempt a blocked native API call or a server execution timeout.
+
+Configuration validation occurs at script entry and before configuration activation, not for every input write. Producer completion writes one small status variable each; Result writes once at run completion. Inputs themselves use native variable writes and actual FIFO code. The intentional admission mutex affects only the lab instance and is held for requested 40 ms, never a production instance's lock. Scripts and variables consume shared server resources; CPU/resident RAM remain unmeasured. Do not run repeated stress loops or leave a scenario unattended.
+
+Native API signatures were checked against the official [Symcon GlobalStubs](https://github.com/symcon/SymconStubs/blob/master/GlobalStubs.php): instance/variable/script creation, script content installation, `IPS_RunScriptEx`, `SetValue` and `IPS_Sleep`. Stubs establish API shape, not native ordering, timing or completion guarantees. Mock verification supplements the existing suites; live results remain required.
+
+## Historical fifo.8 review and checks
+
+All nine local suites pass **549 checks**, including **57 lab checks and 24 timing checks**. Independent read-only review reran the final 57/24 suites and approved only supervised isolated lab testing. PHP syntax (21 workflow files) and whitespace checks pass. Those checks preceded the completed fifo.8 evidence above; current fifo.9 acceptance is pending.
+
+## Historical fifo.7 review and evidence
+
+The following records the completed earlier milestones. The current next action is the fifo.8 small concurrent measurement above, not a restart of the old sequence.
+
+All eight local suites pass **510 checks**; the harness contributes **42** covering installation, scope/plan bounds, route/manifest/pending-property refusal, four successful scenario lifecycles, startup cancellation, partial-control stop, stale completion refusal, cleanup-write failure and delayed callbacks. Changed PHP lint and whitespace checks pass. Independent read-only review reran the 34 checks and approved this harness for supervised testing with no remaining blockers. Mock script execution is deterministic and does not validate native parallel scheduling.
+
+## Current native evidence and fifo.7 retest
+
+On fifo.6, sequential passed 9/9 and interleaved passed 36/36. Ordinary concurrent_flicker generated 70 changed writes but captured `admission_lock` omission at the old 1 ms timeout. The queue peaked at 41/128 entries, not overflow. Diagnostic pause blocked later admission; all 50 admitted records subsequently processed, and a later lab report confirmed actual FIFO disablement and an empty queue. The initial 16 processed was an unfinished snapshot. This does not prove the cause of the original production legacy heartbeat loss.
+
+fifo.7 removes redundant timer/pending writes from admissions while the worker is already scheduled; the idle wake and empty shutdown remain serialized under the queue lock. Admission and required worker progress/shutdown commits request a single 10 ms semaphore wait, while dequeue retains its 1 ms quick yield. No retry loop, additional polling/logging, heartbeat priority or queue enlargement is added. The report `limits` exposes these wait policies so the native build can be checked. 10 ms is experimental, not a guaranteed sufficient or actual measured wait. It can occupy each contended native callback longer; worker elapsed budget remains soft and downstream calls can exceed it.
+
+Keep production FIFO/shadow/capture off, update the diagnostic branch and confirm fresh real heartbeat after the shared-library update. The existing lab scripts load the updated helper from the library; do not reinstall/reset the lab unnecessarily. Rerun sequential and interleaved, then concurrent_flicker, saving each Result and verifying after_disable. If concurrent_flicker passes, run refresh_noise. Stop on an unexpected first fault and obtain a later lab-only FIFO report if cleanup is initially deferred. Do not clear the historical fault merely to make the next test look clean: `first_fault_is_current` distinguishes old evidence. Intentional baseline/contention scenarios remain later steps.
+
+## Packaging correction: helpers under libs/tools
+
+Symcon's [documented directory structure](https://www.symcon.de/en/service/documentation/developer-area/sdk-tools/sdk-php/structure/) does not exempt a top-level tools folder from module discovery. Helpers now live in libs/tools; no dummy module.json or new alarm module is created. The FIFO runtime remains fifo.7.
+
+After updating the diagnostic branch, replace your temporary installer script with the current [installer](../libs/tools/symcon_fifo_lab_install.php) and execute it once. Its helper path ends with /modules/MyAlarmSystem/libs/tools/FifoLab.php. This repairs the existing generated lab scripts without recreating the category, resetting inputs/configuration or clearing Scenario/Result/fault evidence. Verify the printed Module1Test ID remains the same, then resume fifo.7 retesting. Do not run an old saved installer still pointing to /tools/FifoLab.php.
+
+Eight additional local checks cover module-discovery layout, exact legacy path migration, state/ID preservation, current-path idempotence, refusal of customized scripts before any overwrite, active sessions, busy coordinator ownership and actual enabled FIFO despite off settings. The lab suite now passes 42 checks; full suite total 510. Migration adds a one-shot 1 ms coordinator acquisition only when script paths need repair; no routine input/worker overhead.

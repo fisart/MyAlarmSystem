@@ -31,13 +31,18 @@ function formFixture(int $id):SensorGroup {
     $GLOBALS['variables'][101]=false;$GLOBALS['variables'][40697]='CONNECTED';$GLOBALS['variables'][10822]=2;$GLOBALS['variables'][10823]=0;
     unset($GLOBALS['variables'][40696],$GLOBALS['variables'][41873]);new IPSModule(7000);
     foreach($c as$key=>$value)$m->pending[$key]=is_array($value)?json_encode($value):$value;
-    IPS_ApplyChanges($id);return $m;
+    $m->pending['EnableInputFifo']=true;IPS_ApplyChanges($id);return $m;
 }
 $m=formFixture(7300);$active=json_decode($m->GetConfiguration(),true);$running=$m->GetConfiguration();
-formCheck(!IPS_VariableExists(40696) && !IPS_VariableExists(41873),'Fixture matches missing active Fob variables');
+formCheck(json_decode($m->GetInputFifoReport(),true)['unknown_inputs']===[40696,41873],'Fixture matches missing active Fob variables');
 $static=bedroomField(json_decode(file_get_contents(__DIR__.'/../SensorGroup/form.json'),true));
 foreach($static['columns']as$column)formCheck(($column['save']??false)===true,'Backing column persists '.$column['name']);
 $form=json_decode($m->GetConfigurationForm(),true);$field=bedroomField($form);
+foreach($form['elements'] as $candidate)if(($candidate['name']??'')==='ClassList')$classField=$candidate;
+// SDK property-backed lists load rows even when generated JSON has no explicit values.
+if(isset($classField)&&($classField['loadValuesFromConfiguration']??true))$classField['values']=json_decode(IPS_GetProperty($m->InstanceID,'ClassList'),true);
+formCheck(isset($classField)&&array_column(serializeFormList($classField),'ClassID')===array_column($active['ClassList'],'ClassID'),'Hidden class IDs survive the SDK form saving contract');
+formCheck(count(serializeFormList($classField))===count($active['ClassList']),'Saving hidden class IDs retains all class rows');
 formCheck(($field['loadValuesFromConfiguration']??true)===false,'Working rows override stored form list during reload');
 formCheck(serializeFormList($field)===$active['BedroomList'],'Generated backing field round-trips typed bedroom rows');
 // Reproduce old non-editable defaults: unrelated form save strips all required bedroom fields.
@@ -56,11 +61,11 @@ formCheck(str_contains($message,'BedroomList.GroupName')&&$m->GetConfiguration()
 $m->Create();$m->buffers=[];$m->messages=[];IPS_ApplyChanges(7300);
 formCheck($m->GetConfiguration()===$running&&$m->pending['SensorList']===$sensorDraft,'Rejected draft across interface reload retains running graph and pending sensor deletion');
 // Explicit restoration repairs this section only and retains sensor deletion.
-$state=$m->attributes['ClassStateAttribute'];$revision=$m->attributes['ActiveRevision'];
+$state=$m->attributes['ClassStateAttribute'];$revision=$m->attributes['ActiveRevision'];$fifoState=$m->buffers['InputFifoState'];
 $result=$m->RestoreActiveBedroomDraft();
 formCheck(str_contains($result,'Other edits are retained'),'Recovery explains section-only staging');
 formCheck($m->pending['SensorList']===$sensorDraft&&$m->attributes['SensorListBuffer']===$sensorBuffer,'Bedroom recovery preserves sensor draft deletion');
-formCheck($m->GetConfiguration()===$running&&$m->attributes['ActiveRevision']===$revision&&$m->attributes['ClassStateAttribute']===$state,'Bedroom restore leaves active graph/COUNT untouched');
+formCheck($m->GetConfiguration()===$running&&$m->attributes['ActiveRevision']===$revision&&$m->attributes['ClassStateAttribute']===$state&&$m->buffers['InputFifoState']===$fifoState,'Bedroom restore leaves active graph/FIFO/COUNT untouched');
 formCheck(json_decode($m->pending['BedroomList'],true)===$active['BedroomList'],'Recovered bedroom property matches validated running configuration');
 $form=json_decode($m->GetConfigurationForm(),true);$field=bedroomField($form);
 formCheck(serializeFormList($field)===$active['BedroomList'],'Reloaded fixed form preserves restored typed bedroom rows');
@@ -69,7 +74,7 @@ IPS_SetProperty(7300,'BedroomList','[{"GroupName":0,"BedroomDoorClassID":false,"
 ob_start();$m->SaveConfiguration();$message=ob_get_clean();$saved=json_decode($m->GetConfiguration(),true);
 formCheck(str_contains($message,'successfully')&&$saved['BedroomList']===$active['BedroomList'],'COMMIT activates validated bedroom restoration rather than corrupt property');
 $ids=array_column($saved['SensorList'],'VariableID');sort($ids);
-formCheck($ids===[101,40697]&&isset($m->messages[101])&&isset($m->messages[40697]),'Commit removes only selected sensors and retains remaining sensor subscriptions');
+formCheck($ids===[101,40697]&&json_decode($m->GetInputFifoReport(),true)['unknown_inputs']===[]&&isset($m->messages[101])&&isset($m->messages[40697]),'Commit removes only selected sensors and retains remaining subscriptions/FIFO monitoring');
 // Legitimate compact bedroom edits and intentional empty list remain authoritative.
 $m=formFixture(7301);$active=json_decode($m->GetConfiguration(),true);$edit=$active['BedroomList'];$edit[0]['ActiveVariableID']=10823;
 $m->RequestAction('UpdateBedroomListCompact',json_encode($edit));IPS_SetProperty(7301,'BedroomList','[{}]');
