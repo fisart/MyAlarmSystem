@@ -218,9 +218,14 @@ $second=fifoReport($m)['last_fault'];
 fifoCheck(str_contains($second['reason'],'variable 102') && str_contains($second['reason'],'string(2048 bytes)') && !str_contains(json_encode($second),'PRIVATE-') && strlen($m->attributes['FifoLastFault'])<4096, 'Oversized native string reports byte size without retaining payload');
 $m->RecoverInputFifo(); $r=fifoReport($m);
 fifoCheck($r['metrics']['recoveries']===3 && $r['metrics']['processed']===0 && $r['previous_session']['recovery_fault']===$second && $r['last_fault']===$second, 'Zero-processing recovery loop preserves its most recent causal fault');
-$m->ClearInputFifoIncident(); fifoCheck(fifoReport($m)['incident']==='' && fifoReport($m)['last_fault']===$second, 'Clearing acknowledged incident retains diagnostic history');
+$m->attributes['FifoFirstTestFault']=json_encode(['schema'=>1,'fence'=>'old-test','stage'=>'admission_lock','reason'=>'old test fault']);
+$m->attributes['FifoTestPauseFence']='old-test'; $m->attributes['FifoTestOmittedFence']='old-test';
+$m->ClearInputFifoIncident(); $r=fifoReport($m);
+fifoCheck($r['incident']==='' && $r['last_fault']===null && $r['test']['first_fault']===null && $m->buffers['InputFifoFault']==='', 'Acknowledgement deletes recovered incident, last fault and old test history');
+$m->attributes['FifoLastFault']=json_encode(['fence'=>'old','observed_at'=>'old','reason'=>'old recovered fault']);
+$m->ClearInputFifoIncident(); fifoCheck(fifoReport($m)['last_fault']===null, 'Acknowledgement clears retained fault history even when the incident was already empty');
 $m->buffers=[]; $m->messages=[]; $m->Create(); $m->pending['EnableInputFifo']=false; IPS_ApplyChanges(7216);
-fifoCheck(!fifoReport($m)['enabled'] && fifoReport($m)['last_fault']===$second, 'Latest fault survives interface recreation and disabling FIFO');
+fifoCheck(!fifoReport($m)['enabled'] && fifoReport($m)['last_fault']===null, 'Acknowledged history remains deleted across interface recreation and disabling FIFO');
 // With no precise current record, contended fault publication retains explicit missing detail.
 $m=fifoFixture(7217); $GLOBALS['semaphore_busy']['Mod1_InputQueue_7217']=true; $GLOBALS['semaphore_busy']['Mod1_InputFault_7217']=true;
 fifoSend($m,101,true); unset($GLOBALS['semaphore_busy']['Mod1_InputQueue_7217'],$GLOBALS['semaphore_busy']['Mod1_InputFault_7217']);
@@ -303,4 +308,6 @@ $GLOBALS['on_semaphore_enter']=function($name,$timeout) use(&$attempts) { if($na
 $m->RunInputFifo(); unset($GLOBALS['on_semaphore_enter'],$GLOBALS['semaphore_busy']['Mod1_InputQueue_7228']);
 fifoCheck($attempts===[1,10,1,10] && fifoReport($m)['metrics']['processed']===1 && !fifoReport($m)['ready'] && str_contains(fifoReport($m)['fault'],'shutdown'), 'Persistent shutdown contention preserves processed prefix and reports uncertainty without retry');
 fifoCheck(fifoReport($m)['limits']['admission_wait_ms']===10 && fifoReport($m)['limits']['worker_commit_wait_ms']===10 && fifoReport($m)['limits']['worker_dequeue_wait_ms']===1, 'Report exposes configured bounds for native build verification');
+$moduleSource=file_get_contents(__DIR__.'/../SensorGroup/module.php');
+fifoCheck(str_contains($moduleSource,"Cache-Control: no-store") && str_contains($moduleSource,'Date.now()') && str_contains($moduleSource,'cache: "no-store"'), 'Mermaid FIFO status disables HTTP and browser caching');
 echo "Input FIFO runtime: $checks checks passed. CPU/resident RAM impact remains unmeasured.\n";
