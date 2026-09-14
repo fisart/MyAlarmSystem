@@ -1,4 +1,4 @@
-# Module 1 v2.14.1: independent sensor-rule pulses
+# Module 1 v2.14.2: independent sensor-rule pulses
 
 ## Problem and evidence
 
