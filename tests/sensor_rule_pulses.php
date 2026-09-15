@@ -180,6 +180,32 @@ foreach (json_decode($m->pending['SensorList'],true) as $row) {
     $key=SensorRuleIdentity::key($row,$counts); $color=$row['ComparisonValue']==='done'?'red':'green';
     ruleCheck((bool)preg_match('/S_'.preg_quote($key,'/').'\\[.*?\\]:::'.$color.' -->/',$graph),'Mermaid shows each predicate with its own activity');
 }
+// Mermaid class and group dropdowns support independent multiple selections.
+$keysByValue=[];
+foreach (json_decode($m->pending['SensorList'],true) as $row) {
+    if ($row['VariableID']===28097) $keysByValue[$row['ComparisonValue']]=SensorRuleIdentity::key($row,$counts);
+}
+$_GET=['api'=>'1','depth'=>'sensors','groupFilter'=>json_encode(['g-failed','g-done']),'classFilter'=>json_encode(['done'])];
+ob_start(); invokePrivate($m,'ProcessHookData'); $classGraph=ob_get_clean();
+ruleCheck(str_contains($classGraph,'S_'.$keysByValue['done'].'[') && !str_contains($classGraph,'S_'.$keysByValue['failed'].'['),
+    'Class filter intersects a multiple group selection');
+$_GET=['api'=>'1','depth'=>'sensors','groupFilter'=>json_encode(['g-failed','g-done']),'classFilter'=>json_encode(['failed','done'])];
+ob_start(); invokePrivate($m,'ProcessHookData'); $multiClassGraph=ob_get_clean();
+ruleCheck(str_contains($multiClassGraph,'S_'.$keysByValue['done'].'[') && str_contains($multiClassGraph,'S_'.$keysByValue['failed'].'['),
+    'Class dropdown accepts multiple selected classes');
+$_GET=['api'=>'1','depth'=>'sensors','groupFilter'=>json_encode(['g-done']),'classFilter'=>json_encode(['failed','done'])];
+ob_start(); invokePrivate($m,'ProcessHookData'); $singleGroupGraph=ob_get_clean();
+ruleCheck(str_contains($singleGroupGraph,'S_'.$keysByValue['done'].'[') && !str_contains($singleGroupGraph,'S_'.$keysByValue['failed'].'['),
+    'Group dropdown accepts an independent selected subset');
+$_GET=['api'=>'1','depth'=>'sensors','classFilter'=>'NONE'];
+ob_start(); invokePrivate($m,'ProcessHookData'); $emptyClassGraph=ob_get_clean();
+ruleCheck(str_contains($emptyClassGraph,'No Classes Selected'),'Empty class selection returns a valid Mermaid placeholder');
+$_GET=[];
+ob_start(); invokePrivate($m,'ProcessHookData'); $page=ob_get_clean();
+ruleCheck(str_contains($page,'Classes: <span id="class-filter-summary">All</span>') && str_contains($page,'Groups: <span id="group-filter-summary">All</span>'),
+    'Mermaid page exposes class and group multi-select dropdowns');
+ruleCheck(substr_count($page,'class="class-filter"')===3 && str_contains($page,'&classFilter='),
+    'Class dropdown contains every configured class and sends its selection to the API');
 // Diagnostic shadow must use the same independent semantics.
 $shadow=new SensorFifoShadow(invokePrivate($m,'ShadowConfig'),['values'=>[28097=>'done',101=>false]]+invokePrivate($m,'ShadowLegacyRuntime'));
 $out=$shadow->process(['kind'=>'evaluation','wall_s'=>time()+20,'variable_id'=>0]);
