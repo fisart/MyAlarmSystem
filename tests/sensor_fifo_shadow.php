@@ -23,6 +23,13 @@ function shadowFixtureConfig(): array {
     foreach ($c['GroupList'] as $g) $c['GroupDispatch'][] = ['GroupName'=>$g['GroupName'],'InstanceID'=>7000];
     return $c;
 }
+function shadowRuleKey(array $config, int $id): string {
+    $counts=SensorRuleIdentity::counts($config);
+    foreach ($config['SensorList'] as $row) {
+        if ((int)($row['VariableID'] ?? 0)===$id) return SensorRuleIdentity::key($row,$counts);
+    }
+    throw new RuntimeException('Shadow fixture rule not found: '.$id);
+}
 function shadowValues(): array { return [101=>false,102=>false,103=>0,104=>false,105=>true,106=>0]; }
 function pureShadow(array $config = [], array $extra = []): SensorFifoShadow {
     return new SensorFifoShadow($config ?: shadowFixtureConfig(), $extra + ['values'=>shadowValues()]);
@@ -60,7 +67,8 @@ $before=$e->exportState();
 $e->process(['kind'=>'state_sync','wall_s'=>103]); $after=$e->exportState();
 shadowCheck($before['last']===$after['last'] && $before['conditions']===$after['conditions'] && $before['pulses']===$after['pulses'], 'Sync leaves pulse caches unchanged');
 $r=shadowInput($e,104,false,103);
-shadowCheck(!hasShadow($r,'classes','once') && !isset($e->exportState()['pulses'][104]), 'ONCE false immediately clears pulse');
+$onceKey=shadowRuleKey(shadowFixtureConfig(),104);
+shadowCheck(!hasShadow($r,'classes','once') && !isset($e->exportState()['pulses'][$onceKey]), 'ONCE false immediately clears pulse');
 $r=shadowInput($e,104,true,104);
 shadowCheck(hasShadow($r,'classes','once'), 'ONCE rearms');
 
@@ -69,7 +77,8 @@ shadowInput($e,103,1,100); $r=shadowInput($e,103,2,101);
 shadowCheck(hasShadow($r,'classes','change'), 'CHANGE typed transition pulses');
 $r=$e->process(['kind'=>'evaluation','wall_s'=>201]);
 shadowCheck(!hasShadow($r,'classes','change'), 'Pulse expires exactly at deadline');
-$state=['values'=>array_replace(shadowValues(),[103=>0.0]),'last'=>[103=>['type'=>'float','value'=>0.0]]];
+$changeKey=shadowRuleKey(shadowFixtureConfig(),103);
+$state=['values'=>array_replace(shadowValues(),[103=>0.0]),'last'=>[$changeKey=>['type'=>'float','value'=>0.0]]];
 $e=pureShadow([],$state);
 $r=shadowInput($e,103,0.0000001,100);
 shadowCheck(!hasShadow($r,'classes','change'), 'CHANGE float tolerance retained');

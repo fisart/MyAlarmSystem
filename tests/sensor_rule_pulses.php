@@ -23,6 +23,28 @@ function ruleFixture(bool $fifo, array $rules, string $initial = 'running'): Sen
     IPS_ApplyChanges($m->InstanceID);
     return $m;
 }
+function cameraRuleFixture(bool $fifo, int $count = 13): SensorGroup {
+    static $next = 7900; $m = new SensorGroup(++$next); $m->Create();
+    $c = array_fill_keys(AlarmSafety::LISTS, []);
+    foreach ([['failed', 'failed', 10], ['done', 'done', 1]] as [$cid, $value, $seconds]) {
+        $group = 'camera_' . $cid;
+        $c['ClassList'][] = ['ClassID'=>$cid,'ClassName'=>$cid,'LogicMode'=>0,'Threshold'=>1,'TimeWindow'=>10];
+        $c['GroupList'][] = ['GroupID'=>'g-'.$cid,'GroupName'=>$group,'GroupLogic'=>0];
+        $c['GroupMembers'][] = ['ClassID'=>$cid,'GroupName'=>$group];
+        for ($i=0; $i<$count; ++$i) {
+            $id = 28100 + $i;
+            $c['SensorList'][] = ['ClassID'=>$cid,'VariableID'=>$id,'Operator'=>0,
+                'ComparisonSource'=>0,'ComparisonValue'=>$value,'ComparisonVariableID'=>0,
+                'TriggerMode'=>2,'PulseSeconds'=>$seconds,'Active'=>true];
+            $GLOBALS['variables'][$id] = 'running';
+        }
+    }
+    $c['BedroomTarget']=0; $c['MaintenanceMode']=false; $c['TargetThrottleList']=[];
+    foreach ($c as $k=>$v) $m->pending[$k] = is_array($v) ? json_encode($v) : $v;
+    $m->pending['EnableInputFifo'] = $fifo;
+    IPS_ApplyChanges($m->InstanceID);
+    return $m;
+}
 function ruleDrain(SensorGroup $m): void { for ($i=0;$i<40 && $m->attributes['FifoHasPending'];++$i) $m->RunInputFifo(); }
 function ruleSend(SensorGroup $m, $value, int $id = 28097): void {
     static $counter=0;
@@ -85,16 +107,17 @@ foreach ([false,true] as $fifo) {
     }
     $m->CheckPulseExpiry(); ruleDrain($m);
     ruleCheck(activeRule($m,'change') && !activeRule($m,'done'),'Short pulse expiry does not clear longer CHANGE pulse');
-    // Splitting an old single rule: ambiguous old pulse must not be copied.
+    // Adding a second predicate cannot change the stable identity of the first rule.
     $m=ruleFixture($fifo,[$rules[1]]); ruleSend($m,'done');
     $config=json_decode($m->pending['SensorList'],true);
     $extra=$config[0]; $extra['ComparisonValue']='failed'; $config[]=$extra;
     $m->pending['SensorList']=json_encode($config); IPS_ApplyChanges($m->InstanceID); ruleDrain($m);
-    ruleCheck(!activeRule($m,'done') && json_decode($m->attributes['SensorPulseUntilMap'],true)===[],'Single-to-multiple migration discards ambiguous pulse without new alarm');
+    ruleCheck(activeRule($m,'done') && count(json_decode($m->attributes['SensorPulseUntilMap'],true))===1,
+        'Adding another predicate preserves the identified stateful pulse');
     ruleSend($m,'running'); ruleSend($m,'done'); ruleCheck(activeRule($m,'done'),'Migrated rules rearm normally');
-    // Deleting the extra rule must prune its state and seed the surviving rule.
+    // Deleting the extra rule must prune only its state and preserve the survivor.
     array_pop($config); $m->pending['SensorList']=json_encode($config); IPS_ApplyChanges($m->InstanceID); ruleDrain($m);
-    ruleCheck(!activeRule($m,'done'),'Multiple-to-single migration cannot revive stale state');
+    ruleCheck(activeRule($m,'done'),'Deleting another predicate preserves the surviving stateful pulse');
     ruleCheck(count(json_decode($m->attributes['SensorRuleManifest'],true))===2,'Deleted rule entries are pruned');
     // Predicate edit of a single rule while new predicate is already true.
     $config[0]['ComparisonValue']='running'; $m->pending['SensorList']=json_encode($config);
@@ -113,10 +136,36 @@ foreach ([false,true] as $fifo) {
     ruleCheck(!array_key_exists(28097,json_decode($m->attributes['SensorPulseUntilMap'],true)),'Old ambiguous numeric pulse key removed');
     ruleSend($m,'running'); ruleSend($m,'done'); ruleCheck(activeRule($m,'done'),'Upgrade permits next genuine done edge');
     $m=ruleFixture($fifo,[$rules[1]]); ruleSend($m,'done');
-    $p=$m->attributes['SensorPulseUntilMap']; $m->attributes['SensorRuleManifest']='{}';
+    $m->attributes['SensorRuleManifest']='{}';
+    $m->attributes['SensorConditionStateMap']=json_encode([28097=>true]);
+    $m->attributes['SensorPulseUntilMap']=json_encode([28097=>time()+10]);
     $rp=new ReflectionProperty($m,'sensorRuleRevision'); $rp->setValue($m,null);
     if ($fifo) $m->RecoverInputFifo(); else invokePrivate($m,'CheckLogic',0,'apply_changes');
-    ruleCheck($m->attributes['SensorPulseUntilMap']===$p,'Upgrade preserves unambiguous single-rule pulse');
+    ruleCheck(!activeRule($m,'done') && json_decode($m->attributes['SensorPulseUntilMap'],true)===[],
+        'Upgrade replaces legacy numeric stateful identity without manufacturing a pulse');
+    ruleSend($m,'running'); ruleSend($m,'done');
+    ruleCheck(activeRule($m,'done'),'Migrated single stateful rule rearms on its next genuine edge');
+}
+// Native lifecycle regression: a current revision can coexist with an empty volatile
+// count cache. The production-shaped 13-camera failed/done graph must still expire.
+foreach ([false,true] as $fifo) {
+    $m=cameraRuleFixture($fifo);
+    for ($id=28100; $id<28113; ++$id) ruleSend($m,'done',$id);
+    ruleCheck(activeRule($m,'done') && !activeRule($m,'failed'),'Production camera graph activates only ready pulses');
+    $countsProperty=new ReflectionProperty($m,'sensorRuleCounts');
+    $countsProperty->setValue($m,[]);
+    $revisionProperty=new ReflectionProperty($m,'sensorRuleRevision');
+    $revisionProperty->setValue($m,$m->attributes['ActiveRevision']);
+    expireRules($m);
+    ruleCheck(!activeRule($m,'done') && !activeRule($m,'failed'),
+        'Camera pulses expire even when native lifecycle loses volatile rule counts');
+    ruleCheck(!$m->GetValue('Status_cameradone') && !$m->GetValue('Status_camerafailed'),
+        'Production camera groups clear while all source strings remain done');
+    ruleCheck(json_decode($m->attributes['SensorPulseUntilMap'],true)===[],
+        'Native lifecycle expiry cannot recreate any of the 13 camera pulses');
+    for ($id=28100; $id<28113; ++$id) ruleCheck($GLOBALS['variables'][$id]==='done','Expiry does not alter camera source strings');
+    ruleSend($m,'running',28100); ruleSend($m,'done',28100);
+    ruleCheck(activeRule($m,'done'),'Camera rule rearms after a genuine later running-to-done edge');
 }
 // Real one-second timer deadline under the legacy path, then explicit native-style expiry callback.
 $m=ruleFixture(false,$rules); ruleSend($m,'done'); usleep(1100000); $m->CheckPulseExpiry();

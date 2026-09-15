@@ -30,6 +30,16 @@ function fifoSend(SensorGroup $m, int $id, $value, int $counter = 1): void { $pr
 function fifoDrain(SensorGroup $m): void { for($i=0;$i<100 && $m->attributes['FifoHasPending'];++$i) $m->RunInputFifo(); }
 function fifoReport(SensorGroup $m): array { return json_decode($m->GetInputFifoReport(),true); }
 function fifoPayloads(): array { return array_map(static fn($c)=>json_decode($c[2],true), array_values(array_filter($GLOBALS['calls'],static fn($c)=>$c[1]==='ReceivePayload'))); }
+function fifoRuleKey(SensorGroup $m, int $id): string {
+    $config=json_decode($m->attributes['ActiveConfiguration'],true);
+    $counts=SensorRuleIdentity::counts($config);
+    foreach ($config['SensorList'] as $row) {
+        if ((int)($row['VariableID'] ?? 0)===$id && ($row['Active'] ?? true)) {
+            return SensorRuleIdentity::key($row,$counts);
+        }
+    }
+    throw new RuntimeException('FIFO fixture rule not found: '.$id);
+}
 // Integral representations of a Float callback are semantically equal to its Float baseline.
 $m=fifoFixture(7199); $GLOBALS['calls']=[];
 $before=fifoReport($m)['metrics']; $GLOBALS['variables'][107]=53.0;
@@ -77,10 +87,10 @@ fifoSend($m,102,false); fifoSend($m,102,true); fifoDrain($m);
 fifoCheck(count(json_decode($m->attributes['ClassStateAttribute'],true)['count']['Buffer'])===2, 'Second direct COUNT event retained');
 // Pulse clock is captured frame time, expiry mutation is queued.
 fifoSend($m,104,true); fifoDrain($m);
-$until=json_decode($m->attributes['SensorPulseUntilMap'],true)[104];
-$m->CheckPulseExpiry(); fifoCheck(json_decode($m->attributes['SensorPulseUntilMap'],true)[104]===$until, 'Pulse timer does not mutate evaluator caches before its turn');
+$onceKey=fifoRuleKey($m,104); $until=json_decode($m->attributes['SensorPulseUntilMap'],true)[$onceKey];
+$m->CheckPulseExpiry(); fifoCheck(json_decode($m->attributes['SensorPulseUntilMap'],true)[$onceKey]===$until, 'Pulse timer does not mutate evaluator caches before its turn');
 $meta=fifoReport($m)['metrics']; $slot='InputFifoSlot'.$meta['head']; $rec=json_decode($m->buffers[$slot],true); $rec['wall_s']=$until; $m->buffers[$slot]=json_encode($rec); fifoDrain($m);
-fifoCheck(!isset(json_decode($m->attributes['SensorPulseUntilMap'],true)[104]), 'Pulse expires at frame deadline');
+fifoCheck(!isset(json_decode($m->attributes['SensorPulseUntilMap'],true)[$onceKey]), 'Pulse expires at frame deadline');
 // Admission loss retains prefix; recovery does not fabricate CHANGE/ONCE edges.
 $m=fifoFixture(7201); $GLOBALS['calls']=[];
 fifoSend($m,101,true); $GLOBALS['variables'][103]=9;
@@ -89,7 +99,7 @@ fifoCheck(str_contains(fifoReport($m)['fault'],'continuity') && fifoReport($m)['
 fifoDrain($m); fifoCheck(fifoReport($m)['metrics']['processed']===1, 'Trustworthy retained prefix evaluated once after admission fault');
 $m->RecoverInputFifo(); $r=fifoReport($m);
 fifoCheck($r['ready'] && $r['fault']==='' && $r['incident']!=='', 'Automatic recovery restores current processing and retains incident');
-fifoCheck(!isset(json_decode($m->attributes['SensorPulseUntilMap'],true)[103]), 'Recovery seeds CHANGE without inventing an edge');
+fifoCheck(!isset(json_decode($m->attributes['SensorPulseUntilMap'],true)[fifoRuleKey($m,103)]), 'Recovery seeds CHANGE without inventing an edge');
 $m->RequestStateSync(); fifoDrain($m); fifoCheck(count(json_decode($m->attributes['ClassStateAttribute'],true)['count']['Buffer'])===0,'Recovery/sync do not fabricate COUNT');
 $m->ClearInputFifoIncident(); fifoCheck(fifoReport($m)['incident']==='', 'User may clear warning after trustworthy recovery');
 // Ring capacity fault, drain original prefix, never inline fallback.
@@ -137,7 +147,7 @@ $config['SensorList'][]=['ClassID'=>'once','VariableID'=>104,'Active'=>false,'Op
 $m->attributes['ActiveConfiguration']=json_encode($config); invokePrivate($m,'FifoApplyEnter'); IPS_SemaphoreLeave('Mod1_InputWorker_7207'); $m->attributes['FifoCutover']=false;
 $m->RecoverInputFifo();
 fifoCheck(fifoReport($m)['ready'] && fifoReport($m)['unknown_inputs']===[], 'Missing disabled sensor does not block FIFO baseline');
-fifoCheck(json_decode($m->attributes['SensorConditionStateMap'],true)[104]===false, 'Disabled duplicate ONCE row cannot overwrite active recovery condition');
+fifoCheck(json_decode($m->attributes['SensorConditionStateMap'],true)[fifoRuleKey($m,104)]===false, 'Disabled duplicate ONCE row cannot overwrite active recovery condition');
 // Dynamic tamper reference subscriptions attach in normal and rejected Apply.
 $config['TamperList']=[['VariableID'=>107,'ComparisonSource'=>1,'ComparisonVariableID'=>108,'Operator'=>0,'ComparisonValue'=>'1','TriggerMode'=>0]];
 $GLOBALS['variables'][107]=false; $GLOBALS['variables'][108]=true;
@@ -171,7 +181,7 @@ fifoSend($m,102,true); fifoSend($m,103,1); fifoSend($m,101,true);
 $GLOBALS['on_get_name']=function($id) { if($id===103) { unset($GLOBALS['on_get_name']); throw new RuntimeException('Injected payload metadata failure'); } };
 $m->RunInputFifo(); unset($GLOBALS['on_get_name']);
 fifoCheck(count(json_decode($m->attributes['ClassStateAttribute'],true)['count']['Buffer'])===1, 'Later frame exception preserves completed prefix COUNT');
-fifoCheck(!isset(json_decode($m->attributes['SensorPulseUntilMap'],true)[103]), 'Failed frame pulse mutations are not promoted');
+fifoCheck(!isset(json_decode($m->attributes['SensorPulseUntilMap'],true)[fifoRuleKey($m,103)]), 'Failed frame pulse mutations are not promoted');
 fifoCheck(!fifoReport($m)['ready'] && fifoReport($m)['metrics']['discarded']===1, 'Uncertain evaluator state discards dependent tail explicitly');
 $m->RecoverInputFifo(); fifoCheck(fifoReport($m)['ready'] && fifoReport($m)['previous_session']['discarded']===1 && fifoReport($m)['incident']!=='', 'Recovery retains bounded failed-session evidence');
 // Baseline acquisition detects native callbacks occurring during the sample.
