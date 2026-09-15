@@ -1,5 +1,5 @@
 <?php
-// Version2.14.4
+// Version2.14.5
 declare(strict_types=1);
 
 require_once __DIR__ . '/StateIntegrity.php';
@@ -4166,6 +4166,99 @@ class SensorGroup extends IPSModule
             }));
         }
 
+        // Optional presentation-only class filter. Class IDs remain stable when
+        // captions change and the filter is intersected with target/group filters.
+        if (isset($_GET['api']) && isset($_GET['classFilter'])) {
+            $classFilterRaw = (string)$_GET['classFilter'];
+
+            if ($classFilterRaw === 'NONE') {
+                header("Content-Type: text/plain; charset=utf-8");
+                echo "graph " . $graphDirection . "\n";
+                echo "classDef grey fill:#37474f,stroke:#546e7a,stroke-width:1px,color:#eee;\n";
+                echo "EMPTY[\"No Classes Selected\"]:::grey\n";
+                return;
+            }
+
+            $requestedClassIDs = json_decode($classFilterRaw, true);
+            if (!is_array($requestedClassIDs)) {
+                $requestedClassIDs = [];
+            }
+
+            $requestedClassIDMap = [];
+            foreach ($requestedClassIDs as $classIDRaw) {
+                $classID = trim((string)$classIDRaw);
+                if ($classID !== '') {
+                    $requestedClassIDMap[$classID] = true;
+                }
+            }
+
+            if (count($requestedClassIDMap) === 0) {
+                header("Content-Type: text/plain; charset=utf-8");
+                echo "graph " . $graphDirection . "\n";
+                echo "classDef grey fill:#37474f,stroke:#546e7a,stroke-width:1px,color:#eee;\n";
+                echo "EMPTY[\"No Classes Selected\"]:::grey\n";
+                return;
+            }
+
+            $selectedClassIDs = [];
+            foreach ($classList as $classRow) {
+                if (!is_array($classRow)) {
+                    continue;
+                }
+
+                $classID = trim((string)($classRow['ClassID'] ?? ''));
+                if ($classID !== '' && isset($requestedClassIDMap[$classID])) {
+                    $selectedClassIDs[$classID] = true;
+                }
+            }
+
+            if (count($selectedClassIDs) === 0) {
+                header("Content-Type: text/plain; charset=utf-8");
+                echo "graph " . $graphDirection . "\n";
+                echo "classDef grey fill:#37474f,stroke:#546e7a,stroke-width:1px,color:#eee;\n";
+                echo "EMPTY[\"No Matching Classes\"]:::grey\n";
+                return;
+            }
+
+            $classList = array_values(array_filter($classList, function ($c) use ($selectedClassIDs) {
+                return isset($selectedClassIDs[(string)($c['ClassID'] ?? '')]);
+            }));
+
+            $groupMembers = array_values(array_filter($groupMembers, function ($m) use ($selectedClassIDs) {
+                return isset($selectedClassIDs[(string)($m['ClassID'] ?? '')]);
+            }));
+
+            $sensorList = array_values(array_filter($sensorList, function ($s) use ($selectedClassIDs) {
+                return isset($selectedClassIDs[(string)($s['ClassID'] ?? '')]);
+            }));
+
+            $selectedGroupNames = [];
+            foreach ($groupMembers as $memberRow) {
+                $groupName = trim((string)($memberRow['GroupName'] ?? ''));
+                if ($groupName !== '') {
+                    $selectedGroupNames[$groupName] = true;
+                }
+            }
+
+            $bedroomList = array_values(array_filter($bedroomList, function ($b) use ($selectedClassIDs, &$selectedGroupNames) {
+                $classID = (string)($b['BedroomDoorClassID'] ?? '');
+                $groupName = trim((string)($b['GroupName'] ?? ''));
+                $keep = isset($selectedClassIDs[$classID]) && $groupName !== '';
+                if ($keep) {
+                    $selectedGroupNames[$groupName] = true;
+                }
+                return $keep;
+            }));
+
+            $groupList = array_values(array_filter($groupList, function ($g) use ($selectedGroupNames) {
+                return isset($selectedGroupNames[(string)($g['GroupName'] ?? '')]);
+            }));
+
+            $groupDispatch = array_values(array_filter($groupDispatch, function ($d) use ($selectedGroupNames) {
+                return isset($selectedGroupNames[(string)($d['GroupName'] ?? '')]);
+            }));
+        }
+
         // Maps
         $classMap = [];
         foreach ($classList as $c) {
@@ -4643,6 +4736,31 @@ class SensorGroup extends IPSModule
             $groupCheckboxesHTML = '<span class="group-filter-empty">- No groups -</span>';
         }
 
+        $classCheckboxesHTML = '';
+        foreach ($classList as $classRow) {
+            if (!is_array($classRow)) {
+                continue;
+            }
+
+            $classID = trim((string)($classRow['ClassID'] ?? ''));
+            $className = trim((string)($classRow['ClassName'] ?? $classID));
+            if ($classID === '' || $className === '') {
+                continue;
+            }
+
+            $classIDHtml = htmlspecialchars($classID, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+            $classNameHtml = htmlspecialchars($className, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+            $classCheckboxesHTML .=
+                '<label class="class-filter-item">' .
+                '<input type="checkbox" class="class-filter" value="' . $classIDHtml . '" checked onchange="classFilterChanged()"> ' .
+                $classNameHtml .
+                '</label>';
+        }
+
+        if ($classCheckboxesHTML === '') {
+            $classCheckboxesHTML = '<span class="class-filter-empty">- No classes -</span>';
+        }
+
         echo '<!DOCTYPE html>
                 <html>
                 <head>
@@ -4659,21 +4777,21 @@ class SensorGroup extends IPSModule
                     .header h2{margin:0;color:#4CAF50;}
                     .filter-bar{ background:#333; padding:10px; border-radius:6px; display:inline-block; margin-top:10px; position:relative; overflow:visible; }
                     .filter-bar input{ transform:scale(1.15); margin-right:6px; }
-                    .group-filter-panel{ display:inline-block; position:relative; margin-left:18px; vertical-align:middle; text-align:left; }
-                    .group-filter-panel summary{ cursor:pointer; user-select:none; color:#cfcfcf; }
-                    .group-filter-menu{
+                    .group-filter-panel,.class-filter-panel{ display:inline-block; position:relative; margin-left:18px; vertical-align:middle; text-align:left; }
+                    .group-filter-panel summary,.class-filter-panel summary{ cursor:pointer; user-select:none; color:#cfcfcf; }
+                    .group-filter-menu,.class-filter-menu{
                         position:absolute; z-index:1000; top:calc(100% + 8px); right:0;
                         width:340px; max-width:calc(100vw - 50px); max-height:55vh; overflow:auto;
                         background:#2b2b2b; border:1px solid #555; border-radius:6px; padding:8px;
                         box-shadow:0 6px 18px rgba(0,0,0,.45);
                     }
-                    .group-filter-actions{
+                    .group-filter-actions,.class-filter-actions{
                         position:sticky; top:-8px; background:#2b2b2b; padding:8px 4px;
                         border-bottom:1px solid #444; margin-bottom:4px; z-index:1;
                     }
-                    .group-filter-actions a{ color:#9ecbff; margin-right:14px; }
-                    .group-filter-item{ display:block; padding:5px 4px; cursor:pointer; white-space:normal; }
-                    .group-filter-empty{ display:block; padding:8px 4px; color:#aaa; }
+                    .group-filter-actions a,.class-filter-actions a{ color:#9ecbff; margin-right:14px; }
+                    .group-filter-item,.class-filter-item{ display:block; padding:5px 4px; cursor:pointer; white-space:normal; }
+                    .group-filter-empty,.class-filter-empty{ display:block; padding:8px 4px; color:#aaa; }
                     .container{
                         flex-grow:1;background:#252526;border-radius:8px;width:100%;
                         border:1px solid #444;overflow:hidden;position:relative;
@@ -4808,6 +4926,7 @@ class SensorGroup extends IPSModule
 
                     const directionStorageKey = "MyAlarmFlowDirection_' . $this->InstanceID . '";
                     const groupStorageKey = "MyAlarmFlowGroups_' . $this->InstanceID . '";
+                    const classStorageKey = "MyAlarmFlowClasses_' . $this->InstanceID . '";
                     let resetViewportOnNextRender = false;
 
                     window.getBedroomFilter = function () {
@@ -4890,6 +5009,62 @@ class SensorGroup extends IPSModule
                         window.groupFilterChanged();
                     };
 
+                    window.getClassFilterString = function () {
+                        const boxes = Array.from(document.querySelectorAll(".class-filter"));
+                        const checked = boxes.filter(b => b.checked);
+
+                        if (checked.length === 0) {
+                            return "NONE";
+                        }
+
+                        return JSON.stringify(checked.map(b => b.value));
+                    };
+
+                    window.updateClassFilterSummary = function () {
+                        const boxes = Array.from(document.querySelectorAll(".class-filter"));
+                        const checked = boxes.filter(b => b.checked);
+                        const summary = document.getElementById("class-filter-summary");
+
+                        if (!summary) {
+                            return;
+                        }
+
+                        if (boxes.length === 0 || checked.length === 0) {
+                            summary.textContent = "None";
+                        } else if (checked.length === boxes.length) {
+                            summary.textContent = "All";
+                        } else {
+                            summary.textContent = checked.length + "/" + boxes.length;
+                        }
+                    };
+
+                    window.persistClassFilterSelection = function () {
+                        const boxes = Array.from(document.querySelectorAll(".class-filter"));
+                        const checkedValues = boxes.filter(b => b.checked).map(b => b.value);
+
+                        try {
+                            if (boxes.length > 0 && checkedValues.length === boxes.length) {
+                                localStorage.removeItem(classStorageKey);
+                            } else {
+                                localStorage.setItem(classStorageKey, JSON.stringify(checkedValues));
+                            }
+                        } catch (e) {
+                            // Browser storage is optional. Filtering still works for this page session.
+                        }
+
+                        window.updateClassFilterSummary();
+                    };
+
+                    window.classFilterChanged = function () {
+                        window.persistClassFilterSelection();
+                        window.forceRefresh();
+                    };
+
+                    window.setAllClasses = function (checked) {
+                        document.querySelectorAll(".class-filter").forEach(b => b.checked = checked);
+                        window.classFilterChanged();
+                    };
+
                     window.forceRefresh = function () {
                         lastGraphString = "";
                         fetchAndUpdateGraph();
@@ -4908,6 +5083,7 @@ class SensorGroup extends IPSModule
                                 + "?api=1&t=" + Date.now()
                                 + "&targetFilter=" + encodeURIComponent(window.getFilterString())
                                 + "&groupFilter=" + encodeURIComponent(window.getGroupFilterString())
+                                + "&classFilter=" + encodeURIComponent(window.getClassFilterString())
                                 + "&depth=" + encodeURIComponent(window.getDepthFilter())
                                 + "&state=" + encodeURIComponent(window.getStateFilter())
                                 + "&showBedrooms=" + encodeURIComponent(window.getBedroomFilter())
@@ -5028,7 +5204,23 @@ class SensorGroup extends IPSModule
                         // Invalid/unavailable browser storage falls back to all groups selected.
                     }
 
+                    try {
+                        const savedClassesRaw = localStorage.getItem(classStorageKey);
+                        if (savedClassesRaw !== null) {
+                            const savedClasses = JSON.parse(savedClassesRaw);
+                            if (Array.isArray(savedClasses)) {
+                                const selected = new Set(savedClasses.map(v => String(v)));
+                                document.querySelectorAll(".class-filter").forEach(b => {
+                                    b.checked = selected.has(String(b.value));
+                                });
+                            }
+                        }
+                    } catch (e) {
+                        // Invalid/unavailable browser storage falls back to all classes selected.
+                    }
+
                     window.updateGroupFilterSummary();
+                    window.updateClassFilterSummary();
 
                     fetchAndUpdateGraph();
                     setInterval(fetchAndUpdateGraph, 2000);
@@ -5079,6 +5271,16 @@ class SensorGroup extends IPSModule
                                     <a href="#" onclick="setAllGroups(false); return false;">None</a>
                                 </div>
                                 ' . $groupCheckboxesHTML . '
+                            </div>
+                        </details>
+                        <details class="class-filter-panel">
+                            <summary>Classes: <span id="class-filter-summary">All</span></summary>
+                            <div class="class-filter-menu">
+                                <div class="class-filter-actions">
+                                    <a href="#" onclick="setAllClasses(true); return false;">All</a>
+                                    <a href="#" onclick="setAllClasses(false); return false;">None</a>
+                                </div>
+                                ' . $classCheckboxesHTML . '
                             </div>
                         </details>
                         <span style="margin-left:18px;">Depth:</span>
